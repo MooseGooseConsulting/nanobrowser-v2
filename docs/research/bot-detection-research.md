@@ -1,365 +1,210 @@
 # Bot detection: what a site can actually observe, and what defeats it
 
-Research date **2026-09-03**. Chrome Stable is **152.0.7977.82** (verified via
-[versionhistory API](https://versionhistory.googleapis.com/v1/chrome/platforms/linux/channels/stable/versions)).
-Baseline under evaluation: MV3 extension in the user's real Chrome, real profile/cookies/fingerprint, no
-automation flags, driving pages from an **isolated-world content script with synthetic DOM events**, optionally
-escalating to `chrome.debugger` **Input** domain. Companion doc: `trusted-input-and-stealth.md` (escalation
-mechanics); this doc is the detection-side view.
+Research date **2026-09-03**. Chrome Stable **152.0.7977.82** ([versionhistory API](https://versionhistory.googleapis.com/v1/chrome/platforms/linux/channels/stable/versions)). Baseline under evaluation: MV3 extension in the user's real Chrome — real profile, cookies, fingerprint, no automation flags — driving pages from an **isolated-world content script with synthetic DOM events**, optionally escalating to `chrome.debugger` **Input** domain. Companion: `trusted-input-and-stealth.md` (escalation mechanics). This doc is the detection-side view.
 
-Evidence tags: **[V]** vendor doc/patent/blog · **[R]** named reverse-engineering · **[A]** academic/measurement ·
-**[S]** spec/Chromium source · **[?]** low-confidence secondary · **[inf]** my inference.
+Tags: **[V]** vendor doc/patent/blog · **[R]** named reverse-engineering · **[A]** academic · **[S]** spec or Chromium source read directly · **[?]** low-confidence secondary · **[inf]** inference.
 
 ## Answer first
 
-1. Every **network-layer** fingerprint (TLS JA3/JA4, HTTP/2 SETTINGS + pseudo-header order, HTTP/3, header order,
-   Client Hints) is *perfect* for the baseline — it is the real Chrome network stack. This is the single biggest
-   structural advantage over Puppeteer/Playwright/Camoufox and it is free.
-2. Every **device-fingerprint consistency** check (UA vs platform vs WebGL vs fonts vs timezone vs Client Hints)
-   is also perfect, for the same reason. Detectors that score "impossible combos" score us as a real human.
-3. Every **automation-artifact** check in every detector I read — `navigator.webdriver`, `cdc_*`, `__pwInitScripts`,
-   `Runtime.enable` leak, `pptr:`/`UtilityScript` stack markers, headless PDF viewer, 800×600 viewport — is
-   **negative** for the baseline. BotD, CreepJS's headless/stealth modules and fpscanner's whole `detections/`
-   directory fire on none of it.
-4. The **isolated world is explicitly considered safe** by the strongest automation detector: rebrowser's own test
-   says content running in an isolated world "is safe and not detectable" (`index.js:349`).
-5. So the baseline's exposure is **almost entirely behavioural and side-channel**, not fingerprint. Five leaks matter.
-6. **`isTrusted:false` is the fatal one.** brotector scores it 1.0 outright (`brotector.js:341`). It cannot be
-   forged from an extension by any means — Camoufox needed a *browser patch* to fix it.
-7. **`navigator.userActivation.isActive === false` at click time** is the cheaper, equally-lethal sibling. Spec-defined,
-   one property read, no event listener required.
-8. **`getCoalescedEvents().length === 0` on `pointermove`**, and the total absence of `pointerrawupdate`, are
-   spec-guaranteed differences between real and constructed pointer events.
-9. **Long-task / LoAF side channel**: our DOM-snapshot pass blocks the main thread; the page sees a ≥50 ms frame with
-   `scripts: []`. Extension work is *deliberately* unattributed but its *duration* is exposed. Nothing closes this
-   except making the work cheap.
-10. **`chrome.debugger` escalation got much cheaper in the last year.** crbug#1477537 (CDP `screenX==clientX`) was
-    **fixed and merged 2025-09-15** (CL 6917162, "Fix screen coordinates to avoid automation detection"), landing
-    ~M142; CDP Input now also emits coalesced events. The 2024-era literature on this is stale.
-11. What `chrome.debugger` still costs: the **global infobar** on every tab, which shrinks `innerHeight` — an
-    unexplained viewport shrink/restore correlated with the agent acting is observable and not suppressible
-    without `--silent-debugger-extension-api` or policy install.
-12. **Verdict: not fatal, conditionally.** Synthetic-events-only is fatal against any site that checks `isTrusted`
-    or `userActivation`. Debugger-Input escalation closes all five top leaks at the cost of one visible infobar.
-    Design for escalation-by-default on sites that matter, not escalation-as-fallback.
+1. Every **network fingerprint** (TLS JA3/JA4, HTTP/2 SETTINGS + pseudo-header order, HTTP/3, header order, Client Hints) and every **device-consistency** check (UA vs platform vs GPU vs fonts vs TZ vs CH, worker/iframe parity) is *genuine* for the baseline. This is the whole ballgame and it is free.
+2. Quantified: FP-Crawlers found only **2.5 %** of crawler-blocking sites catch a coherent-fingerprint crawler **[A]**; Gundelach 2026 found **75 %** of headless-only blocks were header-level **[A]**. We are on the right side of both.
+3. Every **automation artifact** in every detector I read — `navigator.webdriver`, `cdc_*`, `__pwInitScripts`, `Runtime.enable`, `pptr:`/`UtilityScript` stack markers, headless PDF viewer, 800×600 — is **negative**.
+4. rebrowser's own test says isolated-world execution "is safe and not detectable" (`index.js:349`). Chrome's own isolation is our best stealth feature; `world: "MAIN"` throws it away.
+5. **Do not add an anti-detect layer.** Fayolle et al. 2026: "stealth and anti-detection mechanisms often increase detectability rather than decrease it" **[A]**. Spoofing converts passing checks into failing ones.
+6. So exposure is **behavioural and side-channel**, not fingerprint. **`isTrusted:false` is the fatal one** — brotector scores it 1.0 (`brotector.js:341`) and no extension API can forge it.
+7. Three more unforgeable-from-JS: no **transient user activation**; `:hover` state never updates; **`event.timeStamp` can never precede its own construction**, whereas real input events carry a rebased OS timestamp.
+8. **Behaviour is where we lose.** Choudhary et al. 2026: **two features** — `mouse_event_rate` and `teleport_click_ratio` — give 100 % agent recall, and **real human trajectory replay and GAN synthesis both failed to evade** it. The signal is event *density*, not curve shape **[A]**.
+9. The best published trajectory generator (DMTG, 2024) moves detection accuracy by only **4.75–9.73 %** **[A]**. Bézier humanizers are worse: Cloudflare's Precursor post names "mathematically ideal Bézier curves" as a tell **[V]**.
+10. **Extensions that act on the DOM are detectable as extensions**, per Carnus/Chronos/Agarwal. Chronos shows *transient* mutations are **more** detectable — cleaning up after yourself is worse than not.
+11. **Precedent exists for detecting an AI browser agent specifically**: Arkose ships `browser_detection_comet()`, probing CSS custom properties on a planted div to detect Perplexity Comet's content script **[R]**.
+12. **`chrome.debugger` + Input is now much cleaner than the 2024 literature says.** The `screenX==clientX` leak is **fixed in current main** (verified in source); the `Runtime.enable` leak died May 2025. One live artifact remains: **`pressure === 0` on CDP `mousePressed`** unless you pass `force: 0.5`.
+13. **Verdict: not fatal, conditionally.** Synthetic-events-only is fatal against any site checking `isTrusted` or `userActivation`. Debugger-Input closes all four top leaks for the price of one visible infobar. Design for escalation as the *default* on protected sites, not as a fallback.
 
 ---
 
-## Part A — what detection vendors measure (2024-2026)
+## Part A — what vendors measure (2024-2026)
 
-### A.0 Cross-cutting: the CDP `Runtime.enable` leak and its 2025 death
+### A.0 The `Runtime.enable` leak and its 2025 death
 
-The probe: with `Runtime.enable` sent, `Runtime.consoleAPICalled` made V8's inspector build an object *preview* of
-console arguments, and building it read `.stack`/`.name`, invoking a page-planted getter. `console.debug(errWithStackGetter)`
-→ getter fires → CDP attached. Published by DataDome 2024-06-13 **[V]**
-(<https://datadome.co/threat-research/how-new-headless-chrome-the-cdp-signal-are-impacting-bot-detection/>).
+With `Runtime.enable` active, V8's inspector built an object *preview* for every `console.*` argument, and `descriptionForError()` in `v8/src/inspector/value-mirror.cc` called `object->Get()` on `stack`/`name`/`message`, invoking a page-planted getter. Probe: `Object.defineProperty(new Error(),'stack',{get(){flag=true}}); console.debug(e)`. Published by DataDome 2024-06 **[V]** (<https://datadome.co/threat-research/how-new-headless-chrome-the-cdp-signal-are-impacting-bot-detection/>).
 
-**Killed by two V8 commits, 7 and 9 May 2025** ("Avoid error side effects in DevTools"; "Apply getter guard throughout
-error preview"), adding `getErrorProperty()` in `src/inspector/value-mirror.cc`, which skips any getter whose
-`ScriptId() != kNoScriptId`, i.e. user code. Chromium issue 40073683. Documented by Castle 2025-08-28 **[R]**
-(<https://blog.castle.io/why-a-classic-cdp-bot-detection-signal-suddenly-stopped-working-and-nobody-noticed/>).
-No source names the exact milestone — treat "Chrome 138" as **[inf]**, unverified.
+**Killed by two V8 commits, both landed 2025-05-07** under Chromium bug 415094795 — [`61a90754`](https://chromium.googlesource.com/v8/v8/+/61a90754) "Prevent side effects during object preview" and [`e08e9734`](https://chromium.googlesource.com/v8/v8/+/e08e9734) "…during error preview" — adding `getErrorProperty()`, which skips any getter whose `ScriptId() != kNoScriptId` (user code) **[S]**. M137 branched 2025-04-28, M138 on 2025-05-26, so this first ships in **Chrome 138** — **[inf]**, not vendor-confirmed.
 
-The *class* is not dead. A post-patch bypass reaches the getter via the prototype chain (Path B in
-`buildObjectPreviewInternal`), and `console.groupEnd(obj)` with a Proxy *prototype* still fires the `ownKeys` trap;
-reported reachable in early-2026 Chrome **[R]** (<https://svebaa.github.io/personal/blog/cdp-fingerprinting/>).
-DataDome's own 2026-06-01 post concedes the trick died **[V]**
-(<https://datadome.co/threat-research/how-browser-vendors-are-quietly-making-automation-harder-to-detect/>).
+The class survives. Two claimed live 2026 bypasses: a `stack` getter reached via the **prototype chain** takes the unguarded `object->Get()` path; and `console.groupEnd(Object.create(new Proxy(...)))` still fires the `ownKeys` trap because `buildObjectPreviewInternal` and `DebugPropertyIterator::Create()` test only the immediate receiver for Proxy-ness **[R]** (<https://svebaa.github.io/personal/blog/cdp-fingerprinting/>). **Not independently reproduced.**
 
-**Applies to baseline?** Only if we ever send `Runtime.enable`/`Console.enable`. `chrome.debugger.attach()` sends no
-CDP command by itself (`Attach()` calls `AttachClient()` and nothing else,
-[debugger_api.cc](https://source.chromium.org/chromium/chromium/src/+/main:chrome/browser/extensions/api/debugger/debugger_api.cc)) **[S]**.
-Never enable `Runtime`, `Console`, `Log`, `Debugger`, `Profiler` on a page we care about.
+**Applies to us?** Only if we send `Runtime.enable`/`Console.enable`. `chrome.debugger.attach()` sends no CDP command and auto-enables no domain (`ExtensionDevToolsClientHost::Attach()` calls `AttachClient()` and nothing else) **[S]**. **Never enable `Runtime`, `Console`, `Log`, `Debugger`, `Profiler` on a page we care about.**
 
-### A.1 Cloudflare (Bot Management, Turnstile, Precursor)
+Note also: rebrowser-bot-detector's last commit is 2024-10-25 and its `runtimeEnableLeak` still uses only the `Error.stack` getter, so it reports "no leak" even for unpatched Puppeteer on current Chrome. **A green result there is not evidence of stealth.**
 
-- **JA3 and JA4 are first-class documented fields** (`cf.bot_management.ja3_hash`, `.ja4`), Enterprise-only, null on
-  TLS resumption **[V]** <https://developers.cloudflare.com/bots/additional-configurations/ja3-ja4-fingerprint/>.
-- **JA4 Signals**: per-JA4 hourly global aggregates exposed to customers — `browser_ratio_1h`, `h2h3_ratio_1h`,
-  `uas_rank_1h`, `ips_quantile_1h`, etc. Cloudflare sees >15M unique JA4s/day **[V]**
-  <https://blog.cloudflare.com/ja4-signals/>. The same post names the stack explicitly: **HTTP Signature**
-  (headers + attributes, used "to detect inconsistencies between the HTTP signature and the claimed user-agent"),
-  ClientHello fingerprint v1/v2, and an **HTTP/2 fingerprint** from "the settings frame, stream priority
-  information, and the order of pseudo-header fields."
-- Still actively used: since June 2025, 50 hand-written heuristics using "HTTP/2 fingerprints and Client Hello
-  extensions" **[V]** <https://blog.cloudflare.com/per-customer-bot-defenses/>.
-- **Header order** is a documented detection ID **[V]**
-  <https://developers.cloudflare.com/bots/additional-configurations/detection-ids/>.
-- **Turnstile really does proof-of-work.** Current docs (updated 2026-08-14): challenges "include proof-of-work
-  (computational puzzles), proof-of-space, probing for web APIs, and various other challenges for detecting
-  browser-quirks and human behavior" **[V]** <https://developers.cloudflare.com/turnstile/>. Difficulty is adaptive.
-  Every *specific* number circulating (SHA-256, "~20 bits", "5-10 s headless") traces only to content farms **[?]**.
-- **JavaScript Detections (JSD)** is separate and runs on every HTML page view, 15-min lifespan, result in
-  `cf_clearance` → `cf.bot_management.js_detection.passed` **[V]**
-  <https://developers.cloudflare.com/cloudflare-challenges/challenge-types/javascript-detections/>.
-- **Precursor (2026-07-13) is the important 2026 change** **[V]**
-  <https://blog.cloudflare.com/introducing-precursor/>. Session-scoped continuous behavioural collection, script
-  **injected into HTML at the edge**, "compact, obfuscated, and assembled dynamically for each response."
-  Collects pointer movement, keyboard activity, focus changes, page visibility. Edge evaluators **cross-reference
-  streams** — "pointer activity correlates with page visibility duration," "keyboard events only fire when a text
-  field is focused." Explicit human-motion model: wrist-pivot arcs, cognitive-load delay before click, hand tremor
-  vs bots' "linear interpolations or mathematically ideal Bézier curves." Session-scoped: "a bot cannot reset its
-  behavioral signature by refreshing the page." **This is the vendor statement that most directly threatens our
-  humanizer design, and it names Bézier curves as the tell.**
-- Independent instrumentation **[A]**: Cloudflare's scripts probe ~13 window-level automation honeypots and cover
-  all eight fingerprinting categories in one execution; Turnstile is the 6th most-deployed third-party script on
-  the Tranco 10K (794 sites) — <https://arxiv.org/html/2606.14525v1>.
+### A.1 Cloudflare
+
+- **JA3 and JA4** are documented fields (`cf.bot_management.ja3_hash`, `.ja4`), Enterprise-only, null on TLS resumption **[V]** <https://developers.cloudflare.com/bots/additional-configurations/ja3-ja4-fingerprint/>. **JA4 Signals** exposes per-JA4 hourly global aggregates (`browser_ratio_1h`, `uas_rank_1h`, `ips_quantile_1h`…); >15 M unique JA4s/day **[V]** <https://blog.cloudflare.com/ja4-signals/>. That post names the stack: **HTTP Signature** (used "to detect inconsistencies between the HTTP signature and the claimed user-agent"), ClientHello fingerprint v1/v2, and an **HTTP/2 fingerprint** from "the settings frame, stream priority information, and the order of pseudo-header fields." Header order is a documented detection ID **[V]**.
+- Still live: 50 heuristics written since June 2025 using "HTTP/2 fingerprints and Client Hello extensions" **[V]** <https://blog.cloudflare.com/per-customer-bot-defenses/>.
+- **Turnstile does proof-of-work.** Docs (updated 2026-08-14): challenges "include proof-of-work (computational puzzles), proof-of-space, probing for web APIs, and various other challenges for detecting browser-quirks and human behavior", difficulty adaptive **[V]** <https://developers.cloudflare.com/turnstile/>. Every circulating *number* (SHA-256, "~20 bits") traces only to content farms **[?]**.
+- **Precursor (2026-07-13) is the 2026 change that matters** **[V]** <https://blog.cloudflare.com/introducing-precursor/>. Session-scoped continuous behavioural collection, script **injected into HTML at the edge**, "assembled dynamically for each response". Collects pointer movement, keyboard activity, focus changes, page visibility. Edge evaluators **cross-reference streams**: "pointer activity correlates with page visibility duration", "keyboard events only fire when a text field is focused". Explicit motor model: wrist-pivot arcs, cognitive-load delay before click, hand tremor **vs bots' "linear interpolations or mathematically ideal Bézier curves."** Session-scoped — "a bot cannot reset its behavioral signature by refreshing the page."
 
 ### A.2 DataDome
 
-- TLS fingerprinting confirmed with a worked UA-mismatch case **[V]**
-  <https://datadome.co/engineering/how-tls-fingerprinting-reinforces-datadomes-protection/>. JA4 by name is *not*
-  confirmed on datadome.co.
-- Docs list "Inconsistent HTTP headers" as a detection model, plus datacenter/residential/free-proxy reputation **[V]**
-  <https://docs.datadome.co/docs/threat-detection>. The JS tag collects "mouse movements or key strokes… OS,
-  browser, GPU" and names **puppeteer-extra-stealth** as detected **[V]**
-  <https://docs.datadome.co/docs/javascript-tag>.
-- **Picasso** (canvas/GPU device-class fingerprint) is their published consistency mechanism **[V]**
-  <https://datadome.co/threat-research/the-art-of-bot-detection-picasso-for-device-class-fingerprinting/>.
-- **Proof of Browser**, launched **2026-06-17**: a PoW forcing combined WebGL + CSS-layout + DOM-mutation
-  computation inside VM obfuscation, regenerated per build **[V]**
-  <https://datadome.co/threat-research/how-datadome-blocked-14-million-bypass-attempts-with-proof-of-browser/>.
-- Client obfuscation: 2026 repos show embedded WASM for signal hashing and, from ~Jan 2026, a **custom bytecode VM
-  with encrypted opcode strings** **[R]** <https://github.com/manjustice/datadome-vm-internals>.
-- Notably, DataDome itself published (2025-12) that browser anti-fingerprinting is degrading this signal class and
-  it is **shifting weight to behavioural and server-side** **[V]**
-  <https://datadome.co/threat-research/end-of-fingerprinting-how-browser-privacy-reshaping-bot-detection/>.
-  Adversarial evaluation puts a 52.93 % evasion rate against DataDome from fingerprint inconsistency alone **[A]**
-  <https://arxiv.org/html/2406.07647v3>.
-- Caveat: Antoine Vastel wrote most of DataDome's public technical material and **left for Castle in late 2024** —
-  he now maintains fpscanner (Part C).
+TLS fingerprinting with a worked UA-mismatch case **[V]**; "Inconsistent HTTP headers" detection model **[V]** <https://docs.datadome.co/docs/threat-detection>; the JS tag collects "mouse movements or key strokes… OS, browser, GPU" and names **puppeteer-extra-stealth** as detected **[V]**. **Picasso** is their published canvas/GPU device-class consistency mechanism **[V]**. **Proof of Browser** (2026-06-17) forces combined WebGL + CSS-layout + DOM-mutation computation inside VM obfuscation, regenerated per build **[V]**. Client now carries embedded WASM plus a custom bytecode VM with encrypted opcodes **[R]** <https://github.com/manjustice/datadome-vm-internals>. Notably DataDome itself says (2025-12) fingerprinting is degrading and it is **shifting weight to behavioural and server-side** **[V]**. Antoine Vastel wrote most of their public technical material and left for **Castle** in late 2024 — he now maintains fpscanner (Part C).
 
-### A.3 Akamai Bot Manager
+### A.3 Akamai
 
-- **Akamai originated the HTTP/2 fingerprint format**: Shuster, "Passive Fingerprinting of HTTP/2 Clients",
-  Black Hat EU 2017, from 10M+ connections **[V]**
-  <https://blackhat.com/docs/eu-17/materials/eu-17-Shuster-Passive-Fingerprinting-Of-HTTP2-Clients-wp.pdf>.
-  Format `SETTINGS[;]|WINDOW_UPDATE|PRIORITY[,]|pseudo-header-order`. The canonical example string and the
-  per-browser pseudo-header orders (Chrome `m,a,s,p`) are **third-party reconstructions** **[?]**.
-- JA4 is a live product surface: Terraform `akamai_appsec_advanced_settings_ja4_fingerprint` **[V]**
-  <https://techdocs.akamai.com/terraform/docs/as-ds-ja4-fingerprint>. Header-order/UA-mismatch detection is
-  documented **[V]** <https://techdocs.akamai.com/cloud-security/docs/detection-methods>.
-- The best vendor source on the JS sensor is the **patent** US20220329622A1 / US12101350B2: JS collects a
-  fingerprint (screen, fonts, plugins) plus **telemetry** (mouse, keystroke, touch, gyroscope), autoposted async,
-  scored server-side under `bm_sz`/`_abck` **[V]** <https://patents.google.com/patent/US20220329622A1/en>.
-  US12652331 (2026) covers **Dynamic Signal Control** — varying *which* signals are collected per request
-  specifically to defeat spoofing.
-- Product page: scores 0-100 "starting with the very first request" from "mouse movements and keyboard strokes…
-  or gyroscope and accelerometer", and detects **replay of previously validated telemetry** **[V]**
-  <https://www.akamai.com/products/bot-manager>. Behavioural detection is **Premier-tier only** **[V]**.
-- Sensor internals (58-element encrypted array, v3 envelope, stack-based mini-VM) are community RE only **[R]**
-  <https://github.com/Myronfr/akamai-v3-sensor-analysis>.
+**Originated the HTTP/2 fingerprint format** (Shuster, Black Hat EU 2017, 10 M+ connections) **[V]** <https://blackhat.com/docs/eu-17/materials/eu-17-Shuster-Passive-Fingerprinting-Of-HTTP2-Clients-wp.pdf>; the canonical example string and per-browser pseudo-header orders are third-party reconstructions **[?]**. JA4 is a live product surface (Terraform `akamai_appsec_advanced_settings_ja4_fingerprint`) **[V]**. Header-order/UA-mismatch detection documented **[V]**. Best vendor source on the sensor is the **patent** US20220329622A1 / US12101350B2: fingerprint + **telemetry** (mouse, keystroke, touch, gyroscope), autoposted, scored under `bm_sz`/`_abck` **[V]**; US12652331 (2026) covers **Dynamic Signal Control** — varying *which* signals are collected per request to defeat spoofing. Product page: scores from the first request, and detects **replay of previously validated telemetry** **[V]**. Behavioural detection is **Premier-tier only** **[V]**.
 
 ### A.4 Kasada
 
-- Client is a **custom bytecode interpreter** — control-flow flattening, Fisher-Yates-shuffled opcode dispatch,
-  encoded string pools. Confirmed by three independent disassemblies **[R]**
-  <https://github.com/umasii/ips-disassembler>. Kasada confirms only *rotation*: "obfuscation is applied to our
-  scripts each time they load, generating unique polymorphic code" **[V]**
-  <https://www.kasada.io/blog/bot-detection-do-you-see-what-i-see>.
-  **Caveat:** the bytecode-VM patents that read like Kasada's architecture (US10382482B2 et al.) are assigned to
-  **Shape Security / F5**, a competitor — not Kasada.
-- **PoW confirmed by Kasada's own patent** US10855661 "Dynamic Cryptographic Polymorphism" (2020): server sends a
-  hash + seed, browser brute-forces a matching value. Observed parameters (SHA-256, difficulty 10, `x-kpsdk-fc`)
-  are RE **[R]** <https://github.com/1Maze/kasada-vm>.
-- Explicitly targets DevTools and antidetect browsers **[V]**
-  <https://www.kasada.io/blog/automation-frameworks-devtools-antidetect-browsers>.
-- Positions *away* from fingerprinting toward "client interrogation" (evidence of automation, not identity) **[V]**,
-  but still lists biometric validation (accelerometer, swipe, mouse) as a secondary ML layer **[V]**
-  <https://www.kasada.io/bot-detection/advanced-bot-detection-techniques/>.
-- Network-layer scoring by Kasada is asserted only by proxy-seller blogs **[?]** — no primary source.
+Client is a **custom bytecode interpreter** (control-flow flattening, shuffled opcode dispatch) per three independent disassemblies **[R]**; Kasada confirms only polymorphic rotation **[V]**. Caveat: the VM-obfuscation patents that read like Kasada's architecture (US10382482B2 et al.) are assigned to **Shape Security / F5**, a competitor. **PoW is confirmed by Kasada's own patent** US10855661 "Dynamic Cryptographic Polymorphism". Explicitly targets DevTools and antidetect browsers **[V]**. Network-layer scoring by Kasada is asserted only by proxy vendors **[?]**.
 
-### A.5 Extension detection — the honest answer
+### A.5 HUMAN, Arkose, Imperva, Fingerprint.com
 
-**None of Cloudflare, DataDome, Akamai or Kasada publicly claims extension detection.** Every attribution I found
-is single-source and uncorroborated **[?]**. What *is* documented:
+- **HUMAN (PerimeterX/White Ops).** The one vendor of the eight that **documents extension collection** — three separate doc pages list "browser plugins, **extensions**" among sensor signals, and the most explicit names "mouse movements, clicks and keystroke speed … battery level … window size, fonts and extensions" **[V]** <https://docs.humansecurity.com/applications/top-ten-questions-during-onboarding>. "DevTools Detection" appears as a named capability **[V]**. Patent US12287873B2 encodes every input event as 4-bit type + 3-bit key status + 3-bit metadata + **10-bit inter-event timing** — i.e. the timing channel is the product **[V]**. **The extension-detection mechanism is nowhere documented** — a genuine gap.
+- **Arkose.** Verify-API v4 returns `canvas_fingerprint`, **`ja4_hash`**, `touch_support`, `hardware_concurrency`, `screen_resolution`, `timezone_offset`, IP/ASN intel **[V]**. The `enforcement.js` RE corpus documents ~90 named signals including `math_fingerprint` ("to detect if the enforcement script is being run in a different environment than is claimed"), `feFakeResolution`/`feFakeOs`/`feFakeBrowser`, `sensors()`, and **`cdpCheck`** — the Error-`stack`-getter + `console.debug` trap **[R]** <https://github.com/AzureFlow/arkose-fp-docs>. **Most important finding in this section:** the same script contains **`browser_detection_comet()`**, which injects a hidden `<div id="pplx-agent-0_0-overlay">` and reads `getComputedStyle` for `--dark-super-color` / `--base-shadow` / `--color-base` to detect **Perplexity Comet's content script**, with siblings `browser_detection_genspark` (`navigator.genspark`) and `browser_detection_sigma` (`window.__SIGMA__`). **A production anti-bot vendor already ships named detectors for AI browser agents, by CSS/global side effect — not by `chrome-extension://` probing.**
+- **Imperva ABP.** Docs portal is now JS-rendered and largely unfetchable — weakest section. Datasheet claims "over 200 device attributes" and "**Biometric validation**" **[V]**; the product page says 700 (unreconciled). The real primary source is the Distil patent **US10,068,075** *Method for generating a human likeness score* — cursor/touch **input-path noise, SNR, direction change, velocity** — plus Imperva continuations US11,423,130 / US11,687,631 **[V]**. `reese84` is the modern sensor token and is a bytecode interpreter with zero literal `canvas`/`webdriver` strings **[R]**.
+- **Fingerprint.com.** BotD (OSS, v2.0.0) is 18 legacy detectors — none fire on us (Part C). Commercial Smart Signals add `bot_type` (which now includes **`chatgpt_agent`, `manus_agent`, `browserbase_agent`** — agents are a named category), Browser Tamper Detection (`tampering_ml_score`, `anti_detect_browser`), Virtual Machine Detection (mechanism deliberately undocumented), and **Developer Tools Detection** — "console inspection indicators **and DevTools Protocol connections**" **[V]** <https://docs.fingerprint.com/docs/smart-signals-reference>. Their notable research: `fetch('chrome-extension://<id>/<war>')` and read the **`Last-Modified` header**, which leaks the extension's install timestamp to the second — a near-unique cross-site identifier. They say they do not ship it **[V]** <https://fingerprint.com/blog/exploiting-leaked-timestamps-google-chrome-extensions/>.
 
-- The `web_accessible_resources` probe is real and exact: `fetch('chrome-extension://<id>/<declared path>')`
-  resolves iff installed. Chrome's own docs name fingerprinting as the reason resources are non-accessible by
-  default, and `use_dynamic_url: true` (Chrome 130+, 2024-10) regenerates the ID per session **[V]**
-  <https://developer.chrome.com/docs/extensions/reference/manifest/web-accessible-resources>.
-- A named vendor that *does* say it detects extensions is **Castle**, and it explicitly says it uses **DOM/JS side
-  effects rather than `chrome-extension://` probing**, because probing produces console noise, failed requests and
-  perf spikes that expose the detector **[V]**, 2026-01-14
-  <https://blog.castle.io/detecting-browser-extensions-for-bot-detection-lessons-from-linkedin-and-castle/>.
-- The production example at scale is **LinkedIn**, not an anti-bot vendor: ~6,167 probed extension IDs via
-  `Promise.allSettled`, plus a TreeWalker "Spectroscopy" pass scanning the live DOM for `chrome-extension://`
-  prefixes, inside a 48-signal pipeline **[R]** <https://leestack.dev/writing/linkedin-aed-systems-analysis>.
+### A.6 Extension detection across vendors, and prevalence
 
-**Implication:** the mechanisms that would catch us are (a) DOM/CSS side effects and (b) behaviour — not resource
-probing, which we defeat trivially by declaring zero `web_accessible_resources`.
+Cloudflare, DataDome, Akamai and Kasada make **no public extension-detection claim**; every attribution I found is single-source **[?]**. HUMAN documents it without mechanism; **Arkose demonstrably does it by CSS/global side effect**; **Castle** says explicitly that it uses DOM/JS side effects **rather than** `chrome-extension://` probing, because probing produces console noise, failed requests and perf spikes that expose the detector **[V]** <https://blog.castle.io/detecting-browser-extensions-for-bot-detection-lessons-from-linkedin-and-castle/>. The at-scale probing practitioner is **LinkedIn**, not an anti-bot vendor: ~6,167 extension IDs via `Promise.allSettled` plus a TreeWalker DOM scan for `chrome-extension://` prefixes, inside a 48-signal pipeline **[R]**.
 
-### A.6 Prevalence in the wild [A]
-
-Gundelach, Mühlhauser & Herrmann (U. Bamberg, 2026-06-12), 10 K Tranco sites × 4 browser configs —
-<https://arxiv.org/html/2606.14525v1>: `navigator.webdriver` is probed on **34 %** of 7,944 sites, the single most
-common check. Automation-family probe rates: WebDriver API 43 %, PhantomJS 32 %, NightmareJS 31 %, Selenium 28 %,
-**Chrome DevTools 21 %**, ChromeDriver 8 %. 46 % of sites probe ≥1 automation-only signal. Cloudflare block rate
-37 %, Akamai 26 %. **75 % of headless-only blocks were fixed by header spoofing alone.** The mass market is still
-checking artifacts we do not have.
+Prevalence **[A]** (Gundelach, Mühlhauser & Herrmann, arXiv:2606.14525, 10 K Tranco sites × 4 configs): `navigator.webdriver` probed on **34 %** of sites — the most common single check; WebDriver API 43 %, PhantomJS 32 %, **Chrome DevTools 21 %**, ChromeDriver 8 %; 46 % probe ≥1 automation-only signal. Cloudflare 37 % of blocks, Akamai 26 %. **75 % of headless-only blocks were header-level alone.** The mass market is still checking artifacts we lack.
 
 ---
 
-## Part C — open-source detector code, evaluated against three modes
+## Part B — academic and independent research, 2022-2026
 
-Commits pinned: creepjs `10aa672` (2026-06-11), brotector `98b3309` (2024-12-03), rebrowser-bot-detector `e1a25b1`
-(2024-10-25), BotD `66da86e` (2026-06-17), fpscanner `4255cfd` (2026-08-05, Vastel/Castle, full rewrite).
-Local clones under `…/scratchpad/repos/`.
+### B.1 Automation / stealth-plugin detection
 
-Modes: **(1)** content script + synthetic DOM events, no debugger. **(2)** same + `chrome.debugger` with only the
-`Input` domain enabled. **(3)** OS-level injected input (uinput/libei), no in-browser automation.
+- **Fp-Scanner** (Vastel et al., **USENIX Sec 2018**, <https://www.usenix.org/conference/usenixsecurity18/presentation/vastel>). The "lying is detectable" paper and ancestor of all anti-detect evaluation: UA vs feature availability vs fonts vs WebGL, patched natives failing `toString()`, canvas noise constraints. Accuracy 1.0 vs 0.45 for FingerprintJS2, and it recovers the *true* OS behind the spoof. **Implication: JS-level spoofing always leaves a seam. Don't spoof.**
+- **FP-Crawlers** (Vastel et al., **MADWeb@NDSS 2020**, <https://doi.org/10.14722/madweb.2020.23010>). Deobfuscates the four dominant commercial scripts. **The number to plan against: 29.5 % of blocking sites catch a crawler with one modified attribute, but only 2.5 % catch a coherent one** — and vanilla Chrome minus `navigator.webdriver` is undetectable by fingerprinting alone. **Implication: our position is already near-optimal on this axis.**
+- **FP-Inconsistent** (Venugopalan et al., **IMC 2025**, arXiv:2406.07647). Honeysite behind DataDome + BotD, then *bought* 500 K requests from 20 "undetectable traffic" services. Baseline evasion: **52.93 % vs DataDome, 44.56 % vs BotD**. Their detector scores contradictions across *space* and across *time* (one attribute at two moments in a session), cutting evasion 45–48 % at 96.84 % TNR. **Implication: attribute stability within a session matters; rotating a fingerprint mid-session is itself the tell. We never rotate — good.**
+- **Gundelach et al. 2026** (arXiv:2606.14525) — see A.6. **Implication: our risk is behaviour and rate, not headers; we inherit the user's real headers and IP, so the 75 % header finding does not apply to us at all.**
+- **Fayolle, Bouhenniche, Pélissier, Laperdrix, Maurice, Rudametkin, "On the Internet, Nobody Knows You're an LLM Bot"** (arXiv:2606.30119, 2026). Six LLM web agents against honeysites instrumented at network/HTTP/browser layers plus robots.txt, CAPTCHA, PoW and Cloudflare. Some agents bypass *every* defense, yet **all six are separable from humans and from each other**. Headline: **"stealth and anti-detection mechanisms often increase detectability rather than decrease it."** **Implication: the single most important design constraint in this document — add no anti-detect layer.**
+- **Choudhary et al., "What Does It Take to Detect an AI Agent?"** (workshop, arXiv:2607.26935, 2026). **Two features — `mouse_event_rate` and `teleport_click_ratio` — give 100 % observed agent recall at every evasion level**, agent precision 0.994; five features give macro-F1 0.991 with zero agent misses in 10,000+ predictions. The discriminative signal is **event-stream provenance, not reasoning style**: "Playwright does not emit the raw pointer-move and wheel-delta streams a physical input device produces." **Replaying real human cursor traces and GAN synthesis both failed to evade it.** Caveat: workshop-tier, single stack, CDP-injected-input threat model. **Implication: emit a dense, correctly-coalesced move stream at realistic sample rate. Curve beauty is nearly irrelevant; density is not.**
+- **Boulila et al., DSN 2025** (<https://s3.eurecom.fr/docs/dsn25_boulila.pdf>) §IV-D: eight crawlers vs BotD, Turnstile and a commercial WAF. **Only 3 of 8 passed all three**; `puppeteer-extra-plugin-stealth`, `selenium-stealth` and `undetected_chromedriver` all **failed**. Their winning recipe: real headful Chrome on physical hardware, request interception **off** (it perturbs `Cache-Control`/`Pragma` into a fingerprint), residential network, CDP-generated mouse movement for `isTrusted`. **Implication: near-exactly our architecture.**
+- **Camoufox self-assessment** (<https://camoufox.com/stealth/>) **[non-academic]**. Fingerprint interception at the **C++ level**, not JS injection, motivated explicitly by Fp-Scanner. Stated weaknesses: consistency across thousands of coupled attributes is where they fail, and the human-cursor algorithm "may still be detected with sophisticated enough analysis." **Implication: the project that spends the most on spoofing still lists spoof-consistency as its weak point. Not spoofing is strictly cheaper and strictly safer.**
 
-| Detector · file:line | Check | (1) CS synthetic | (2) debugger Input | (3) OS input |
+### B.2 Extension fingerprinting — and the zero-WAR, zero-CSS case
+
+- **Sjösten, Van Acker, Sabelfeld, CODASPY 2017.** `chrome-extension://<id>/<path>` WAR probing detects **>50 % of the top 1,000** free Chrome extensions. **Fully closed by declaring zero WARs.**
+- **Starov & Nikiforakis, XHOUND, IEEE S&P 2017.** First behaviour-based: **920 of 10,000** detectable purely by the DOM side effects they produce. Establishes the governing principle — *an extension that does anything to the page is fingerprintable by that doing*.
+- **Sjösten et al., Latex Gloves, NDSS 2019.** Randomized extension IDs make things **worse** — a random-but-stable ID is a perfect per-user supercookie; probing + revelation uniquely identify **90 %** of content-injecting extensions despite randomization.
+- **Karami, Ilia, Solomos, Polakis, Carnus, NDSS 2020** (<https://doi.org/10.14722/ndss.2020.24383>). **The key paper for our question.** Four vectors, three needing no WAR: DOM-modification signatures; **`postMessage` harvesting** — a page listener passively collects everything a content script posts into the page's message bus, no cooperation required; and **Resource Timing enumeration** — `performance.getEntriesByType("resource")` lists every URL the content script fetched in page context. 29,428 extensions fingerprinted; **>97 % correct** against 3-10 installed extensions in 8.77 s; **83.6-87.9 % of behaviour-based fingerprints survive CloakX**, the SOTA randomization defense.
+- **Laperdrix, Starov, Chen, Kapravelos, Nikiforakis, "Fingerprinting in Style", USENIX Sec 2021.** 15.2 % of 116 K extensions inject CSS; **3.8 % uniquely identifiable** by it. **Explicit ceiling: "An extension that does not inject CSS rules cannot be fingerprinted through them."** **Closed by injecting no CSS.**
+- **Solomos et al., USENIX Sec 2022** ("The Dangers of Human Touch"). Interaction-triggered detection finds 4,971 extensions, **36 % invisible to all prior techniques**. Crucial detail: **~67 % of interaction-gated extensions lack origin checks**, so a page can elicit them with *simulated* (untrusted) events.
+- **Solomos et al., Chronos, CCS 2022** (<https://www.securitee.org/files/chronos_ccs2022.pdf>). **Kills the "clean up after yourself" defense.** Continuous mutation-stream recording rather than before/after snapshots: **11,219 extensions, +66.9 % over SOTA**, uniquely-identifying mutation for **94 %**. **A transient inject-then-remove is MORE fingerprintable than a persistent node, because the mutation pair is itself distinctive.**
+- **Agarwal, Fass, Stock, CCS 2024** (<https://swag.cispa.saarland/papers/agarwal2024window.pdf>). Most current and most applicable: global-namespace pollution; **execution-trace capture** (overwrite built-ins, record stack traces and the set and order of APIs invoked); **shared client-side storage** — content scripts share the page's origin `localStorage`/`sessionStorage`/IndexedDB/cookies, so the page just enumerates them; and `postMessage`/runtime events. 2,747 Chrome extensions susceptible. Two stated conclusions: it **overcomes randomized WARs**, and **"none of the existing defense mechanisms prevent extensions from being fingerprinted"** this way. Note the namespace/trace family applies **only** to `world: "MAIN"` or an injected `<script>` — isolated world is immune.
+- **Bucci & Li, ISC 2023** (<https://doi.org/10.1007/978-3-031-49187-0_10>). The only quantitative answer on MV3: across 108,416 extensions, MV3 match-patterns give only a **4-10 % relative reduction** in WAR detectability; their prober still finds 22.7 % of MV2 and 18.3 % of MV3 extensions, 58 %/48 % in the top 1,000. **MV3 buys us almost nothing here; declaring zero WARs buys us everything.**
+
+**Direct answer.** A zero-WAR, zero-CSS extension is **still detectable** unless it is behaviourally inert in the page. What survives, hardest-to-avoid first: DOM mutation including transient (Chronos, 94 %); `window.postMessage` traffic (Carnus); content-script network requests via Resource Timing (Carnus); page-origin storage writes (Agarwal); main-world namespace/stack/API-trace pollution (Agarwal — *avoidable by construction*); and synthetic-event-triggered behaviour (Solomos). The literature's undetectable configuration is **read-only** — zero WARs, no CSS, isolated world only, **zero DOM mutations including transient**, no `window.postMessage`, no page-context fetch, no page-origin storage. An agent that acts violates the mutation condition the moment it does its job. **Two mitigations the papers do support:** keep all IPC on `chrome.runtime` (cross-process, invisible to the page) and route network calls through the service worker (keeps them out of the page's Resource Timing buffer). **And one asymmetry in our favour:** detection yields "*an* extension is present"; identifying *ours* requires our signature in a corpus, and every dragnet in this literature is built from the public Web Store. Bespoke code is in nobody's database.
+
+**Unexplored:** no paper covers timing side channels against isolated-world content scripts. The isolated world shares the renderer main thread, so long-task/LoAF attribution is a plausible vector (Part D.1) — unmeasured, both directions.
+
+### B.3 Mouse dynamics: detection vs evasion
+
+- **BeCAPTCHA-Mouse** (Acien, Morales, Fiérrez, Vera-Rodríguez, *Pattern Recognition* 128:108643, 2022, <https://doi.org/10.1016/j.patcog.2022.108643>). Neuromotor feature set plus function-based and GAN synthesizers; released benchmark of 15,000 trajectories from 58 users at graded realism. **93 % accuracy from a single trajectory** against high-realism synthetic; fusion with classical features improves relative accuracy >36 %. What gives synthetics away: velocity-profile shape and the acceleration/jerk distribution. **Implication: a *single* movement is enough; per-session aggregation is far stronger.**
+- **Visual-representation CNN** (*ESWA* 226:120225, 2023). **TPR 99.34 % on known bots, 99.20 % on unseen bot types.** **Implication: a novel humanizer gets no free pass — the classifier learned the human manifold, not a generator list.**
+- **DMTG** (Liu et al., arXiv:2410.18233, 2024). Entropy-controlled diffusion, evaluated against GeeTest and Akamai. Best result: **reduces bot recognition accuracy by only 4.75-9.73 %.** **Implication: this is the ceiling on trajectory synthesis — ~99 % down to ~90 %, which at session volume is not evasion.**
+- **See et al., IFIP SEC 2023.** Passive fusion of mouse kinematics + traversal + request metadata, with explicit attention to *detection latency*. See's thesis: "bots that perfectly mimic human behavior remain undetectable. Forcing bots to mimic human behavior reduces their efficiency, making them slower." **The defense is economic.**
+- **Motor-control lineage used by humanizers:** Fitts's law (1954) for movement time; **minimum-jerk** (Flash & Hogan, *J. Neurosci.* 1985) for the symmetric bell-shaped velocity profile; the **two-component/optimal-submovement model** (Meyer et al., *Psych. Review* 1988) for ballistic-phase-plus-corrections; and Plamondon's sigma-lognormal Kinematic Theory, which is what BeCAPTCHA-Mouse's features operationalize. **WindMouse** (gravity + wind + damping, <https://ben.land/post/2021/04/25/windmouse-human-mouse-movement/>) is forum-origin, never validated, and a fixed generator with a learnable signature. **General law: once a humanizer is public and popular it becomes the negative-class training data every serious detector uses — popular humanizers are the easiest to catch.**
+
+### B.4 Keystroke dynamics
+
+- **TypeNet** (Acien et al., IEEE T-BIOM 2022) sets the ceiling for the authentication task the features come from: EER 2.2 % desktop at 100 K subjects. Features throughout: **dwell** (down→up), **flight** (up→next down), and digraph latencies (DD/UD/DU/UU), key-identity-conditioned.
+- **BeCAPTCHA-Type** (DeAlcala et al., CVPRW 2023). Three synthesizers vs four detectors over **136 M keystrokes**. The boundary condition is the useful finding: **with large labeled data synthetic keystrokes are detected with high accuracy; but if a defender has not modelled synthetic data at scale, "that data will be very difficult to detect."** That gap is exactly the gap between a small site and Google.
+- **Westphal, See, Weber, Fischer, IFIP SEC 2024** (<https://doi.org/10.1007/978-3-031-65175-5_30>). Most on-point for bot-vs-human typing. Two operational findings: **keycode identity in the feature vector substantially improves classification**, yet **timing-only detection remains feasible with only marginal loss** — so a site can run this without ever learning what you typed, removing the main deployment objection.
+- **QUACK!** (Lotto, Marchiori, Conti, arXiv:2604.15845, 2026) detects HID injection from **timing features only**; finding that cuts against intuition: **"attacker sophistication does not monotonically translate into improved evasion"** — an elaborate humanizer can be *more* detectable than a simple one.
+
+**Implication:** keystroke dynamics is opt-in risk — it exists only if we type. Setting `element.value` produces content with **zero key events and zero paste events**, a trivially detectable and widely deployed signal that catches Playwright's `fill()` identically. Realistic postures: type nothing; use a genuine clipboard paste (a legitimate human pattern with a legitimate event signature); or accept per-character synthesis, noting BeCAPTCHA-Type's boundary. **Never mix trusted and untrusted events within one logical keystroke** — no real keyboard produces that.
+
+### B.5 Detecting OS-level injected input from a page
+
+**There is no peer-reviewed literature.** Searched arXiv, USENIX, ACM DL, NDSS, PETS, IEEE. This is a structural gap, not a search failure: OS-level injection enters Chromium **below** the renderer, so by the time Blink constructs a DOM event an `XTestFakeKeyEvent`, a `uinput` write or a `SendInput` call is indistinguishable from a physical device; `isTrusted` is `true` and page JS cannot go lower. `uinput` creates a `/dev/input/event*` device effectively identical to a physical one, so even the *kernel* does not distinguish. Windows does maintain `LLMHF_INJECTED` / `RAWINPUTHEADER.hDevice == NULL`, but those are native-only APIs **never surfaced to the web platform**. Every "injection detector" in the wild (MickeyJS, FCaptcha, brotector) actually targets **CDP** tells — coalesced-event count, `movementX==0`, `pageX==screenX`, teleport clicks — none of which OS-level injection ever had.
+
+**Implication:** OS-level input closes the provenance question permanently, and reduces everything to B.3/B.4 kinematics. Two honest caveats: it requires host privileges outside the extension sandbox (large trust and architecture cost), and absence of literature is not proof of undetectability.
+
+---
+
+## Part C — detector code, evaluated against three modes
+
+Pinned: creepjs `10aa672` (2026-06-11) · brotector `98b3309` (2024-12-03) · rebrowser-bot-detector `e1a25b1` (2024-10-25) · BotD `66da86e` (2026-06-17) · fpscanner `4255cfd` (2026-08-05 — Vastel/Castle, full rewrite). Clones under `…/scratchpad/repos/`. Modes: **(1)** content script + synthetic DOM events, no debugger; **(2)** same + `chrome.debugger` with only `Input`; **(3)** OS-level input, no in-browser automation.
+
+| Detector · file:line | Check | (1) | (2) | (3) |
 |---|---|---|---|---|
 | brotector `brotector.js:341` | `e.isTrusted === false` → **score 1.0** | **FIRES** | no | no |
-| brotector `brotector.js:319-350` | `pageX==screenX && pageY==screenY` (crbug#1477537) | no (we set screenX ourselves) | **no — fixed M142+**, was FIRES | no |
-| brotector `brotector.js:352-368` | canvas cursor visualiser: `arc()` at mouse pos on a full-page `pointer-events:none` fixed canvas | fires **only if we draw an overlay** | same | same |
-| brotector `brotector.js:218-278` | `Runtime.enable`/`Console.enable` via `console.debug` + `stack` getter + worker `debugger;` timing | no | no (never enable Runtime) | no |
+| brotector `brotector.js:319-350` | `pageX==screenX && pageY==screenY` (crbug#1477537 / 40280325) | no (we set it) | **no — fixed**, see D.3 | no |
+| brotector `brotector.js:352-368` | canvas cursor visualiser: `arc()` at mouse pos on full-page `pointer-events:none` canvas | fires **iff we draw an overlay** | same | same |
+| brotector `brotector.js:218-278` | `Runtime.enable`/`Console.enable` via `console.debug` + `stack` getter + worker `debugger;` timing | no | no | no |
 | brotector `:182,198,207,279,288` | `navigator.webdriver`, `cdc_*`, `__pwInitScripts`, empty `getHighEntropyValues`, headless PDF-viewer `<style>` | no | no | no |
-| brotector `brotector.js:171-181,371-388` | `Error.stack` regexes for `__puppeteer_evaluation_script__`, `pptr:`, chromedriver source strings | no | no | no |
-| rebrowser `index.js:349-369` | `testMainWorldExecution` — hooks `document.getElementsByClassName` in MAIN world | **no** — isolated world; test's own text calls this "safe and not detectable" | no | no |
-| rebrowser `index.js:371-411` | `testSourceUrl` — `pptr:` / `UtilityScript.` in `Error.stack` | no | no | no |
-| rebrowser `index.js:4-19` | `window.dummyFn` reachable from MAIN world | no | no | no |
-| rebrowser `index.js:21-62,64-140,142-169` | `runtimeEnableLeak`, `exposeFunctionLeak`, `__pwInitScripts` | no | no | no |
-| rebrowser `index.js:171-202` | `navigator.webdriver` + `Object.getOwnPropertyNames(navigator)` must be `[]` | no | no | no |
-| rebrowser `index.js:204-233,328-347` | default 800×600 / 1280×720 viewport; `Page.setBypassCSP` | no | no | no |
-| BotD `src/sources/distinctive_properties.ts` | ~40 window/document markers (`_phantom`, `$cdc_…`, `domAutomation`, …) | no | no | no |
-| BotD `src/detectors/{webdriver,window_size,product_sub,eval_length,function_bind,error_trace}.ts` | legacy headless/PhantomJS markers | no | no | no |
-| BotD `src/detectors/document_element_keys.ts` | `documentElement.getAttributeNames()` contains `selenium`/`webdriver`/`driver` | no — **unless we set attributes on `<html>`** | no | no |
-| CreepJS `src/headless/index.ts:97-110` | `webDriverIsOn`, `hasHeadlessUA` (also in worker) | no | no | no |
-| CreepJS `src/headless/index.ts:111-155` | stealth-plugin tells: `hasIframeProxy`, `hasHighChromeIndex`, `hasBadChromeRuntime`, `hasToStringProxy`, `hasBadWebGL` (window vs worker GPU) | no — we patch no natives | no | no |
+| brotector `:171-181,371-388` | `Error.stack` regexes for `__puppeteer_evaluation_script__`, `pptr:`, chromedriver source strings | no | no | no |
+| rebrowser `index.js:349-369` | `testMainWorldExecution` — hooks `document.getElementsByClassName` in MAIN world | **no** — isolated world; test's own text: "safe and not detectable" | no | no |
+| rebrowser `index.js:371-411` | `sourceUrlLeak` — `pptr:` / `UtilityScript.` in `Error.stack` | no | no | no |
+| rebrowser `index.js:4-19,21-62,64-140,142-169` | `dummyFn` main-world reach, `runtimeEnableLeak`, `exposeFunctionLeak`, `__pwInitScripts` | no | no | no |
+| rebrowser `index.js:171-233,328-347` | `navigator.webdriver` + `getOwnPropertyNames(navigator)` empty; default 800×600 / 1280×720; `setBypassCSP` | no | no | no |
+| BotD `src/sources/distinctive_properties.ts` | ~40 window/document markers (`_phantom`, `$cdc_…`, `domAutomation`) | no | no | no |
+| BotD `src/detectors/{webdriver,window_size,product_sub,eval_length,function_bind,error_trace,languages,plugins,notification_permissions,webgl}.ts` | legacy headless/PhantomJS/Electron markers | no | no | no |
+| BotD `src/detectors/document_element_keys.ts` | `documentElement.getAttributeNames()` ∋ `selenium\|webdriver\|driver` | no — **unless we set attributes on `<html>`** | no | no |
+| CreepJS `src/headless/index.ts:97-110` | `webDriverIsOn`, `hasHeadlessUA` (window + worker) | no | no | no |
+| CreepJS `src/headless/index.ts:111-155` | stealth tells: `hasIframeProxy`, `hasHighChromeIndex`, `hasBadChromeRuntime`, `hasToStringProxy`, `hasBadWebGL` (window vs worker GPU) | no — we patch no natives | no | no |
 | CreepJS `src/lies/index.ts:123-330` | ~20 "lie" probes per native fn (`toString` identity, own-property descriptors, proxy/`setPrototypeOf` TypeErrors) | no | no | no |
-| CreepJS `src/resistance/index.ts:134-475` | **extension identification purely by main-world lie-pattern hashes** (noscript, Trace, CyDec, CanvasBlocker, Chameleon, DuckDuckGo, Privacy Badger…) | **no** — an extension that patches no main-world native is invisible to this technique | no | n/a |
-| fpscanner `src/signals/cdp.ts` | `Error.prepareStackTrace` set, then `console.log(err)`; flag flips if a CDP client serialises it | no | no (Runtime not enabled) | no |
-| fpscanner `src/signals/browserExtensions.ts` | **known extensions by DOM side effect only**: `body[data-gr-ext-installed]`, `window.ethereum`, `#coupon-birds-drop-div`, `deepl-input-controller`, `#monica-content-root`, `chatgpt-sidebar`, `window.__REQUESTLY__`, `veepn-*` tags | **no if we inject no nodes/attributes/globals**; **FIRES** the moment we do | same | n/a |
+| CreepJS `src/resistance/index.ts:134-475` | **extension identification purely by main-world lie-pattern hashes** (noscript, Trace, CyDec, CanvasBlocker, Chameleon, DuckDuckGo, Privacy Badger) | **no** — an extension patching no main-world native is invisible to this technique | no | n/a |
+| fpscanner `src/signals/cdp.ts` | `Error.prepareStackTrace` set, then `console.log(err)` — flips if a CDP client serialises it | no | no (Runtime never enabled) | no |
+| fpscanner `src/signals/browserExtensions.ts` | **known extensions by DOM side effect only**: `body[data-gr-ext-installed]`, `window.ethereum`, `#coupon-birds-drop-div`, `deepl-input-controller`, `#monica-content-root`, `chatgpt-sidebar`, `window.__REQUESTLY__`, `veepn-*` | **no if we inject no nodes/attributes/globals**; **FIRES** the moment we do | same | n/a |
 | fpscanner `src/detections/hasContextMismatch.ts` | window vs iframe vs worker: webdriver/UA/platform/memory/cpuCount | no | no | no |
-| fpscanner `src/detections/has{GPU,Platform}Mismatch,hasSwiftshaderRenderer,hasUTCTimezone,hasMismatchLanguages,hasInconsistentEtsl` | fingerprint-consistency family | no — real Chrome | no | no |
+| fpscanner `src/detections/has{GPU,Platform}Mismatch`, `hasSwiftshaderRenderer`, `hasUTCTimezone`, `hasMismatchLanguages`, `hasInconsistentEtsl` | fingerprint-consistency family | no — real Chrome | no | no |
 | sannysoft / fpscanner legacy | UA, WebDriver, `window.chrome`, permissions, plugins length, languages, WebGL vendor/renderer, broken-image dims | no | no | no |
+| Arkose `enforcement.js` `browser_detection_comet()` **[R]** | plants `<div id="pplx-agent-0_0-overlay">`, reads `getComputedStyle` custom properties | **no** for us (different extension) — but this is the template a vendor would clone for *our* signature | same | n/a |
 
-**Reading of Part C.** Across five detectors and ~60 distinct checks, **exactly one fires against the baseline in
-mode (1): `isTrusted`.** Two more become live only if we make ourselves visible: DOM overlays (canvas visualiser,
-`browserExtensions`-style node/attribute probes) and any MAIN-world patching (CreepJS lies/resistance,
-rebrowser mainWorldExecution). Mode (2) clears `isTrusted` and, since M142, also clears the coordinate leak.
-Mode (3) is clean on every check in every file I read — *no detector in this set has any probe for OS-level
-injected input.*
+**Reading.** Across five detectors and ~60 distinct checks, **exactly one fires against the baseline in mode (1): `isTrusted`.** Two more go live only if we make ourselves visible — DOM overlays/nodes/attributes, and any MAIN-world patching. Mode (2) clears `isTrusted` and the coordinate leak. Mode (3) is clean on every check in every file read; **no detector in this set has any probe for OS-level injected input.**
 
 ---
 
 ## Part D — countermeasures and evidence
 
-### D.1 Leaks that CANNOT be closed from inside an extension
+### D.1 What CANNOT be closed from inside an extension
 
-These justify escalation; nothing in the extension API surface can forge them.
-
-| Leak | Why it cannot be closed | Source |
+| Leak | Why | Source |
 |---|---|---|
-| `Event.isTrusted` | `[LegacyUnforgeable] readonly attribute boolean isTrusted` in the DOM IDL; set true only by the UA. Re-dispatching a trusted event makes it untrusted. Camoufox required a **Firefox source patch** (`patches/trusted-automation-events.patch`) to fix exactly this for `select_option`/`fill`/`set_input_files` — see `tests/patches/trusted-events.py` in the repo | [w3c/pointerevents#514](https://github.com/w3c/pointerevents/issues/514); local `repos/camoufox/tests/patches/trusted-events.py` |
-| `navigator.userActivation.isActive` / transient activation | HTML defines an "activation triggering input event" as one *"whose `isTrusted` attribute is true"*. No trusted event ⇒ no transient activation, ever | <https://html.spec.whatwg.org/multipage/interaction.html#user-activation> |
-| Default actions | Since Chrome 53 untrusted events run no default action — no form submit, no link follow, no native scroll from a synthetic `wheel`. `click` is the grandfathered exception | see `trusted-input-and-stealth.md` §5 |
-| `pointerrawupdate` stream | Fired by the UA only, "as soon as possible and as frequently as the JavaScript can handle"; a real mouse produces a dense stream, synthetic input produces none unless we manufacture it (and then it is untrusted) | <https://w3c.github.io/pointerevents/#the-pointerrawupdate-event> |
-| Long-task / LoAF duration from our own work | Extension script attribution is *deliberately* stripped, but the **frame duration is still reported** to the page. `scripts: []` on a 500 ms frame is itself the signature | [MDN LoAF](https://developer.mozilla.org/en-US/docs/Web/API/Performance_API/Long_animation_frame_timing); worked example [w3c/long-animation-frames#10](https://github.com/w3c/long-animation-frames/issues/10) |
+| `Event.isTrusted` | `[LegacyUnforgeable] readonly attribute boolean isTrusted`; set true only by the UA's C++ dispatch path (`EventTarget::DispatchEvent` does `SetTrusted(true)`; `DispatchEventForBindings` does `SetTrusted(false)`) **[S]**. Camoufox needed a **Firefox source patch** (`patches/trusted-automation-events.patch`) for exactly this | [w3c/pointerevents#514](https://github.com/w3c/pointerevents/issues/514); `repos/camoufox/tests/patches/trusted-events.py` |
+| Transient user activation | HTML: an "activation triggering input event" is one *"whose `isTrusted` attribute is true"*. No trusted event ⇒ `navigator.userActivation.isActive` stays false ⇒ ~30 APIs refuse | <https://html.spec.whatwg.org/multipage/interaction.html#user-activation> |
+| `:hover` state | Hover is computed by the renderer's hit-test path, not by DOM dispatch. `dispatchEvent` never updates it, so CSS `:hover` rules and hover-gated UI never apply | <https://stackoverflow.com/questions/17226676/> |
+| `event.timeStamp` provenance | For **input** events the timestamp is the **underlying OS timestamp** rebased to the time origin; for a constructed event it is creation time, and `EventInit` has **no `timestamp` member** ([whatwg/dom#76](https://github.com/whatwg/dom/issues/76) still open). A constructed event's `timeStamp` can never precede its own construction | <https://groups.google.com/a/chromium.org/g/blink-dev/c/hfkkQiuMgkQ> |
+| Default actions | Untrusted events "MUST behave as if `preventDefault()` had been called", **except `click`** (back-compat). No form submit, no link follow, no native scroll from a synthetic `wheel` | <https://www.w3.org/TR/uievents/> |
+| `pointerrawupdate` stream | UA-only, fired "as soon as possible and as frequently as the JavaScript can handle". Real mice produce a dense stream; we produce none (or untrusted ones) | <https://w3c.github.io/pointerevents/> |
+| LoAF/long-task duration from our own work | Extension script attribution is *deliberately* stripped — "extension code will not have script attribution… even if they impact the duration of one" — but the **frame duration is still reported**. `scripts: []` on a 500 ms frame is itself the signature | [MDN LoAF](https://developer.mozilla.org/en-US/docs/Web/API/Performance_API/Long_animation_frame_timing); worked example [w3c/long-animation-frames#10](https://github.com/w3c/long-animation-frames/issues/10) |
 
-**Fakeable, contrary to folklore:** `PointerEvent.pressure`, `tiltX/tiltY`, `twist`, `tangentialPressure`,
-`pointerId`, `pointerType`, `isPrimary`, `width/height`, `coalescedEvents`, `predictedEvents` are **all** settable
-via `PointerEventInit`; `screenX/Y`, `movementX/Y`, `buttons`, `sourceCapabilities` via `MouseEventInit`/`UIEventInit`.
-Defaults are the giveaway, not the fields: `pressure: 0`, `pointerId: 0`, `isPrimary: false`, `pointerType: ""`,
-`coalescedEvents: []` (<https://w3c.github.io/pointerevents/#dom-pointereventinit>). A real mouse is
-`pressure` 0 when no button and **0.5 when a button is down** ("For hardware and platforms that do not support
-pressure, the value MUST be 0.5 when in the active buttons state and 0 otherwise"), `pointerId` 0 or 1,
-`isPrimary: true`, `pointerType: "mouse"`. `event.timeStamp` is **not** settable — it is the construction time,
-which is fine if we dispatch immediately.
+**Fakeable, contrary to folklore.** `PointerEvent.pressure`, `tiltX/Y`, `twist`, `tangentialPressure`, `pointerId`, `pointerType`, `isPrimary`, `width/height`, `coalescedEvents`, `predictedEvents` (all `PointerEventInit`); `screenX/Y`, `movementX/Y`, `buttons` (`MouseEventInit`); and **`sourceCapabilities` — the `InputDeviceCapabilities` constructor is exposed**, so it is settable too. **Defaults are the giveaway, not the fields**: `pressure: 0`, `pointerId: 0`, `isPrimary: false`, `pointerType: ""`, `coalescedEvents: []`. A real mouse is `pointerType:"mouse"`, `isPrimary:true`, `pointerId` 0-or-1, and `pressure` **0.5 while a button is down** ("MUST be 0.5 when in the active buttons state and 0 otherwise" — <https://www.w3.org/TR/pointerevents3/>). Also **stale**: the widely repeated "Chrome always reports `movementX/Y === 0` on PointerEvents" (w3c/pointerevents#131) — that issue **closed 2026-01-12** and MDN marks `MouseEvent.movementX` Baseline newly-available since January 2026.
 
-### D.2 Countermeasures that do work
+### D.2 Countermeasures that work
 
-**Zero extension-fingerprint surface.** Declare no `web_accessible_resources` (closes the exact `chrome-extension://`
-probe LinkedIn runs at 6,167-ID scale); declare no `externally_connectable` (closes `chrome.runtime.sendMessage`
-probing); inject **no CSS** (closes the Laperdrix injected-stylesheet class); create **no DOM nodes and set no
-attributes** on the page (closes the entire `fpscanner/src/signals/browserExtensions.ts` class — every one of its
-eight probes is a node, attribute or global). If the agent needs a visual overlay, render it in the **side panel or
-via CDP `Overlay`**, never in the page. Evidence that the alternative is caught: brotector's `canvasMouseVisualizer`
-(`brotector.js:352-368`) exists specifically to catch cursor-visualiser overlays.
+**Zero extension surface.** No `web_accessible_resources` (closes Sjösten probing *and* Fingerprint.com's `Last-Modified` timestamp leak). No `externally_connectable`. **No CSS injection** — Laperdrix's stated ceiling: "an extension that does not inject CSS rules cannot be fingerprinted through them", and this is exactly the vector Arkose uses against Perplexity Comet. **No `window.postMessage`** — keep all IPC on `chrome.runtime`, which crosses process boundaries and is invisible to the page (Carnus §III-C). **No page-context `fetch`** — route through the service worker, or it lands in the page's Resource Timing buffer (Carnus §III-D). **No page-origin storage writes** — content scripts share the page's `localStorage`/IndexedDB/cookies (Agarwal CCS'24).
 
-**Never touch the MAIN world.** Stay in the isolated world. This closes CreepJS `lies/` and `resistance/`
-(which identifies extensions *only* by main-world patch signatures — `resistance/index.ts:134-475`) and rebrowser's
-`testMainWorldExecution` (`index.js:349`, whose own note says isolated-world execution is "safe and not detectable").
-`world: "MAIN"` in `chrome.scripting.executeScript` or `chrome.userScripts` throws this advantage away.
+**No DOM writes, and no "clean up" either.** Chronos (CCS 2022) records the continuous mutation stream and gets a uniquely-identifying event for 94 % of extensions; **inject-then-remove is more distinctive than persistent**. If the agent needs an overlay, render it in the **side panel** or via CDP `Overlay` — never in the page. brotector's `canvasMouseVisualizer` (`brotector.js:352-368`) exists precisely to catch page-rendered cursor visualisers.
 
-**`document_idle` vs `document_start`.** `document_start` is not directly observable from the page (isolated world),
-but it maximises the window in which our snapshot work collides with the page's own critical path, which is exactly
-what the LoAF channel exposes. `document_idle` costs us early-page control and risks missing SPA mount events.
-**Recommendation: register at `document_start` but do no work until `requestIdleCallback`**, so the observable
-(main-thread occupancy) is deferred even though injection is early.
+**Never touch the MAIN world.** This closes CreepJS `lies/`+`resistance/` (which identifies extensions *only* by main-world patch signatures), rebrowser `testMainWorldExecution`, and Agarwal's entire namespace/stack/API-trace family. `world: "MAIN"` in `chrome.scripting.executeScript` or `chrome.userScripts` forfeits all of it.
 
-**Cheap snapshots.** Never `querySelectorAll('*')` + `getBoundingClientRect()` per node in one pass — that is a
-forced layout of the whole document and reliably a >50 ms frame. Chunk across `requestIdleCallback` with a
-`timeRemaining()` budget; use `IntersectionObserver` for visibility instead of per-node rects; cache and invalidate
-via a `MutationObserver` rather than re-walking. This is the only mitigation for the LoAF channel — it cannot be
-closed, only made small.
+**`document_start` vs `document_idle`.** Injection time is not directly observable (isolated world), but early work maximises collision with the page's critical path — which the LoAF channel *does* expose. **Register at `document_start`, do no work until `requestIdleCallback`.**
 
-**Humanized pointer trajectories — with a correction.** The two models actually shipped in this space:
-- **WindMouse** (Benjamin J. Land): cursor as a mass under constant *gravity* toward the target plus a smoothly
-  varying random *wind* force, with velocity clipped to a random magnitude in `[M₀/2, M₀]` and wind damped by √3
-  near the target — which produces *emergent overshoot-and-correct*. Full algorithm and GPLv3 reference
-  implementation: <https://ben.land/post/2021/04/25/windmouse-human-mouse-movement/>.
-- **Camoufox / HumanCursor**: cubic Bézier through 2 random knots ±80 px of the bounding box, Gaussian distortion,
-  `easeOutQuad` tween, point count `min(150, max(2, length^0.25 · 20))` — `repos/camoufox/additions/camoucfg/MouseTrajectories.hpp:79-215`,
-  ported from `riflosnake/HumanCursor` (`humancursor/utilities/human_curve_generator.py`).
+**Cheap snapshots.** Never `querySelectorAll('*')` + per-node `getBoundingClientRect()` in one pass — that is a whole-document forced layout and reliably a >50 ms frame. Chunk under `requestIdleCallback` with a `timeRemaining()` budget, use `IntersectionObserver` for visibility instead of per-node rects, cache and invalidate via `MutationObserver`. This is the only mitigation for LoAF; it cannot be closed, only made small.
 
-  **Three flaws worth naming.** (a) The distortion is applied to **y only** — `distorted.push_back({x, y + delta})`,
-  line ~172 — so the noise is axis-asymmetric, a trivially learnable artefact. (b) `easeOutQuad` gives a
-  **monotonically decreasing** speed profile, whereas human ballistic movement is bell-shaped (accelerate, then
-  decelerate) with discrete corrective submovements. (c) Cloudflare's Precursor post **names "mathematically ideal
-  Bézier curves" as a bot signature** <https://blog.cloudflare.com/introducing-precursor/>. **Prefer WindMouse's
-  force model, or minimum-jerk with explicit corrective submovements, over a Bézier.**
+**Pointer realism.** Emit the full cortège for a click on an unhovered element: `pointerover → pointerenter → mouseover → mouseenter → (pointermove → mousemove)* → pointerdown → mousedown → focus → pointerup → mouseup → click`, plus `pointerout/leave` on exit. The spec does not mandate the interleaving ("the relative order of some of these high-level events… is undefined and varies between user agents"), so exact order is a weak signal — a **missing** `pointerover`/`mouseover` is a strong one. Sample moves at **60-125 Hz** (8-16 ms `timeStamp` deltas); set `movementX/Y` to the true per-step delta; set `screenX/Y = clientX + window.screenX` (+ chrome offset) so `pageX != screenX`; `pressure` 0.5 while `buttons != 0`; `pointerId: 1`, `isPrimary: true`, `pointerType: "mouse"`; **populate `coalescedEvents`** — a trusted `pointermove` always returns ≥1, so an empty list is a tell (<https://w3c.github.io/pointerevents/#dom-pointerevent-getcoalescedevents>).
 
-**Realistic event cortège.** For a click on an element not currently hovered, emit in order:
-`pointerover → pointerenter → mouseover → mouseenter → (pointermove → mousemove)* → pointerdown → mousedown →
-focus → pointerup → mouseup → click`, and `pointerout/pointerleave/mouseout/mouseleave` on exit. The spec does not
-*mandate* the interleaving ("the relative order of some of these high-level events… is undefined and varies between
-user agents", <https://w3c.github.io/pointerevents/#mapping-for-devices-that-support-hover>), so exact order is a
-weak signal — but a **missing** `pointerover`/`mouseover` entirely is a strong one. Sample `mousemove` at
-60–125 Hz (8–16 ms `timeStamp` deltas), set `movementX/Y` to the true per-step delta, set `screenX/Y` =
-`clientX + window.screenX` (+ chrome offset) so `pageX != screenX`, set `pressure` 0.5 while `buttons != 0`,
-`pointerId: 1`, `isPrimary: true`, `pointerType: "mouse"`, and populate `coalescedEvents` on `pointermove`
-(a trusted `pointermove` **always** returns ≥1 coalesced event; an empty list is a tell —
-<https://w3c.github.io/pointerevents/#dom-pointerevent-getcoalescedevents>).
+**Trajectories — prefer force models over Bézier.** Camoufox/HumanCursor is a cubic Bézier through 2 random knots ±80 px, Gaussian distortion, `easeOutQuad` tween, point count `min(150, max(2, length^0.25·20))` (`repos/camoufox/additions/camoucfg/MouseTrajectories.hpp:79-215`). **Three flaws:** (a) the distortion is applied to **y only** — `distorted.push_back({x, y + delta})`, ~line 172 — so the noise is axis-asymmetric and trivially learnable; (b) `easeOutQuad` gives a **monotonically decreasing** speed profile, whereas human ballistic movement is bell-shaped with discrete corrective submovements (Flash & Hogan; Meyer et al.); (c) Cloudflare names Bézier curves as a bot signature. Prefer **WindMouse**'s gravity+wind force model (which produces *emergent* overshoot-and-correct, <https://ben.land/post/2021/04/25/windmouse-human-mouse-movement/>) or minimum-jerk with explicit submovements — but note the hard truth from Choudhary et al.: **shape is not what gets caught; event rate and missing intermediate samples are.** Density first, curve second.
 
-**Typing.** Per-key latency drawn from a positively-skewed distribution (log-normal), digraph-dependent rather than
-i.i.d., with occasional backspace-correction sequences and pauses at word/field boundaries; full
-`keydown → keypress/beforeinput → input → keyup` per character rather than setting `.value`. Note Cloudflare's
-Precursor cross-check: **"keyboard events only fire when a text field is focused"** — so never emit key events
-without a real focus change first.
+**Typing.** Log-normal per-key latencies, digraph-conditioned rather than i.i.d., occasional backspace corrections, pauses at word and field boundaries; full `keydown → beforeinput → input → keyup` per character rather than setting `.value`. Honour Precursor's cross-check — **"keyboard events only fire when a text field is focused"** — so never emit key events without a real focus change first.
 
-**Scrolling.** Real scroll is not reachable from synthetic `wheel` (no default action). From a content script the
-honest option is `Element.scrollTo({behavior:'smooth'})` / `scrollBy`, which produces genuine `scroll` events and
-real momentum, plus a synthetic `wheel` for handlers that listen for one. Under `chrome.debugger`,
-`Input.dispatchMouseEvent{type:"mouseWheel"}` gives the real thing.
+**Scrolling.** Real scroll is unreachable from a synthetic `wheel` (no default action). From a content script use `Element.scrollTo({behavior:'smooth'})`, which produces genuine `scroll` events and real momentum, plus a synthetic `wheel` for handlers that listen for one. Under `chrome.debugger`, `Input.dispatchMouseEvent{type:"mouseWheel"}` gives the real thing.
 
-**Session cadence.** Precursor and Akamai both score at session level, and Precursor explicitly says refreshing
-does not reset the signature. Throttle navigation to human intervals, keep dwell time proportional to page content,
-avoid a navigation graph that is a perfect BFS/DFS, and do not act during `document.hidden`.
+**Session cadence.** Precursor and Akamai both score at session level, and Precursor says refreshing does not reset the signature. Throttle navigation to human intervals, keep dwell proportional to content, avoid a perfect BFS/DFS navigation graph, never act while `document.hidden`. Akamai additionally detects **replay of previously validated telemetry**, so never reuse a recorded trace.
 
-**`chrome.debugger` escalation — the current cost.** The infobar is created by `ExtensionDevToolsClientHost::Attach()`,
-is a `GlobalConfirmInfoBar` shown **on every tab in every window**, does not expire on navigation
-(`ShouldExpire()` returns false), and is removed **5 s after the last detach** (`kAutoCloseDelay`). It is suppressed
-only by `--silent-debugger-extension-api` or `Manifest::IsPolicyLocation()` (policy-installed extensions)
-— all read from Chromium source and corroborated across four independent reports
-(<https://github.com/microsoft/amplifier-browser-bridge/blob/main/docs/DEBUGGER_BANNER.md>,
-<https://stackoverflow.com/questions/78420135/>, <https://docs.uipath.com/studio-web/automation-cloud/latest/user-guide/debugging-banner-notification-after-extension-upgrade-to-manifest-v3>).
-Google documents none of it. **The detection consequence** is the layout effect: an infobar shrinks the web-contents
-area, so `window.innerHeight` drops and a `resize` fires at attach, restoring ~5 s after detach — an unexplained
-shrink/restore correlated with agent activity. Corroborated for the `--enable-automation` infobar in
-[lighthouse#12988](https://github.com/GoogleChrome/lighthouse/issues/12988); the `chrome.debugger` case is
-**[inf]** by the same mechanism, not directly measured. Mitigation: attach **once** for a whole task rather than
-per action (one shrink, not N), or accept the flag and keep the session short.
+### D.3 The `chrome.debugger` escalation, priced accurately (M155 source)
 
-**What escalation buys, as of M142+.** crbug#1477537 — CDP `screenX == clientX` — was fixed by
-[CL 6917162](https://chromium-review.googlesource.com/c/chromium/src/+/6917162), *"Fix screen coordinates to avoid
-automation detection"*, **MERGED into `chromium/src` main 2025-09-15** (verified via the Gerrit REST API), landing
-~M142; stable is now 152. CDP Input also now emits coalesced events. The maintainers of CDP-Patches — the tool
-built to work around this — now say **"There is no reason to use this package anymore, except for Select Elements"**
-(<https://github.com/Kaliiiiiiiiii-Vinyzu/CDP-Patches>). brotector's `Input.cordinatesLeak` check
-(`brotector.js:319-350`, dated 2024-12) is therefore **stale against current Chrome**.
+- **`navigator.webdriver` is unaffected.** `Navigator::webdriver()` returns true only if `RuntimeEnabledFeatures::AutomationControlledEnabled()`, set only by `--enable-automation`, `--headless`, `--remote-debugging-pipe`, and `--remote-debugging-port=0` *specifically* **[S]**. Nothing in the attach path touches it. Caveat: any CDP client, ours included, can opt *in* via `Emulation.setAutomationOverride(true)` — **never call it.**
+- **`isTrusted` is genuinely true.** `input_handler.cc` forwards through `RenderWidgetHostImpl::ForwardMouseEvent` / `ForwardKeyboardEventWithCommands`, the same entry points as OS input; trust is a property of *who dispatches* **[S]**. Chromium engineers confirm `chrome.debugger` is the **only** extension API that can emit `isTrusted=true`.
+- **The `screenX==clientX` leak is FIXED in current main.** [CL 6917162](https://chromium-review.googlesource.com/c/chromium/src/+/6917162), *"Fix screen coordinates to avoid automation detection… This prevents a common automation detection fingerprint where screenX/Y and clientX/Y are identical"*, bug 40280325, **MERGED 2025-09-15** at `main@{#1515705}` (verified via the Gerrit REST API). In today's `input_handler.cc` the helper `CreateWebMouseEvent` still writes `SetPositionInScreen(PositionInWidget())` at line 506, but the actual dispatch path `InputHandler::OnWidgetForDispatchMouseEvent` **overwrites it** at line 1641-1642 with `ConvertWidgetPointToScreenPoint(target, point)` **[S]** — I read the current file to resolve this. CDP Input also now emits coalesced events, and CDP-Patches' maintainers now say **"There is no reason to use this package anymore, except for Select Elements"**. brotector's `Input.cordinatesLeak` check is **stale against current Chrome.**
+- **One live artifact remains: `pressure === 0`.** `input_handler.cc:499` does `mouse_event->force = force.value_or(0)` and nothing overrides it; Blink's `GetPointerEventPressure` returns 0.5 only when force is **NaN**, which is what real OS input leaves. So a CDP `mousePressed` yields **`pressure === 0` with `buttons != 0`** — a spec violation and a one-line detection **[S]**. **Fix: always pass `force: 0.5` on `mousePressed`/`mouseMoved` with buttons down.** (`Input.dispatchTouchEvent` is fine — TouchPoint force defaults to 1.0.)
+- **Keyboard has a documented gap.** `rawKeyDown` fires only `keydown`; for `keyDown` the fallthrough to `kChar` is gated on `text[0] != 0`, so **no `keypress`, no `beforeinput`/`input`, and no text inserted unless `text` is set**. `key`/`code`/`keyCode` are taken verbatim — Chromium does *not* derive them from a layout, so an inconsistent triple is a client bug a detector can see **[S]**.
+- **Every CDP event carries `WebInputEvent::kFromDebugger`**, but **no path exposes that bit to JS** — it maps to no `getModifierState()` key **[S]**.
+- **The infobar is the real cost.** `IDS_DEV_TOOLS_INFOBAR_LABEL` = `"$1" started debugging this browser`; sole creation site `ExtensionDevToolsClientHost::Attach()`; it is a `GlobalConfirmInfoBar` — **one bar per extension, on every tab of every window**; `ShouldExpire()` returns false (navigation does not dismiss); removed `kAutoCloseDelay = 5 s` after the last detach; the single Cancel button detaches all that extension's sessions. Suppressed only by `--silent-debugger-extension-api` **or** `Manifest::IsPolicyLocation()` — a policy force-installed extension uses CDP **with no visible indication at all**. Google documents none of it **[S]**, <https://github.com/microsoft/amplifier-browser-bridge/blob/main/docs/DEBUGGER_BANNER.md>. **Detection consequence:** `BrowserViewLayout::LayoutInfoBar` sets `content_top = infobar_top + infobar_height`, so the render widget shrinks — **`innerHeight` drops while `outerHeight` is unchanged, and `resize` fires**, restoring ~5 s after detach. Height is `DISTANCE_INFOBAR_HEIGHT = 32 + 2·12 = 56 dp` **[S, source-derived, unmeasured]**. **Mitigation: attach once per task, not per action — one shrink, not N.**
 
 ---
 
@@ -367,61 +212,44 @@ built to work around this — now say **"There is no reason to use this package 
 
 | # | Leak | Who checks it | Applies to baseline? | Countermeasure | Residual risk |
 |---|---|---|---|---|---|
-| 1 | `Event.isTrusted === false` | brotector `brotector.js:341` (score 1.0); Cloudflare Precursor event-coherence evaluators **[V]**; app-level `e.isTrusted` guards | **YES, mode (1)** | **Cannot be fixed in-extension.** `chrome.debugger` `Input` domain, or OS-level input | None once escalated; escalation costs the infobar |
-| 2 | No transient user activation at click (`navigator.userActivation.isActive`) | HTML spec makes it free to check; ~30 gated APIs fail visibly | **YES, mode (1)** | Same escalation. In mode (1), avoid every activation-gated flow | None once escalated |
-| 3 | Behavioural: trajectory shape, timing, session coherence | Cloudflare **Precursor** (names Bézier curves) **[V]**; Akamai telemetry patent US12101350B2 **[V]**; DataDome slider **[V]**; Akamai telemetry-replay detection | **YES, all modes** | WindMouse-style force model (not Bézier), bell-shaped velocity + corrective submovements, isotropic noise, log-normal key latencies, focus-before-typing, human navigation cadence | **High and irreducible.** This is where a determined vendor wins; budget for detection here |
-| 4 | LoAF / long-task with `scripts: []` | Any page, 5 lines of `PerformanceObserver`. Not known to be used by a vendor **[inf]** | **YES, all modes** | Chunk snapshots under `requestIdleCallback`, `IntersectionObserver` over per-node rects, MutationObserver-driven caching | Cannot be closed, only shrunk. Low current exploitation |
-| 5 | DOM side effects from overlays / injected nodes, attributes, globals | fpscanner `signals/browserExtensions.ts`; brotector `canvasMouseVisualizer` `:352-368`; Castle **[V]**; LinkedIn Spectroscopy **[R]** | **Only if we render into the page** | Zero DOM writes; overlay in side panel or CDP `Overlay` | None if the rule holds; needs a lint/CI guard |
-| 6 | `chrome.debugger` infobar → `innerHeight` shrink + `resize` | No vendor confirmed; mechanism corroborated **[inf]** | **Only mode (2)** | Attach once per task not per action; or `--silent-debugger-extension-api` / policy install (both change the user's security posture) | Moderate; unmeasured |
-| 7 | Pointer realism: `pressure`, `pointerId`, `isPrimary`, empty `getCoalescedEvents()`, absent `pointerrawupdate`, `pageX==screenX` | brotector `:319-350`; CDP-Patches writeup **[R]** | **YES, mode (1)** if defaults are left alone | Set every `PointerEventInit`/`MouseEventInit` field explicitly; populate `coalescedEvents`; emit `pointerrawupdate` | Low — all fields are fakeable except trust |
-| 8 | `web_accessible_resources` / `externally_connectable` probing | LinkedIn (6,167 IDs) **[R]**; Chrome docs acknowledge **[V]**; Sjösten/Karami lineage **[A]** | **NO** if we declare neither | Declare neither; `use_dynamic_url: true` if ever needed | None |
-| 9 | Injected stylesheet fingerprinting | Laperdrix et al., "Fingerprinting in Style" **[A]** | **NO** if we inject no CSS | Inject no CSS | None |
-| 10 | MAIN-world native patching signature | CreepJS `lies/index.ts`, `resistance/index.ts:134-475`; rebrowser `index.js:349` | **NO** — isolated world | Never use `world: "MAIN"` | None if the rule holds |
-| 11 | `Runtime.enable` / `Console.enable` CDP serialisation leak | DataDome **[V]**, Castle **[R]**, rebrowser, brotector, fpscanner `signals/cdp.ts` | **NO** — attach sends no commands **[S]**; and largely patched May 2025 | Enable only `Input` (+ `DOM` for geometry) | None |
-| 12 | `navigator.webdriver`, `cdc_*`, `__pwInitScripts`, headless UA/PDF/viewport, stack markers | 34 % of sites probe `webdriver` **[A]**; every detector in Part C | **NO** — real Chrome, no flags | Nothing needed. This is the baseline's structural win | None |
-| 13 | TLS JA3/JA4, HTTP/2 SETTINGS + pseudo-header order, HTTP/3, header order, Client Hints | Cloudflare **[V]**, Akamai **[V]**, DataDome **[V]** | **NO** — real Chrome network stack | Nothing needed. Do not proxy through a non-Chrome HTTP client | None, provided no request is ever made outside the tab's own stack |
-| 14 | Fingerprint-consistency (UA vs platform vs GPU vs fonts vs TZ vs CH, worker/iframe mismatch) | fpscanner `detections/*`, CreepJS, DataDome Picasso **[V]** | **NO** — genuinely consistent | Never spoof anything. Spoofing *creates* this leak | None |
+| 1 | `Event.isTrusted === false` | brotector `brotector.js:341` (1.0); Cloudflare Precursor event-coherence **[V]**; app-level `e.isTrusted` guards | **YES, mode (1)** | **Cannot be fixed in-extension.** `chrome.debugger` `Input`, or OS-level input | None once escalated |
+| 2 | No transient activation at click; `:hover` never updates; default actions suppressed | HTML/UIEvents spec — free to check; ~30 gated APIs fail visibly | **YES, mode (1)** | Same escalation; in mode (1) avoid every activation-gated flow | None once escalated |
+| 3 | Behaviour: event **rate**, teleport clicks, trajectory kinematics, session coherence | Choudhary 2026 (2 features, 100 % recall) **[A]**; BeCAPTCHA-Mouse 93 % single-trajectory **[A]**; Cloudflare Precursor **[V]**; Akamai US12101350B2 + telemetry-replay detection **[V]**; HUMAN US12287873B2 10-bit inter-event timing **[V]**; Imperva/Distil US10,068,075 **[V]** | **YES, all modes** | Dense correctly-coalesced move stream at 60-125 Hz; force-model (not Bézier) trajectory; isotropic noise; bell-shaped velocity + corrective submovements; log-normal key latencies; focus before typing; human navigation cadence; never replay a trace | **High and irreducible.** DMTG's ceiling is a 4.75-9.73 % accuracy reduction. Budget for detection here |
+| 4 | DOM mutation — **including transient** — and injected nodes/attributes/globals/CSS | Chronos CCS'22 (94 %) **[A]**; Carnus **[A]**; XHOUND **[A]**; Arkose `browser_detection_comet()` **[R]**; fpscanner `signals/browserExtensions.ts`; brotector `:352-368`; Castle **[V]** | **YES** the moment we act on the page | Zero DOM writes for snapshots; overlay in side panel or CDP `Overlay`; no CSS; **do not "clean up" — not mutating is the only win** | Moderate-high. Yields "an extension is present", not "this agent" — unless someone builds our signature |
+| 5 | LoAF / long task with `scripts: []` | Any page, 5 lines of `PerformanceObserver`. No vendor confirmed **[inf]**; no academic coverage of isolated-world timing | **YES, all modes** | Chunk under `requestIdleCallback`; `IntersectionObserver` over per-node rects; MutationObserver-driven cache | Cannot be closed, only shrunk. Low current exploitation |
+| 6 | CDP `pressure === 0` with buttons down | Spec-violating; anyone reading `PointerEvent.pressure` | **Only mode (2)** | Pass `force: 0.5` on every `mousePressed` / buttons-down move | None once fixed |
+| 7 | `chrome.debugger` infobar → 56 dp `innerHeight` shrink + `resize` | No vendor confirmed; mechanism read from source **[S]** | **Only mode (2)** | Attach once per task; or `--silent-debugger-extension-api` / policy install (both change user security posture) | Moderate; unmeasured |
+| 8 | Pointer field realism: `pointerType:""`, `isPrimary:false`, `pointerId:0`, empty `getCoalescedEvents()`, absent `pointerrawupdate`, `pageX==screenX` | brotector `:319-350`; CDP-Patches **[R]**; MickeyJS/FCaptcha **[?]** | **YES, mode (1)** if defaults are left alone | Set every init-dict field explicitly; populate `coalescedEvents` | Low — all fakeable except trust |
+| 9 | `postMessage` harvesting; page-context fetch in Resource Timing; page-origin storage writes | Carnus NDSS'20 §III-C/D **[A]**; Agarwal CCS'24 **[A]** | **Only if we do them** | `chrome.runtime` IPC only; fetch from the service worker; never write page-origin storage | None if the rules hold |
+| 10 | `web_accessible_resources` probing + `Last-Modified` install-timestamp leak | LinkedIn 6,167 IDs **[R]**; Sjösten CODASPY'17 **[A]**; Fingerprint.com **[V]**; Chrome docs **[V]** | **NO** if we declare none | Declare none; `use_dynamic_url: true` if ever needed | None |
+| 11 | Injected-stylesheet fingerprinting | Laperdrix USENIX'21 **[A]**; Arkose Comet detector **[R]** | **NO** if we inject none | Inject none. Spec-ceiling is explicit | None |
+| 12 | MAIN-world patching signature / namespace / API-trace pollution | CreepJS `lies/`, `resistance/index.ts:134-475`; rebrowser `index.js:349`; Agarwal CCS'24 **[A]** | **NO** — isolated world | Never `world: "MAIN"`, never inject a `<script>` | None if the rule holds |
+| 13 | `Runtime.enable` / `Console.enable` serialisation leak | DataDome **[V]**, Castle **[R]**, Arkose `cdpCheck` **[R]**, fpscanner `signals/cdp.ts`, brotector, rebrowser | **NO** — attach sends no commands **[S]**; largely patched May 2025 | Enable only `Input` (+ `DOM` for geometry) | None |
+| 14 | `navigator.webdriver`, `cdc_*`, `__pwInitScripts`, headless UA/PDF/viewport, stack markers | 34 % of sites probe `webdriver` **[A]**; every detector in Part C | **NO** — real Chrome, no flags | Nothing needed. Structural win | None |
+| 15 | TLS JA3/JA4, HTTP/2 SETTINGS + pseudo-header order, HTTP/3, header order, Client Hints | Cloudflare **[V]**, Akamai **[V]**, DataDome **[V]**, Arkose `ja4_hash` **[V]** | **NO** — real Chrome network stack | Nothing needed. Never proxy through a non-Chrome HTTP client | None, provided every request uses the tab's own stack |
+| 16 | Fingerprint consistency (UA/platform/GPU/fonts/TZ/CH; worker & iframe parity; temporal stability) | fpscanner `detections/*`; CreepJS; DataDome Picasso **[V]**; Arkose `math_fingerprint`/`feFake*` **[R]**; FP-Inconsistent **[A]** | **NO** — genuinely consistent and stable | Never spoof anything. Spoofing *creates* this leak | None |
 
 ---
 
 ## Recommendation
 
-1. **Do not spoof anything.** The baseline's entire advantage is that rows 12-14 — the majority of what every vendor
-   actually measures, and the only part they all document — are true. Every fingerprint override, UA string change
-   or proxied fetch converts a passing check into a failing one.
-2. **Treat `chrome.debugger` + `Input` as the default mode on protected sites, not the fallback.** It closes rows
-   1, 2 and 7 completely, and since M142 it introduces no coordinate or coalesced-event artefact of its own. The
-   remaining cost is one infobar, which is a *user-visible* cost, not a *detection* cost, except via the viewport
-   shrink — mitigated by attaching once per task.
-3. **Mode (1) is for unprotected sites only.** Synthetic events are fine for reading, for sites with no bot vendor,
-   and for actions with no `isTrusted` guard — but any site running Cloudflare, DataDome, Akamai, Kasada or a
-   home-grown `e.isTrusted` check sees mode (1) immediately and at zero cost to itself.
-4. **Enforce three invariants in CI**: no `web_accessible_resources`, no `externally_connectable`, no
-   `world: "MAIN"`, and no DOM writes to the page from the content script. Each is one grep; each closes a whole
-   detector family (rows 5, 8, 9, 10).
-5. **Budget real engineering for row 3 and row 4** — behaviour and main-thread occupancy. They are the two leaks
-   that survive every architectural choice, and Cloudflare's Precursor (July 2026) is the vendor that has moved
-   furthest toward exploiting the first.
-6. **Do not build on a Bézier humanizer.** Cloudflare names it. Use WindMouse's force model or a minimum-jerk
-   model with corrective submovements, and make the noise isotropic (Camoufox's is y-only).
-7. **Re-verify quarterly.** Two of the most-cited facts in this space went stale within twelve months: the
-   `Runtime.enable` leak (dead May 2025) and the CDP coordinate leak (dead September 2025). Assume the next one is
-   already stale.
+1. **Spoof nothing.** Rows 14-16 — the majority of what every vendor documents — pass because they are true. Fayolle et al. and Fp-Scanner both conclude the anti-detect layer is a stronger signal than what it hides. Every UA override, fingerprint patch or non-Chrome fetch converts a passing check into a failing one.
+2. **Make `chrome.debugger` + `Input` the default on protected sites, not the fallback.** It closes rows 1, 2 and 8 completely, and since CL 6917162 introduces no coordinate or coalesced-event artifact of its own. Pass `force: 0.5` (row 6), never enable `Runtime`/`Console`, never call `Emulation.setAutomationOverride`, and attach **once per task** to make the infobar's viewport shrink a single event rather than a rhythm.
+3. **Mode (1) is for unprotected sites only** — reading, sites with no bot vendor, actions with no `isTrusted` guard. Any site running Cloudflare, DataDome, Akamai, Kasada, HUMAN, Arkose or a home-grown `e.isTrusted` check sees mode (1) instantly and for free.
+4. **Enforce six invariants in CI**, each one grep, each closing a whole family (rows 9-12): no `web_accessible_resources`; no `externally_connectable`; no `world: "MAIN"` and no injected `<script>`; no CSS injection; no `window.postMessage`; no page-context `fetch` and no page-origin storage writes.
+5. **Treat "don't mutate the page" as an architectural requirement, not a nicety** (row 4). Chronos means transient mutation is worse than none, so there is no "inject and clean up" middle ground. Read the DOM; render elsewhere.
+6. **Spend the behaviour budget on event density, not curve beauty** (row 3). Choudhary et al. is the most uncomfortable result in this survey: real human trajectory *replay* failed to evade a two-feature detector, because the miss was sample rate and teleport clicks. Emit a dense, coalesced, monotonically-timestamped stream before optimising the path.
+7. **If R-02 is genuinely top-ranked, price OS-level input.** It is the only option that closes row 1 *and* row 7 simultaneously, no published technique recovers provenance from page JS, and no detector read here even probes for it. The cost is host privileges outside the extension sandbox — a large trust and architecture decision, not a small one.
+8. **Re-verify quarterly.** Two of the most-cited facts here went stale within twelve months: the `Runtime.enable` leak (dead May 2025) and the CDP coordinate leak (dead September 2025). Assume the next one already is.
 
 ## Unverified
 
-- **Which Chrome milestone** carried the May 2025 V8 error-preview fix. Commit dates only; "M138" is inference.
-- **Whether the `chrome.debugger` infobar measurably changes `window.innerHeight`.** Mechanism is sound and the
-  `--enable-automation` case is corroborated, but I did not measure the debugger case, and per instruction did not
-  run anything against a live browser.
-- **Whether any commercial vendor detects `chrome.debugger` attachment specifically.** No evidence found; all
-  published evidence targets `Runtime.enable`, which is a *command*, not attachment.
-- **Whether Akamai/Kasada/DataDome do extension detection.** Only single-source blog claims; not corroborated.
-  Castle and LinkedIn are the only confirmed practitioners.
-- **Turnstile PoW parameters**, Akamai `sensor_data` grammar, Kasada payload cipher — all reconstruction. A large,
-  self-citing cluster of 2025-2026 SEO/AI-generated "anti-bot internals" posts asserts precise numbers with no
-  primary basis; none of those numbers appear above.
-- **Whether populating `coalescedEvents` on a synthetic `pointermove` is actually checked by anyone.** Spec-derived
-  signal, no observed use.
-- **Detectability of OS-level injected input (uinput/libei) from inside a browser.** No probe for it exists in any
-  of the five detectors read, and I found no literature. Absence of evidence only.
+- **Which Chrome milestone** carried the May 2025 V8 error-preview fix. Branch dates give M138; no vendor confirmation.
+- **The two claimed 2026 bypasses** of that fix (prototype-chain getter; `console.groupEnd` + prototype Proxy). Single author, not independently reproduced.
+- **Whether the `chrome.debugger` infobar measurably changes `innerHeight` on a real 2026 Chrome.** Mechanism and the 56 dp figure are read from source; no measurement exists and, per instruction, I ran nothing against a live browser.
+- **Whether CDP-dispatched pointer events populate `movementX/Y`** post the January 2026 spec change. Needs a live check.
+- **The exact pointer cortège CDP emits.** The dispatch entry point is verified from source; the emitted ordering is inferred from it, not separately observed.
+- **Whether any vendor detects `chrome.debugger` attachment specifically.** No evidence; all published evidence targets `Runtime.enable`, a *command*, not attachment.
+- **HUMAN's extension-detection mechanism** (documented as a capability, nowhere described) and **Imperva's client-side signal list** (their doc portal is now JS-rendered and unfetchable).
+- **Turnstile PoW parameters, Akamai `sensor_data` grammar, Kasada's payload cipher** — all reconstruction. A large, self-citing cluster of 2025-2026 machine-generated "anti-bot internals" posts asserts precise numbers with no primary basis; none of those numbers appear above.
+- **Detectability of OS-level injected input from a page.** No probe exists in any of the five detectors read and no literature exists. Absence of evidence only — a vendor with a large labeled corpus still works in kinematics space, where the 93-99 % numbers of B.3 live.
