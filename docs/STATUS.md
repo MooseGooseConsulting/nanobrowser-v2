@@ -63,7 +63,7 @@ own vitest config; it is **not** part of the root `pnpm test` run.
 | Item | Status | Implementing file(s) | Proving test(s) | Notes |
 | --- | --- | --- | --- | --- |
 | **A-01** Tests cover the requirements above | partial | all `*.test.ts(x)` under `src/`, `tests/`, plus `host/test/` | `pnpm test`: 39 files, 1158 tests, then 4 stealth invariants | Every R and C item has at least one named proving test. The gaps are the two partial investigations (I-01 measurement, I-02 site evidence) and the fact that nothing has ever run against a real browser or a real model. |
-| **Live e2e** (real Chrome, real host, Hyperagent) | done | `host/bin/nb-run`, `src/runtime/worker.ts` (dev trigger), `entrypoints/background.ts` | Terminal output pasted under "Live e2e evidence" below; host run log `~/.local/share/nanobrowser/runs/run-mtm338dy-a0e8242e.jsonl` | Ran 2026-09-03 in the user's real Chrome 152 (default profile, logged in) against hyperagent.com with `observe=dom`, `inputFidelity=in-page`. Read-only task completed in one Follower step from a 1443-token snapshot. Models for this run were paid (`deepseek/deepseek-v3.2` Leader, `z-ai/glm-5.3-flash` Follower) because the loaded build still sent `data_collection:"deny"`, which excludes every `:free` endpoint (first attempt, `run-mtm2coon-54484f60`, ended `error 404 No endpoints found matching your data policy`); fixed in `src/agent/models.ts` (`dataCollectionFor`), free-model rerun pending an extension reload. |
+| **Live e2e** (real Chrome, real host, Hyperagent) | done | `host/bin/nb-run`, `src/runtime/worker.ts` (dev trigger), `entrypoints/background.ts` | Terminal output pasted under "Live e2e evidence" below; host run log `~/.local/share/nanobrowser/runs/run-mtm338dy-a0e8242e.jsonl` | Ran 2026-09-03 in the user's real Chrome 152 (default profile, logged in) against hyperagent.com with `observe=dom`, `inputFidelity=in-page`. Read-only task completed in one Follower step from a 1443-token snapshot. Models for this run were paid (`deepseek/deepseek-v3.2` Leader, `z-ai/glm-5.3-flash` Follower) because the loaded build still sent `data_collection:"deny"`, which excludes every `:free` endpoint (first attempt, `run-mtm2coon-54484f60`, ended `error 404 No endpoints found matching your data policy`); fixed in `src/agent/models.ts` (`dataCollectionFor`), free-model rerun done (see Run 3 below). |
 
 ## Deviations and assumptions
 
@@ -148,3 +148,37 @@ Run 1 (`run-mtm2coon-54484f60`, same prompt, `nvidia/nemotron-3-ultra-550b-a55b:
 ```
 
 Cause and fix recorded in the Live e2e row above.
+
+Run 3 (free models, unattended loop, 2026-09-03 23:11Z): `scripts/e2e.sh` did `pnpm build` → `nb-reload`
+(extension self-reload via the host, new host pid) → `nb-status` → `nb-run` with
+`nvidia/nemotron-3-ultra-550b-a55b:free` (Leader) and `nvidia/nemotron-3.5-lightning:free` (Follower),
+`observe=dom`, `inputFidelity=in-page`. Stream saved to `runs/e2e-20260903T231115Z.jsonl` (gitignored).
+
+```
+=== result
+run.ended.status = done
+=== done summary
+The three most recent threads from the Threads sidebar are: (1) "Vast.ai GPU Rental Data Reconciliation …" – status: Investigated live. (2) "Server Price Discovery via Scraping …" – status: Built and root-caused. (3) "DDR4 Server and Rack Recommendations …" – status: Researched and priced.
+=== extension errors during this run
+(none)
+```
+
+14 events: `input.fidelity → run.started → step → tool.call(set_plan) → tool.result → leader.plan → handoff → step → observation(1440 tokens) → tool.call(done) → tool.result → follower.signal(SUBGOAL_COMPLETE) → run.ended(done, 1 step) → run.end`.
+
+Quality note, not a pipeline fault: the free Follower reported the three cards in the main "Recent threads"
+section rather than the sidebar list, and invented "statuses" from the card descriptions. The paid run
+(Run 2) read the sidebar correctly and reported the real "Waiting for your input" badges, which my
+independent read of the page (Claude-in-Chrome) confirmed. Free Nemotron is good enough to drive the
+loop; it is not as accurate on this task as the paid pair.
+
+Between Run 2 and Run 3 two failures were found and fixed: the free endpoint intermittently answers
+HTTP 200 with a body lacking `choices` (LangChain died with "reading 'message'"); `hardenOpenRouterFetch`
+in `src/agent/models.ts` now rewrites error-in-200 bodies into real statuses so the SDK retries
+(`maxRetries: 4`). Run-attempt `run-mtm4m1vo-be8ca635` is that failure, recorded in the host runs dir.
+
+## Unattended testing loop
+
+One manual `Load unpacked` was needed once. From then on: `scripts/e2e.sh` (build → self-reload →
+status → run → assert → extension errors) runs with nobody at the keyboard. `host/bin/nb-logs` shows
+worker/panel errors forwarded to `~/.local/share/nanobrowser/ext.log`; `host/bin/nb-reload` reloads the
+extension from disk on demand.
