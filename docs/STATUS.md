@@ -63,7 +63,7 @@ own vitest config; it is **not** part of the root `pnpm test` run.
 | Item | Status | Implementing file(s) | Proving test(s) | Notes |
 | --- | --- | --- | --- | --- |
 | **A-01** Tests cover the requirements above | partial | all `*.test.ts(x)` under `src/`, `tests/`, plus `host/test/` | `pnpm test`: 39 files, 1158 tests, then 4 stealth invariants | Every R and C item has at least one named proving test. The gaps are the two partial investigations (I-01 measurement, I-02 site evidence) and the fact that nothing has ever run against a real browser or a real model. |
-| **Live e2e** (real Chrome, real host, Hyperagent) | pending: run by the orchestrator | `docs/research/live-testing-real-chrome.md`, `host/bin/nb-run` | — | Not attempted here: this task drove no browser and called no LLM. This is the run that would turn R-02 and R-13 from "argued" into "observed" and give I-02 its first real data point. |
+| **Live e2e** (real Chrome, real host, Hyperagent) | done | `host/bin/nb-run`, `src/runtime/worker.ts` (dev trigger), `entrypoints/background.ts` | Terminal output pasted under "Live e2e evidence" below; host run log `~/.local/share/nanobrowser/runs/run-mtm338dy-a0e8242e.jsonl` | Ran 2026-09-03 in the user's real Chrome 152 (default profile, logged in) against hyperagent.com with `observe=dom`, `inputFidelity=in-page`. Read-only task completed in one Follower step from a 1443-token snapshot. Models for this run were paid (`deepseek/deepseek-v3.2` Leader, `z-ai/glm-5.3-flash` Follower) because the loaded build still sent `data_collection:"deny"`, which excludes every `:free` endpoint (first attempt, `run-mtm2coon-54484f60`, ended `error 404 No endpoints found matching your data policy`); fixed in `src/agent/models.ts` (`dataCollectionFor`), free-model rerun pending an extension reload. |
 
 ## Deviations and assumptions
 
@@ -110,3 +110,41 @@ recorded here. None of them changed `REQUIREMENTS.md`.
     whose `type` is `run.end`, while every contract event is keyed by `kind`. The worker
     therefore appends one extra host-only `{ type: 'run.end', … }` record when a
     dev-triggered run finishes. No contract variant was added for this.
+
+
+## Live e2e evidence
+
+Run 2 (after the host connection-flag fix). Trigger from the CLI over the host's dev socket; every line
+below is a run-log event streamed back from the extension, verbatim (long lines cut at 400 chars).
+
+```
+$ ./host/bin/nb-run "Read-only task. Look at the Threads sidebar on this Hyperagent page and report the titles and statuses of the 3 most recent threads. ..." \
+    --option leaderModel=deepseek/deepseek-v3.2 --option followerModel=z-ai/glm-5.3-flash \
+    --option observe=dom --option inputFidelity=in-page --option maxSteps=12 --option planningInterval=4
+runId=run-mtm338dy-a0e8242e
+{"kind":"input.fidelity","fidelity":"in-page","attached":false,"at":1788473743418}
+{"kind":"run.started","runId":"run-mtm338dy-a0e8242e","prompt":"Read-only task. ...","config":{"leaderModel":"deepsee…
+{"kind":"step","n":0,"role":"leader","at":1788473743432}
+{"kind":"tool.call","role":"leader","call":{"callId":"31032932e49f4bbf96faf5f9dc8ec59c","name":"set_plan","args":{"plan":"First locate the Threads sidebar on the Hyperagent page. If it's collapsed, click to expand it to reveal the list of threads. Then identify the 3 most recent threads, read their titles and statuses, and report them.","subgoals":["Locate the Threads sidebar on the page","Expand …
+{"kind":"tool.result","role":"leader","result":{"callId":"31032932e49f4bbf96faf5f9dc8ec59c","name":"set_plan","ok":true,"summary":"plan recorded: …","durationMs":1},"at":1788473750337}
+{"kind":"leader.plan","plan":"First locate the Threads sidebar on the Hyperagent page. …","subgoals":[…],"replan":false,"at":1788473750337}
+{"kind":"handoff","from":"leader","to":"follower","reason":"plan set; follower starts on subgoal 0","at":1788473750337}
+{"kind":"step","n":1,"role":"follower","at":1788473750359}
+{"kind":"observation","mode":"dom","tokens":1443,"hasScreenshot":false,"at":1788473750382}
+{"kind":"model.text","role":"follower","text":"The Threads sidebar is already expanded (the \"Collapse threads\" button shows expanded=true), so the list is fully visible without any clicks. The three most recent threads appear at the top of the sidebar list, each with its status shown inline.","at":1788473809123}
+{"kind":"tool.call","role":"follower","call":{"callId":"call-bc1a0a27-7ddb-4cf5-a2b9-526c30e9a962","name":"done","args":{"summary":"Located the Threads sidebar (already expanded, no clicks needed). The 3 most recent threads are: 1) \"google-stitch-ui-designer Thread\" — Waiting for your input; 2) \"UPS Selection for Network Gear\" — Waiting for your input; 3) \"SFF PC and eGPU Feasibility Analysis\" — Waiting for your input. Read-only; nothing was created, sent, edited, or deleted."}},"at":1788473809123}
+{"kind":"tool.result","role":"follower","result":{"callId":"call-bc1a0a27-7ddb-4cf5-a2b9-526c30e9a962","name":"done","ok":true,"summary":"Located the Threads sidebar …","durationMs":0}}
+{"kind":"follower.signal","signal":"SUBGOAL_COMPLETE","note":"Sidebar visible; three most recent threads and statuses captured.","at":1788473809123}
+{"kind":"run.ended","status":"done","message":"objective complete","steps":1,"at":1788473809155}
+{"type":"run.end","runId":"run-mtm338dy-a0e8242e","status":"done","message":"objective complete","steps":1,"at":1788473809155}
+```
+
+Host-side run log: `~/.local/share/nanobrowser/runs/run-mtm338dy-a0e8242e.jsonl`, 16 lines, zero occurrences of `sk-or` (R-12).
+
+Run 1 (`run-mtm2coon-54484f60`, same prompt, `nvidia/nemotron-3-ultra-550b-a55b:free` / `nvidia/nemotron-3.5-lightning:free`):
+
+```
+{"kind":"run.ended","status":"error","message":"404 No endpoints found matching your data policy (Free model training). Configure: https://openrouter.ai/settings/privacy ...","steps":0}
+```
+
+Cause and fix recorded in the Live e2e row above.
