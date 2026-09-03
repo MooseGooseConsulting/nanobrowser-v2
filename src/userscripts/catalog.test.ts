@@ -1,0 +1,131 @@
+import { beforeEach, describe, expect, it } from 'vitest';
+import { fakeBrowser } from 'wxt/testing/fake-browser';
+import {
+  clearUserscripts,
+  deleteUserscript,
+  getUserscript,
+  listUserscripts,
+  saveUserscript,
+  seedDefaults,
+  userscriptsItem,
+  validateUserscript,
+} from './catalog';
+import { HYPERAGENT_OBSERVE } from './examples';
+
+const draft = {
+  name: '  observe  ',
+  matches: ['*://hyperagent.com/*'],
+  code: 'return 1;',
+};
+
+describe('userscript catalog', () => {
+  beforeEach(() => {
+    fakeBrowser.reset();
+  });
+
+  it('starts empty', async () => {
+    await expect(listUserscripts()).resolves.toEqual([]);
+  });
+
+  it('creates with a generated uuid, a trimmed name, and a timestamp', async () => {
+    const saved = await saveUserscript(draft, () => 1234);
+
+    expect(saved.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(saved.name).toBe('observe');
+    expect(saved.updatedAt).toBe(1234);
+    await expect(listUserscripts()).resolves.toEqual([saved]);
+    await expect(getUserscript(saved.id)).resolves.toEqual(saved);
+  });
+
+  it('replaces in place on a known id and keeps list order', async () => {
+    const first = await saveUserscript({ ...draft, name: 'first' });
+    const second = await saveUserscript({ ...draft, name: 'second' });
+    const edited = await saveUserscript({ ...first, code: 'return 2;' });
+
+    const stored = await listUserscripts();
+    expect(stored.map((script) => script.id)).toEqual([first.id, second.id]);
+    expect(stored[0]!.code).toBe('return 2;');
+    expect(edited.id).toBe(first.id);
+  });
+
+  it('deletes, and reports whether anything was removed', async () => {
+    const saved = await saveUserscript(draft);
+    await expect(deleteUserscript('nope')).resolves.toBe(false);
+    await expect(deleteUserscript(saved.id)).resolves.toBe(true);
+    await expect(listUserscripts()).resolves.toEqual([]);
+  });
+
+  describe('validation', () => {
+    it('rejects an empty name', () => {
+      const result = validateUserscript({ ...draft, name: '   ' });
+      expect(result.ok).toBe(false);
+      expect(result.ok === false && result.errors).toContain('name must not be empty');
+    });
+
+    it('rejects empty code', () => {
+      const result = validateUserscript({ ...draft, code: '\n \n' });
+      expect(result.ok).toBe(false);
+      expect(result.ok === false && result.errors).toContain('code must not be empty');
+    });
+
+    it('rejects an empty allow-list', () => {
+      const result = validateUserscript({ ...draft, matches: [] });
+      expect(result.ok).toBe(false);
+      expect(result.ok === false && result.errors[0]).toMatch(/at least one match pattern/);
+    });
+
+    it('rejects a malformed match pattern', () => {
+      const result = validateUserscript({ ...draft, matches: ['*://hyperagent.com'] });
+      expect(result.ok).toBe(false);
+      expect(result.ok === false && result.errors[0]).toMatch(/invalid match pattern/);
+    });
+
+    it('refuses to store an invalid script', async () => {
+      await expect(saveUserscript({ ...draft, name: '' })).rejects.toThrow(/invalid userscript/);
+      await expect(listUserscripts()).resolves.toEqual([]);
+    });
+  });
+
+  describe('seedDefaults', () => {
+    it('installs the bundled hyperagent example into an empty catalog', async () => {
+      const seeded = await seedDefaults(() => 99);
+
+      expect(seeded).toHaveLength(1);
+      expect(seeded[0]!).toMatchObject({
+        name: 'hyperagent-observe',
+        matches: ['*://hyperagent.com/*', '*://www.hyperagent.com/*'],
+        updatedAt: 99,
+      });
+      expect(seeded[0]!.code).toBe(HYPERAGENT_OBSERVE.code);
+      expect(seeded[0]!.id).not.toBe('');
+      await expect(listUserscripts()).resolves.toEqual(seeded);
+    });
+
+    it('does nothing when the catalog already has scripts', async () => {
+      const mine = await saveUserscript(draft);
+
+      await expect(seedDefaults()).resolves.toEqual([mine]);
+      await expect(listUserscripts()).resolves.toEqual([mine]);
+    });
+
+    it('is idempotent across repeated calls', async () => {
+      const first = await seedDefaults();
+      const second = await seedDefaults();
+
+      expect(second).toEqual(first);
+      await expect(listUserscripts()).resolves.toHaveLength(1);
+    });
+
+    it('seeds a script the runner will accept for hyperagent.com', async () => {
+      const [example] = await seedDefaults();
+      const check = validateUserscript(example!);
+      expect(check.ok).toBe(true);
+    });
+  });
+
+  it('clears back to the fallback', async () => {
+    await saveUserscript(draft);
+    await clearUserscripts();
+    await expect(userscriptsItem.getValue()).resolves.toEqual([]);
+  });
+});
