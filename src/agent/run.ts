@@ -153,10 +153,13 @@ export function startRun(options: StartRunOptions): RunHandle {
           break;
         }
         if (isGraphDrained(error)) {
-          emit({ kind: 'run.paused', at: Date.now() });
-          await new Promise<void>((resolve) => {
+          // Arm the gate before announcing the pause: a caller that calls
+          // resume() synchronously from its onEvent handler must not deadlock.
+          const gate = new Promise<void>((resolve) => {
             releasePause = resolve;
           });
+          emit({ kind: 'run.paused', at: Date.now() });
+          await gate;
           releasePause = undefined;
           if (controller.signal.aborted) {
             ended = {
