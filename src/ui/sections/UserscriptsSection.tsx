@@ -1,0 +1,230 @@
+import { useEffect, useState } from 'react';
+import type { Userscript, UserscriptRunResult } from '@/src/messaging';
+import { Button } from '../components/Button';
+import { Card, Field, Section } from '../components/Card';
+import { ConfirmButton } from '../components/ConfirmButton';
+import { cn } from '../lib/cn';
+import { formatDuration, prettyJson } from '../runlog/format';
+import { isWaiting, type AreaStatus } from '../state/status';
+
+const BLANK = (): Userscript => ({
+  id: `script-${Date.now().toString(36)}`,
+  name: 'new script',
+  matches: ['*://*/*'],
+  code: '// Runs in the page. The return value and console output come back below.\nreturn document.title;\n',
+  updatedAt: Date.now(),
+});
+
+const LEVEL_CLASS: Record<'log' | 'warn' | 'error', string> = {
+  log: 'text-ink',
+  warn: 'text-amber-700 dark:text-amber-300',
+  error: 'text-rose-700 dark:text-rose-300',
+};
+
+/**
+ * Execute and debug userscripts live (R-09/R-10). Run sends whatever is in the editor
+ * right now — not the last saved copy — so edit-and-re-run needs no save step (O-03).
+ */
+export function UserscriptsSection({
+  scripts,
+  scriptsStatus,
+  result,
+  runStatus,
+  onSave,
+  onRun,
+  onDelete,
+  onRefresh,
+}: {
+  scripts: Userscript[];
+  scriptsStatus: AreaStatus;
+  result?: UserscriptRunResult;
+  runStatus: AreaStatus;
+  onSave: (script: Userscript) => void;
+  onRun: (scriptId: string, code: string) => void;
+  onDelete: (id: string) => void;
+  onRefresh: () => void;
+}) {
+  const [draft, setDraft] = useState<Userscript>(BLANK);
+  const [dirty, setDirty] = useState(false);
+
+  // Adopt a stored script the first time the list arrives, unless the user is mid-edit.
+  useEffect(() => {
+    if (dirty) return;
+    const match = scripts.find((script) => script.id === draft.id);
+    if (match) {
+      setDraft(match);
+      return;
+    }
+    const first = scripts[0];
+    if (first) setDraft(first);
+  }, [scripts, dirty, draft.id]);
+
+  const edit = (patch: Partial<Userscript>) => {
+    setDirty(true);
+    setDraft((prev) => ({ ...prev, ...patch }));
+  };
+
+  const select = (script: Userscript) => {
+    setDirty(false);
+    setDraft(script);
+  };
+
+  return (
+    <div className="space-y-4">
+      <Section
+        title="Scripts"
+        actions={
+          <span className="flex gap-1">
+            <Button variant="ghost" onClick={onRefresh}>
+              reload
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setDirty(true);
+                setDraft(BLANK());
+              }}
+            >
+              new
+            </Button>
+          </span>
+        }
+        hint={
+          isWaiting(scriptsStatus)
+            ? 'Waiting for the worker to send the script list.'
+            : scripts.length === 0
+              ? 'No saved scripts yet.'
+              : undefined
+        }
+      >
+        {scripts.length > 0 ? (
+          <ul className="divide-y divide-line overflow-hidden rounded-md border border-line">
+            {scripts.map((script) => (
+              <li key={script.id} className="flex items-center gap-1 bg-surface px-2 py-1">
+                <button
+                  type="button"
+                  onClick={() => select(script)}
+                  aria-current={script.id === draft.id}
+                  className={cn(
+                    'min-w-0 flex-1 truncate text-left text-xs outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                    script.id === draft.id ? 'font-semibold text-ink' : 'text-muted',
+                  )}
+                >
+                  {script.name}
+                  <span className="ml-1 text-[10px] text-muted">{script.matches.join(' ')}</span>
+                </button>
+                <ConfirmButton label="delete" onConfirm={() => onDelete(script.id)} />
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </Section>
+
+      <Section
+        title="Editor"
+        actions={
+          <span className="flex gap-1">
+            <Button
+              onClick={() => {
+                onSave({ ...draft, updatedAt: Date.now() });
+                setDirty(false);
+              }}
+            >
+              Save
+            </Button>
+            <Button variant="primary" onClick={() => onRun(draft.id, draft.code)}>
+              Run
+            </Button>
+          </span>
+        }
+        hint={dirty ? 'Unsaved — Run still uses exactly what is in the editor.' : undefined}
+      >
+        <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Name" htmlFor="script-name">
+              <input
+                id="script-name"
+                value={draft.name}
+                onChange={(event) => edit({ name: event.target.value })}
+                className="w-full rounded-md border border-line bg-paper px-2 py-1.5 text-xs text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              />
+            </Field>
+            <Field label="Matches" htmlFor="script-matches" hint="Space-separated match patterns.">
+              <input
+                id="script-matches"
+                value={draft.matches.join(' ')}
+                onChange={(event) =>
+                  edit({ matches: event.target.value.split(/\s+/).filter(Boolean) })
+                }
+                className="w-full rounded-md border border-line bg-paper px-2 py-1.5 font-mono text-[11px] text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              />
+            </Field>
+          </div>
+          <Field label="Code" htmlFor="script-code">
+            <textarea
+              id="script-code"
+              rows={10}
+              spellCheck={false}
+              value={draft.code}
+              onChange={(event) => edit({ code: event.target.value })}
+              className="w-full resize-y rounded-md border border-line bg-paper px-2 py-1.5 font-mono text-[11px] leading-snug text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            />
+          </Field>
+        </div>
+      </Section>
+
+      <Section title="Result">
+        {runStatus === 'waiting' ? (
+          <p className="text-[11px] text-muted">Waiting for the worker to run the script…</p>
+        ) : !result ? (
+          <p className="text-[11px] text-muted">Run a script to see its value, errors and console.</p>
+        ) : (
+          <Card className="space-y-2 p-2">
+            <p className="flex items-center gap-1.5 text-[11px] text-muted">
+              <span
+                className={cn(
+                  'rounded border px-1.5 py-px text-[10px] font-medium',
+                  result.ok
+                    ? 'border-emerald-500/40 bg-emerald-500/12 text-emerald-700 dark:text-emerald-300'
+                    : 'border-rose-500/40 bg-rose-500/12 text-rose-700 dark:text-rose-300',
+                )}
+              >
+                {result.ok ? 'ok' : 'error'}
+              </span>
+              <span className="tabular-nums">{formatDuration(result.durationMs)}</span>
+              <span className="font-mono">{result.scriptId}</span>
+            </p>
+            {result.error ? (
+              <pre data-testid="script-error" className="rounded bg-rose-500/10 p-2 font-mono text-[11px] text-rose-700 dark:text-rose-300">
+                {result.error}
+              </pre>
+            ) : null}
+            <div>
+              <p className="text-[10px] font-semibold tracking-wide text-muted uppercase">Value</p>
+              <pre data-testid="script-value" className="mt-1 rounded bg-raised p-2 font-mono text-[11px] text-ink">
+                {prettyJson(result.value)}
+              </pre>
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold tracking-wide text-muted uppercase">Console</p>
+              {result.console.length === 0 ? (
+                <p className="text-[11px] text-muted">nothing logged</p>
+              ) : (
+                <ul data-testid="script-console" className="mt-1 space-y-0.5">
+                  {result.console.map((line, index) => (
+                    <li
+                      key={`${index}-${line.at}`}
+                      className={cn('font-mono text-[11px] break-words', LEVEL_CLASS[line.level])}
+                    >
+                      <span className="text-muted">[{line.level}]</span> {line.text}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </Card>
+        )}
+      </Section>
+    </div>
+  );
+}
