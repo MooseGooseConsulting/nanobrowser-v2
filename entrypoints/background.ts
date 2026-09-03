@@ -32,6 +32,9 @@ export default defineBackground(() => {
   });
 
   const host = new HostClient();
+  // Connect eagerly: the dev trigger (docs/host-protocol.md) pushes `run.start` with the
+  // panel closed, and an open native port keeps this worker alive (Chrome 105+).
+  host.connect();
   const hostFetch = createHostFetch(host);
   const driver = new PageDriver();
 
