@@ -12,15 +12,23 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@langchain/core": "1.2.9",
+    "@langchain/langgraph": "1.4.13",
+    "@langchain/langgraph-checkpoint": "1.1.5",
+    "@langchain/openai": "1.5.11",
+    "idb": "^8.0.3",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
+    "@langchain/langgraph-checkpoint-validation": "1.1.1",
     "@tailwindcss/vite": "4.3.3",
     "@types/chrome": "0.2.8",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.4",
     "@wxt-dev/module-react": "1.2.2",
+    "fake-indexeddb": "^6.2.5",
     "tailwindcss": "4.3.3",
     "typescript": "5.9.3",
     "vite": "8.2.2",
