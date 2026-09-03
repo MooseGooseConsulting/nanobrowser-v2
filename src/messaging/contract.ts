@@ -98,6 +98,12 @@ export interface PanelToWorker {
   'userscript.save': Userscript;
   'userscript.delete': { id: string };
   'runlog.replay': { runId: RunId };
+  /**
+   * A panel-side diagnostic, relayed by the worker to the native host's ext.log
+   * (docs/host-protocol.md). The panel has no native port of its own, and its errors
+   * are otherwise only visible in a DevTools window nobody has open.
+   */
+  'log.append': { level: 'error' | 'warn' | 'info'; source: 'worker' | 'panel'; message: string; stack?: string; at: number };
 }
 
 /** Service worker -> side panel. `type` on the wire is the key. */

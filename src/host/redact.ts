@@ -15,7 +15,13 @@ const BEARER_RE = /Bearer\s+\S+/g;
 /** A base64 image data URL, as a screenshot would appear inline in an event. */
 const SCREENSHOT_DATA_URL_RE = /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g;
 
-function redactString(value: string): string {
+/**
+ * The one string scrubber. `redactEvent` walks a run event with it; the error
+ * forwarder (src/runtime/errorLog.ts) runs it over a message and a stack, so a key
+ * that lands in an exception is stripped by exactly the same rules as one in a tool
+ * argument -- there is no second, weaker definition of "redacted" anywhere.
+ */
+export function redactText(value: string): string {
   return value
     .replace(SCREENSHOT_DATA_URL_RE, SCREENSHOT_OMITTED)
     .replace(OPENROUTER_KEY_RE, REDACTED)
@@ -23,7 +29,7 @@ function redactString(value: string): string {
 }
 
 function redactValue(value: unknown): unknown {
-  if (typeof value === 'string') return redactString(value);
+  if (typeof value === 'string') return redactText(value);
   if (Array.isArray(value)) return value.map(redactValue);
   if (value !== null && typeof value === 'object') {
     const out: Record<string, unknown> = {};

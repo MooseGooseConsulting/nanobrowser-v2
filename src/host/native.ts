@@ -12,8 +12,8 @@
  * keyed by message id, and a streaming subscription registry for `llm.*` events
  * keyed by request id.
  */
-import type { ModelInfo, Readiness, RunEvent } from '@/src/messaging';
-import { redactEvent } from './redact';
+import type { ModelInfo, PanelToWorker, Readiness, RunEvent } from '@/src/messaging';
+import { redactEvent, redactText } from './redact';
 
 export const HOST_NAME = 'com.nanobrowser.host';
 
@@ -55,7 +55,21 @@ export interface RunLogAppendMsg {
   event: unknown;
 }
 
-export type HostRequestMsg = KeyStatusMsg | ModelsListMsg | LlmRequestMsg | LlmAbortMsg | RunLogAppendMsg;
+/** One extension-side diagnostic line. Same shape as the panel's `log.append` payload. */
+export type ExtLogEntry = PanelToWorker['log.append'];
+
+export interface LogAppendMsg extends ExtLogEntry {
+  type: 'log.append';
+  id?: string;
+}
+
+export type HostRequestMsg =
+  | KeyStatusMsg
+  | ModelsListMsg
+  | LlmRequestMsg
+  | LlmAbortMsg
+  | RunLogAppendMsg
+  | LogAppendMsg;
 
 /* ---------------- wire: host -> extension ---------------- */
 
@@ -127,6 +141,17 @@ export interface RunStartMsg {
   options?: Record<string, unknown>;
 }
 
+export interface LogAckMsg {
+  type: 'log.ack';
+  id?: string;
+  ok: true;
+}
+
+/** Host-pushed self-reload for the dev loop; the worker answers with `chrome.runtime.reload()`. */
+export interface ExtReloadMsg {
+  type: 'ext.reload';
+}
+
 export interface ErrorMsg {
   type: 'error';
   id?: string;
@@ -143,6 +168,8 @@ export type HostResponseMsg =
   | LlmErrorMsg
   | RunLogAckMsg
   | RunStartMsg
+  | LogAckMsg
+  | ExtReloadMsg
   | ErrorMsg;
 
 /** Rejection thrown by the correlator when the host replies with a generic `error`. */
@@ -311,6 +338,7 @@ export class HostClient {
   readonly #pending = new Map<string, Pending>();
   readonly #llmStreams = new Map<string, LlmStreamHandlers>();
   readonly #runStartHandlers = new Set<(msg: RunStartMsg) => void>();
+  readonly #extReloadHandlers = new Set<() => void>();
 
   constructor(portFactory: () => NativePortApi = () => ChromeNativePort.connect()) {
     this.#portFactory = portFactory;
@@ -373,6 +401,29 @@ export class HostClient {
     this.#port?.postMessage({ type: 'runlog.append', runId, event: redactEvent(event) });
   }
 
+  /**
+   * Fire-and-forget diagnostic to the host's ext.log. Redacted here as well as in the
+   * host: R-12 makes stripping secrets the extension's job on the way out.
+   *
+   * Never awaits and never throws -- this is called from an error handler, and a
+   * forwarder that can fail would turn one error into two.
+   */
+  appendLog(entry: ExtLogEntry): void {
+    try {
+      this.connect();
+      this.#port?.postMessage({
+        type: 'log.append',
+        level: entry.level,
+        source: entry.source,
+        message: redactText(entry.message),
+        ...(entry.stack ? { stack: redactText(entry.stack) } : {}),
+        at: entry.at,
+      });
+    } catch {
+      /* the host is not reachable; the console still has the original */
+    }
+  }
+
   /** Sends `llm.abort` for a request id. Unknown ids are a silent no-op on the host side. */
   abortLlm(id: string): void {
     if (!this.#port) return;
@@ -407,6 +458,13 @@ export class HostClient {
     this.connect();
     this.#runStartHandlers.add(handler);
     return () => this.#runStartHandlers.delete(handler);
+  }
+
+  /** Registers a handler for host-pushed `ext.reload` (the dev loop). Returns an unsubscribe. */
+  onExtReload(handler: () => void): () => void {
+    this.connect();
+    this.#extReloadHandlers.add(handler);
+    return () => this.#extReloadHandlers.delete(handler);
   }
 
   #call<T extends HostResponseMsg>(msg: HostRequestMsg & { id: string }): Promise<T> {
@@ -467,6 +525,15 @@ export class HostClient {
         for (const handler of [...this.#runStartHandlers]) handler(msg);
         return;
       }
+
+      case 'ext.reload': {
+        for (const handler of [...this.#extReloadHandlers]) handler();
+        return;
+      }
+
+      case 'log.ack':
+        // Fire-and-forget on the way out; nothing is waiting on the ack.
+        return;
     }
   }
 

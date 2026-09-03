@@ -16,6 +16,7 @@ import {
   type HubInbound,
   type HubOutbound,
 } from '@/src/messaging';
+import { installErrorForwarding } from '@/src/runtime';
 import type { Config } from '@/src/storage';
 import { getLastRunId, setLastRunId } from '@/src/ui/state/lastRun';
 import { initialRunLogState, runLogReducer, type RunLogState } from '@/src/ui/state/runlog';
@@ -133,6 +134,16 @@ export function usePanel(): PanelApi {
     }
     channelRef.current = channel;
 
+    // The panel has no native port of its own, so its errors ride the worker channel to
+    // the host's ext.log (docs/host-protocol.md). Without this a panel exception is
+    // invisible to an unattended run.
+    const uninstallErrorForwarding = installErrorForwarding({
+      source: 'panel',
+      target: window,
+      console,
+      send: (entry) => channelRef.current?.send('log.append', entry),
+    });
+
     const silenceTimer = setTimeout(() => setWorkerSilent(true), SILENCE_MS);
     const seenWorker = () => {
       clearTimeout(silenceTimer);
@@ -219,6 +230,7 @@ export function usePanel(): PanelApi {
     return () => {
       clearTimeout(silenceTimer);
       clearInterval(heartbeat);
+      uninstallErrorForwarding();
       channelRef.current = null;
       channel?.close();
     };

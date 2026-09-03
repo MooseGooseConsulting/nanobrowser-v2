@@ -28,6 +28,7 @@ import {
   type WorkerToPanelMessage,
 } from '@/src/messaging';
 import type { Config, InputFidelity, ObserveMode } from '@/src/storage';
+import type { ExtLogEntry } from './errorLog';
 import { handleUserscriptMessage as defaultHandleUserscript } from '@/src/userscripts';
 import type { HostRunEndEvent, StartOptions, StartResult } from './runManager';
 
@@ -52,6 +53,8 @@ export interface HostPort {
   listModels(): Promise<ModelInfo[]>;
   appendRunLog(runId: string, event: RunEvent | HostRunEndEvent): void;
   onRunStart(handler: (msg: DevRunStart) => void): () => void;
+  appendLog(entry: ExtLogEntry): void;
+  onExtReload(handler: () => void): () => void;
 }
 
 /** The slice of `RunManager` the worker uses. */
@@ -76,6 +79,12 @@ export interface WorkerDeps {
   extensionVersion?: string;
   modelsCacheMs?: number;
   now?: () => number;
+  /**
+   * Seam over `chrome.runtime.reload()`, which re-reads an unpacked extension from disk.
+   * A seam and not a direct call: a test that actually reloaded would take the runner
+   * with it, and this is the one line of the dev loop that cannot be exercised for real.
+   */
+  reloadExtension?: () => void;
 }
 
 export interface Worker {
@@ -101,6 +110,7 @@ const PANEL_TYPES: ReadonlySet<string> = new Set<keyof PanelToWorker>([
   'userscript.save',
   'userscript.delete',
   'runlog.replay',
+  'log.append',
 ]);
 
 function asPanelMessage(envelope: Envelope<unknown>): PanelToWorkerMessage | undefined {
@@ -214,6 +224,10 @@ export function createWorker(deps: WorkerDeps): Worker {
         reply(channel, { type: 'runlog.replay', payload: { runId, events: deps.runManager.replay(runId) } });
         return;
       }
+      case 'log.append':
+        // The panel has no native port; the worker is its only route to ext.log.
+        deps.host.appendLog(message.payload);
+        return;
       case 'userscript.run':
       case 'userscript.list':
       case 'userscript.save':
@@ -304,6 +318,24 @@ export function createWorker(deps: WorkerDeps): Worker {
     void devRun(msg);
   });
 
+  /**
+   * The host-pushed self-reload. This tears the service worker down mid-call, so nothing
+   * after it runs -- which is also why the host answers its socket client before pushing.
+   */
+  const unsubscribeReload = deps.host.onExtReload(() => {
+    const reload = deps.reloadExtension ?? (() => chrome.runtime.reload());
+    try {
+      reload();
+    } catch (error) {
+      deps.host.appendLog({
+        level: 'error',
+        source: 'worker',
+        message: `ext.reload failed: ${describe(error)}`,
+        at: now(),
+      });
+    }
+  });
+
   return {
     connect,
     get panelCount() {
@@ -312,6 +344,7 @@ export function createWorker(deps: WorkerDeps): Worker {
     dispose() {
       unsubscribeRuns();
       unsubscribeHost();
+      unsubscribeReload();
     },
   };
 }

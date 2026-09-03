@@ -15,7 +15,7 @@ import { HostClient, createHostFetch } from '@/src/host';
 import { PageDriver } from '@/src/page';
 import { getConfig } from '@/src/storage';
 import { getUserscript, runUserscript, seedDefaults } from '@/src/userscripts';
-import { RunManager, chromeTabsPort, createWorker } from '@/src/runtime';
+import { RunManager, chromeTabsPort, createWorker, installErrorForwarding } from '@/src/runtime';
 import { setLastRunId } from '@/src/ui/state/lastRun';
 
 export default defineBackground(() => {
@@ -32,6 +32,14 @@ export default defineBackground(() => {
   });
 
   const host = new HostClient();
+  // Before anything else can throw: worker errors are otherwise only visible on the
+  // chrome://extensions page, which no unattended run is watching (docs/host-protocol.md).
+  installErrorForwarding({
+    source: 'worker',
+    target: self,
+    console,
+    send: (entry) => host.appendLog(entry),
+  });
   // Connect eagerly: the dev trigger (docs/host-protocol.md) pushes `run.start` with the
   // panel closed, and an open native port keeps this worker alive (Chrome 105+).
   host.connect();

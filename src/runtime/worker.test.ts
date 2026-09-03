@@ -20,6 +20,7 @@ import {
 import type { Config } from '@/src/storage';
 import { FakeChatModel } from '@/src/agent/models';
 import type { RunEndedEvent, RunHandle, StartRunOptions } from '@/src/agent/run';
+import type { ExtLogEntry } from './errorLog';
 import { RunManager } from './runManager';
 import type { RuntimeDriver } from './pageTools';
 import {
@@ -107,6 +108,8 @@ class FakeHost implements HostPort {
   modelsError: Error | undefined;
   readiness: Readiness = { hostConnected: true, keyReady: true };
   devTrigger: ((msg: DevRunStart) => void) | undefined;
+  reloadTrigger: (() => void) | undefined;
+  readonly logs: ExtLogEntry[] = [];
 
   async keyStatus(): Promise<Readiness> {
     return this.readiness;
@@ -123,6 +126,15 @@ class FakeHost implements HostPort {
     this.devTrigger = handler;
     return () => {
       this.devTrigger = undefined;
+    };
+  }
+  appendLog(entry: ExtLogEntry): void {
+    this.logs.push(entry);
+  }
+  onExtReload(handler: () => void): () => void {
+    this.reloadTrigger = handler;
+    return () => {
+      this.reloadTrigger = undefined;
     };
   }
 }
@@ -145,7 +157,11 @@ interface Harness {
 }
 
 function harness(
-  options: { handleUserscript?: Parameters<typeof createWorker>[0]['handleUserscript']; tabUrl?: string } = {},
+  options: {
+    handleUserscript?: Parameters<typeof createWorker>[0]['handleUserscript'];
+    tabUrl?: string;
+    reloadExtension?: () => void;
+  } = {},
 ): Harness {
   const host = new FakeHost();
   const scripted = scriptedStart();
@@ -170,6 +186,7 @@ function harness(
     extensionVersion: '9.9.9',
     now: () => now.value,
     ...(options.handleUserscript ? { handleUserscript: options.handleUserscript } : {}),
+    ...(options.reloadExtension ? { reloadExtension: options.reloadExtension } : {}),
   });
 
   return {
@@ -409,6 +426,54 @@ describe('createWorker: dev trigger', () => {
     await settle();
     expect(h.host.log.at(-1)?.event).toMatchObject({ type: 'run.end', status: 'error' });
     expect(h.navigated).toEqual([]);
+  });
+});
+
+describe('ext.reload (the dev self-reload)', () => {
+  it('calls the reload seam when the host pushes ext.reload', () => {
+    const reload = vi.fn();
+    const h = harness({ reloadExtension: reload });
+    expect(reload).not.toHaveBeenCalled();
+    h.host.reloadTrigger?.();
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('forwards a reload failure to ext.log instead of throwing at the host', () => {
+    const h = harness({
+      reloadExtension: () => {
+        throw new Error('not allowed here');
+      },
+    });
+    expect(() => h.host.reloadTrigger?.()).not.toThrow();
+    expect(h.host.logs).toEqual([
+      { level: 'error', source: 'worker', message: 'ext.reload failed: not allowed here', at: 1_000 },
+    ]);
+  });
+
+  it('drops the subscription on dispose', () => {
+    const reload = vi.fn();
+    const h = harness({ reloadExtension: reload });
+    h.worker.dispose();
+    h.host.reloadTrigger?.();
+    expect(reload).not.toHaveBeenCalled();
+  });
+});
+
+describe('log.append relay', () => {
+  it('relays a panel diagnostic to the host, unchanged', () => {
+    const h = harness();
+    const panel = h.connect();
+    const entry = { level: 'error' as const, source: 'panel' as const, message: 'panel blew up', stack: 'at x', at: 7 };
+    panel.send('log.append', entry);
+    expect(h.host.logs).toEqual([entry]);
+  });
+
+  it('sends no reply, so a forwarded error cannot start a message ping-pong', () => {
+    const h = harness();
+    const panel = h.connect();
+    const before = panel.sent.length;
+    panel.send('log.append', { level: 'warn', source: 'panel', message: 'careful', at: 8 });
+    expect(panel.sent.length).toBe(before);
   });
 });
 
