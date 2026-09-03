@@ -30,6 +30,9 @@ export default defineConfig({
       'userScripts',
       'nativeMessaging',
       'debugger',
+      // Follower tool `download` (O-05's assumption): chrome.downloads is otherwise absent
+      // and PageDriver.download refuses with a clear error.
+      'downloads',
     ],
     host_permissions: ['<all_urls>'],
     side_panel: {
