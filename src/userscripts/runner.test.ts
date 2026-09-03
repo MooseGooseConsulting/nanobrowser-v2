@@ -1,0 +1,277 @@
+// @vitest-environment jsdom
+import { beforeEach, describe, expect, it } from 'vitest';
+import type { Userscript } from '@/src/messaging';
+import {
+  MAX_CONSOLE_LINES,
+  WRAPPER_LINE_OFFSET,
+  detectChromeMajorVersion,
+  isAvailable,
+  parseErrorLocation,
+  resetWorldConfiguration,
+  runUserscript,
+  wrapUserscript,
+} from './runner';
+import { availableEnv, vmUserScriptsApi } from './testing';
+
+function script(code: string, matches = ['*://hyperagent.com/*']): Userscript {
+  return { id: 'script-1', name: 'probe', matches, code, updatedAt: 0 };
+}
+
+const URL_IN_SCOPE = 'https://hyperagent.com/threads';
+
+describe('runUserscript', () => {
+  beforeEach(() => {
+    resetWorldConfiguration();
+  });
+
+  it('injects into the USER_SCRIPT world, immediately, in the named tab', async () => {
+    const api = vmUserScriptsApi();
+    await runUserscript({ tabId: 7, script: script('return 1;'), url: URL_IN_SCOPE, api });
+
+    expect(api.injections).toHaveLength(1);
+    const injection = api.injections[0]!;
+    expect(injection.world).toBe('USER_SCRIPT');
+    expect(injection.injectImmediately).toBe(true);
+    expect(injection.target).toEqual({ tabId: 7 });
+    expect(injection.js[0].code).toContain('return 1;');
+  });
+
+  it('configures the world once, with messaging off and the default CSP', async () => {
+    const api = vmUserScriptsApi();
+    await runUserscript({ tabId: 1, script: script('return 1;'), url: URL_IN_SCOPE, api });
+    await runUserscript({ tabId: 1, script: script('return 2;'), url: URL_IN_SCOPE, api });
+
+    expect(api.worldConfigs).toEqual([{ messaging: false, csp: undefined }]);
+  });
+
+  it('returns the script value and the captured console lines', async () => {
+    const api = vmUserScriptsApi();
+    const result = await runUserscript({
+      tabId: 1,
+      url: URL_IN_SCOPE,
+      api,
+      script: script(
+        [
+          "console.log('hello', 1, { a: 2 });",
+          "console.info('info becomes log');",
+          "console.warn('careful');",
+          "console.error('bad');",
+          'return { answer: 42 };',
+        ].join('\n'),
+      ),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.error).toBeUndefined();
+    expect(result.value).toEqual({ answer: 42 });
+    expect(result.console.map((line) => [line.level, line.text])).toEqual([
+      ['log', 'hello 1 {"a":2}'],
+      ['log', 'info becomes log'],
+      ['warn', 'careful'],
+      ['error', 'bad'],
+    ]);
+    expect(result.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('awaits a promise the script returns', async () => {
+    const api = vmUserScriptsApi();
+    const result = await runUserscript({
+      tabId: 1,
+      url: URL_IN_SCOPE,
+      api,
+      script: script('await new Promise((resolve) => setTimeout(resolve, 1));\nreturn "settled";'),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.value).toBe('settled');
+  });
+
+  it('reports a thrown error at the user’s own line and column', async () => {
+    const api = vmUserScriptsApi();
+    const result = await runUserscript({
+      tabId: 1,
+      url: URL_IN_SCOPE,
+      api,
+      script: script(["const a = 1;", "throw new Error('boom');"].join('\n')),
+    });
+
+    expect(result.ok).toBe(false);
+    // Line 2 of the user's source, not line 2 + the wrapper's prefix.
+    expect(result.error).toMatch(/^Error: boom \(line 2, column \d+\)$/);
+    expect(WRAPPER_LINE_OFFSET).toBeGreaterThan(10);
+  });
+
+  it('captures an uncaught error event raised while the script runs', async () => {
+    const api = vmUserScriptsApi();
+    const result = await runUserscript({
+      tabId: 1,
+      url: URL_IN_SCOPE,
+      api,
+      script: script("window.dispatchEvent(new ErrorEvent('error', { message: 'late boom' }));\nreturn 'done';"),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.console).toEqual([
+      expect.objectContaining({ level: 'error', text: 'Uncaught late boom' }),
+    ]);
+  });
+
+  it('leaves no patched console and no listener behind', async () => {
+    const api = vmUserScriptsApi();
+    const before = { log: console.log, warn: console.warn, error: console.error };
+
+    const captured: string[] = [];
+    const listener = (event: Event) => captured.push(event.type);
+    await runUserscript({ tabId: 1, script: script("console.log('x'); return 1;"), url: URL_IN_SCOPE, api });
+
+    expect(console.log).toBe(before.log);
+    expect(console.warn).toBe(before.warn);
+    expect(console.error).toBe(before.error);
+
+    // Nothing the wrapper installed is still listening after the run.
+    window.addEventListener('error', listener, true);
+    window.dispatchEvent(new ErrorEvent('error', { message: 'after' }));
+    window.removeEventListener('error', listener, true);
+    expect(captured).toEqual(['error']);
+  });
+
+  it('caps the captured console at 200 lines and flags the truncation', async () => {
+    const api = vmUserScriptsApi();
+    const result = await runUserscript({
+      tabId: 1,
+      url: URL_IN_SCOPE,
+      api,
+      script: script('for (let i = 0; i < 300; i += 1) console.log("line " + i);\nreturn 300;'),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.console).toHaveLength(MAX_CONSOLE_LINES + 1);
+    expect(result.console[MAX_CONSOLE_LINES]!).toMatchObject({ level: 'warn', text: '[output truncated]' });
+    expect(result.console[0]!.text).toBe('line 0');
+  });
+
+  it('caps a single huge line at 64 KiB', async () => {
+    const api = vmUserScriptsApi();
+    const result = await runUserscript({
+      tabId: 1,
+      url: URL_IN_SCOPE,
+      api,
+      script: script('console.log("x".repeat(70000));\nreturn "ok";'),
+    });
+
+    expect(result.console[0]!.text).toHaveLength(64 * 1024);
+    expect(result.console.at(-1)).toMatchObject({ text: '[output truncated]' });
+  });
+
+  it('refuses to inject into a URL outside the allow-list', async () => {
+    const api = vmUserScriptsApi();
+    const result = await runUserscript({
+      tabId: 1,
+      script: script('return 1;'),
+      url: 'https://example.com/threads',
+      api,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/refused: https:\/\/example\.com\/threads is not in this script's allow-list/);
+    expect(api.injections).toHaveLength(0);
+  });
+
+  it('resolves the tab URL through the tabs seam when the caller has not', async () => {
+    const api = vmUserScriptsApi();
+    const tabs = { get: async (tabId: number) => ({ url: tabId === 5 ? URL_IN_SCOPE : 'https://example.com/' }) };
+
+    await expect(runUserscript({ tabId: 5, script: script('return 1;'), api, tabs })).resolves.toMatchObject({ ok: true });
+    await expect(runUserscript({ tabId: 6, script: script('return 1;'), api, tabs })).resolves.toMatchObject({
+      ok: false,
+    });
+  });
+
+  it('refuses with toggle-off when chrome.userScripts is missing or throws', async () => {
+    const missing = await runUserscript({
+      tabId: 1,
+      script: script('return 1;'),
+      url: URL_IN_SCOPE,
+      env: { getNamespace: () => undefined, majorVersion: () => 140 },
+    });
+    expect(missing.error).toMatch(/^toggle-off: .*Allow User Scripts/);
+
+    const throwing = await runUserscript({
+      tabId: 1,
+      script: script('return 1;'),
+      url: URL_IN_SCOPE,
+      env: {
+        getNamespace: () => {
+          throw new Error('User Scripts API is not available');
+        },
+        majorVersion: () => 137,
+      },
+    });
+    expect(throwing.error).toMatch(/^toggle-off: /);
+  });
+
+  it('refuses with unsupported below Chrome 135', async () => {
+    const api = vmUserScriptsApi();
+    const result = await runUserscript({
+      tabId: 1,
+      script: script('return 1;'),
+      url: URL_IN_SCOPE,
+      api,
+      env: { getNamespace: () => api, majorVersion: () => 134 },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/^unsupported: .*Chrome 135\+/);
+    expect(api.injections).toHaveLength(0);
+  });
+
+  it('surfaces a per-frame injection error unchanged', async () => {
+    const result = await runUserscript({
+      tabId: 1,
+      script: script('return 1;'),
+      url: URL_IN_SCOPE,
+      api: {
+        execute: async () => [{ documentId: 'd', frameId: 0, error: 'Frame with ID 0 was removed.' }] as never,
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe('Frame with ID 0 was removed.');
+  });
+});
+
+describe('availability helpers', () => {
+  it('reads the Chrome major version out of a user agent', () => {
+    expect(detectChromeMajorVersion('Mozilla/5.0 ... Chrome/141.0.0.0 Safari/537.36')).toBe(141);
+    expect(detectChromeMajorVersion('Mozilla/5.0 ... Firefox/130.0')).toBeNull();
+  });
+
+  it('reports unsupported when the namespace exists but execute() does not', () => {
+    expect(isAvailable({ getNamespace: () => ({ register: () => {} }), majorVersion: () => 140 })).toEqual({
+      available: false,
+      reason: 'unsupported',
+      message: expect.stringContaining('Chrome 135+'),
+    });
+  });
+
+  it('reports available for a healthy namespace', () => {
+    expect(isAvailable(availableEnv({ execute: () => {} }))).toEqual({ available: true });
+  });
+});
+
+describe('wrapper mechanics', () => {
+  it('puts the user’s first line at column 1 of a known offset', () => {
+    const wrapped = wrapUserscript('return 1;');
+    const lines = wrapped.split('\n');
+    expect(lines[WRAPPER_LINE_OFFSET]!).toBe('return 1;');
+  });
+
+  it('drops stack frames that fall inside the wrapper', () => {
+    expect(parseErrorLocation(`Error: x\n    at userscript.js:${WRAPPER_LINE_OFFSET + 3}:9`)).toEqual({
+      line: 3,
+      column: 9,
+    });
+    expect(parseErrorLocation('Error: x\n    at userscript.js:2:9')).toBeNull();
+    expect(parseErrorLocation(null)).toBeNull();
+  });
+});
