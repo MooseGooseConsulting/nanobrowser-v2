@@ -50,6 +50,8 @@ export interface PanelApi {
   scriptRunStatus: AreaStatus;
 
   log: RunLogState;
+  /** True between sending `run.start` and the worker's first event for that run. */
+  starting: boolean;
 
   refreshModels: () => void;
   refreshReadiness: () => void;
@@ -112,6 +114,7 @@ export function usePanel(): PanelApi {
   const [scriptRunStatus, setScriptRunStatus] = useState<AreaStatus>('idle');
 
   const [log, dispatch] = useReducer(runLogReducer, initialRunLogState);
+  const [starting, setStarting] = useState(false);
   runIdRef.current = log.runId;
 
   const send = useCallback(<K extends keyof PanelToWorker>(type: K, payload: PanelToWorker[K]) => {
@@ -155,6 +158,7 @@ export function usePanel(): PanelApi {
         case 'run.event': {
           const { runId, event } = message.payload;
           if (runIdRef.current !== runId) void setLastRunId(runId);
+          setStarting(false);
           dispatch({ type: 'event', runId, event });
           return;
         }
@@ -240,6 +244,7 @@ export function usePanel(): PanelApi {
     (prompt: string, config: Config) => {
       dispatch({ type: 'clear' });
       setWorkerError(undefined);
+      setStarting(true);
       send('run.start', { prompt, config });
     },
     [send],
@@ -268,6 +273,7 @@ export function usePanel(): PanelApi {
     scriptResult,
     scriptRunStatus,
     log,
+    starting,
     refreshModels,
     refreshReadiness,
     refreshScripts,

@@ -16,6 +16,7 @@ export function RunSection({
   readiness,
   readinessStatus,
   log,
+  starting = false,
   onStart,
   onPause,
   onResume,
@@ -25,6 +26,8 @@ export function RunSection({
   readiness?: Readiness;
   readinessStatus: AreaStatus;
   log: RunLogState;
+  /** Set while `run.start` has been sent but the worker has not answered with an event. */
+  starting?: boolean;
   onStart: (prompt: string) => void;
   onPause: () => void;
   onResume: () => void;
@@ -33,7 +36,7 @@ export function RunSection({
   const [prompt, setPrompt] = useState('');
   const gate = runGate(readiness, readinessStatus, config);
   const phase = runPhase(log);
-  const active = phase === 'running' || phase === 'paused';
+  const active = starting || phase === 'running' || phase === 'paused';
   const canStart = gate.ok && prompt.trim().length > 0 && !active;
 
   return (
@@ -54,7 +57,7 @@ export function RunSection({
 
       <div className="flex flex-wrap items-center gap-1.5">
         <Button variant="primary" disabled={!canStart} onClick={() => onStart(prompt.trim())}>
-          Run
+          {starting && !log.runId ? 'Starting…' : 'Run'}
         </Button>
         <Button disabled={phase !== 'running'} onClick={onPause}>
           Pause

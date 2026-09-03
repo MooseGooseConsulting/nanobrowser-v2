@@ -59,6 +59,7 @@ export default function App() {
             readiness={panel.readiness}
             readinessStatus={panel.readinessStatus}
             log={panel.log}
+            starting={panel.starting}
             onStart={(prompt) => panel.startRun(prompt, config)}
             onPause={panel.pauseRun}
             onResume={panel.resumeRun}

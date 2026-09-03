@@ -207,3 +207,13 @@ describe('run log', () => {
     expect(screen.getByText(/waiting for the worker to send its log/i)).toBeTruthy();
   });
 });
+
+describe('start hand-off to the worker', () => {
+  it('blocks a second Run while the worker has not acknowledged the first', () => {
+    setup({ starting: true });
+    expect((screen.getByRole('button', { name: 'Starting…' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect((screen.getByRole('button', { name: 'Abort' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+});
