@@ -29,6 +29,8 @@ function fakeChrome(): { api: { runtime: { onMessage: { addListener(fn: Listener
 beforeEach(() => {
   document.body.innerHTML = '';
   resetPageListenerForTests();
+  // jsdom has no real scrollBy; stub it so the scroll op exercises the code path.
+  (window as unknown as { scrollBy: unknown }).scrollBy = () => undefined;
 });
 
 describe('handle', () => {
