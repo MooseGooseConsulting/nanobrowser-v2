@@ -43,7 +43,9 @@ async function main(): Promise<void> {
     cassettes: new CassetteStore(cassetteDir()),
   });
 
-  let extensionConnected = false;
+  // Chrome spawns this process only on `connectNative`, so an open stdin IS the
+  // extension's connection; it is cleared when stdin ends.
+  let extensionConnected = true;
   let trigger: TriggerServer | null = null;
 
   const dispatcher = new Dispatcher({
@@ -94,7 +96,10 @@ async function main(): Promise<void> {
     }
   });
 
-  process.stdin.on('end', () => void shutdown(0));
+  process.stdin.on('end', () => {
+    extensionConnected = false;
+    void shutdown(0);
+  });
   process.stdin.on('close', () => void shutdown(0));
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
     process.on(sig, () => void shutdown(0));
