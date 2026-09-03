@@ -7,10 +7,16 @@
  * out. `apiKey` here is a non-secret placeholder only because the underlying
  * openai client refuses to construct without one.
  *
- * `provider.data_collection: "deny"` is set because page DOM and screenshots are
- * sent on every step and the free OpenRouter tier will otherwise route to
- * providers that train on them (docs/research/models-and-grounding.md §6).
+ * `provider.data_collection` is "deny" for paid models because page DOM and
+ * screenshots are sent on every step (docs/research/models-and-grounding.md §6).
+ * OpenRouter's `:free` endpoints exist only under the training data policy, so
+ * "deny" yields `404 No endpoints found matching your data policy`; the user
+ * chose free models knowingly (see the live run in docs/STATUS.md), so those
+ * get "allow".
  */
+export function dataCollectionFor(model: string): 'allow' | 'deny' {
+  return model.endsWith(':free') ? 'allow' : 'deny';
+}
 import { ChatOpenAI } from '@langchain/openai';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import type { BaseChatModelParams } from '@langchain/core/language_models/chat_models';
@@ -42,7 +48,7 @@ export function createChatModel(options: CreateChatModelOptions): ChatOpenAI {
     apiKey: PROXY_MANAGED_KEY,
     configuration: { baseURL, fetch },
     modelKwargs: {
-      provider: { data_collection: 'deny', allow_fallbacks: true },
+      provider: { data_collection: dataCollectionFor(model), allow_fallbacks: true },
     },
   });
 }
