@@ -1,535 +1,251 @@
 # Stealth Harness Landscape
 
-Research date: 2026-09-03. Scope: C-01 is open ("MV3, **or whatever extension harness gives the best
-stealth**"), so every harness is on the table. Ranked against R-02 (low observability) first, then
-R-01 (acts on the tab the user already has open) and R-05 (side panel is the primary surface).
+Research date: 2026-09-03. C-01 is open ("MV3, **or whatever extension harness gives the best stealth**"), so every harness is on the table. Ranked against R-02 (low observability) first, then R-01 (acts on the tab the user already has open) and R-05 (side panel is the primary surface).
 
-Companion docs: `trusted-input-and-stealth.md` (chrome.debugger / CDP-Input mechanics, do not repeat
-here), `live-testing-real-chrome.md`, `extension-stack.md`.
+Companion docs: `trusted-input-and-stealth.md` (chrome.debugger/CDP-Input mechanics — not repeated here), `live-testing-real-chrome.md`, `extension-stack.md`.
 
-Local facts used below (read-only, this machine, 2026-09-03): `google-chrome 152.0.7977.75`,
-`chromium 151.0.7922.173`, **no Firefox installed**, `hyprland 0.56.2`,
-`xdg-desktop-portal-hyprland 1.4.1`, `libei 1.6.0`, `wtype 0.4`, no `ydotool`, no `xdotool`,
-single monitor 1920x1200 @ `scale 1.5` (logical 1280x800).
+Local facts (read-only, this machine, today): `google-chrome 152.0.7977.75`, `chromium 151`, **no Firefox installed**, `hyprland 0.56.2`, `xdg-desktop-portal-hyprland 1.4.1`, `libei 1.6.0`, `wtype 0.4`, no `ydotool`, no `xdotool`, one monitor 1920x1200 @ `scale 1.5` (logical 1280x800).
 
 ## Answer first
 
-1. **The harness is not where the detection is.** FP-Agent (UC Davis, arXiv:2605.01247, 2026-05-02)
-   fingerprinted 7 agents incl. **Claude for Chrome — an MV3 extension in a real Chrome** — at
-   **F1 = 0.9993 on behavioural features alone**, plateauing after ~1–3 minutes. Browser-fingerprint
-   features alone scored only 0.7969. Cloudflare blocked 1 of the 7.
-2. Which means: **input synthesis and action timing are the observable, not the harness.** Claude was
-   caught for `change`-event form filling, paste-based typing, and sub-1ms inter-key latency.
-3. **Staying in the user's real Chrome is the correct choice for R-02**, and it is not close. No flag,
-   no `navigator.webdriver`, real Chrome TLS/JA3/JA4 + HTTP/2 + client hints, real profile, real
-   residential IP, real history. Every alternative gives some of that back.
-4. The extension's own exposure is real but *fixable by construction*: zero `web_accessible_resources`
-   (or `use_dynamic_url: true`), zero MAIN-world globals, zero persistent DOM mutation. LinkedIn's
-   production AED probes 6,167 extension IDs plus a `TreeWalker` DOM scan — both are defeated by
-   declaring nothing and injecting nothing.
-5. **Chrome's own answer confirms the shape.** Chrome 152 ships `chrome/browser/actor` +
-   `chrome/renderer/actor` (`kGlicActor`, `kGlicActorUi`, both `FEATURE_ENABLED_BY_DEFAULT`), which
-   dispatches `blink::WebMouseEvent` via `widget->HandleInputEvent()` — real trusted input, no CDP,
-   no banner. It is gated to Glic, not extensions, and it is *deliberately conspicuous* (magic cursor,
-   toast, tab indicator, border glow). Do not expect an extension trusted-input API.
-6. **The biggest CDP-Input tell is already gone in the user's Chrome.** Chromium CL 6917162 ("Fix
-   screen coordinates to avoid automation detection", merged 2025-09-15, bug 40280325) makes CDP
-   Input events carry real `screenX/Y`. Vinyzu **archived CDP-Patches** on 2025-09-28 saying so.
-7. **Camoufox is the strongest fingerprint work in public and still the wrong tool here.** It is
-   Playwright-driven with its own profile; the user has no Firefox and would re-login everywhere
-   (R-01 fails). Its humanised cursor lives in the Playwright side, so a sidebar add-on inside it
-   would get the same `isTrusted:false` content-script input as Chrome — you pay the cost and lose
-   the benefit.
-8. **The single most important actionable finding is section 6.** Hyprland 0.56.2 implements
-   `zwlr_virtual_pointer_manager_v1` and `zwp_virtual_keyboard_manager_v1`. A native-messaging daemon
-   — which this project **already has** (the Doppler sidecar) — can move the real cursor and click
-   with zero in-browser tell, no portal prompt, no root, no uinput, no debugger banner.
-9. Ranked: **(1)** MV3 in real Chrome + Wayland virtual-input daemon; **(2)** MV3 in real Chrome +
-   session-scoped `chrome.debugger` Input; **(3)** nodriver/zendriver attached to a Chrome the user
-   launched with a debug port. Camoufox 4th, agent browsers 5th.
+1. **The harness is not where the detection is.** FP-Agent (UC Davis, arXiv:2605.01247, 2026-05-02) classified 7 agents — including **Claude for Chrome, an MV3 extension in a real Chrome** — at **F1 = 0.9993 on behavioural features alone**, within 1–3 minutes. Browser fingerprints alone scored 0.7969. Cloudflare blocked 1 of the 7.
+2. So **input synthesis and action timing are the observable.** The strongest single signal is that agents *teleport* to click targets with zero continuous mouse movement.
+3. **Staying in the user's real Chrome is the best-stealth choice**, and it is not close: no flag, no `navigator.webdriver`, real Chrome TLS/JA3/JA4 + HTTP/2 + client hints, real profile, real residential IP, real account history. Nothing else has any of that authentically.
+4. **Chrome removed the alternative.** `remote_debugging_server.cc` refuses `--remote-debugging-port` on **branded** Chrome when the default user-data-dir is in use. **`chrome.debugger` is now the only sanctioned route to the user's real logged-in tab.** That decides this survey.
+5. **Camoufox is the best public fingerprint engineering and is unusable here** — pipe-only Juggler (cannot attach), the user has no Firefox, and its *current* release exposes **13 enumerable `window.set*` functions** that identify it in one line of page script.
+6. **CDP input is no longer geometrically detectable.** Chromium CL 6917162 (merged 2025-09-15, stable in **Chrome 142, 2025-10-28**) fixed `screenX == clientX`; coalesced events now fire. Vinyzu **archived CDP-Patches** on 2025-09-28: *"no reason to use this package anymore."*
+7. 🚨 **Do not trust the public CDP test suites.** V8 CLs 6506243/6513972 (shipped **Chrome 138, 2025-06-24**) killed the `Runtime.enable` console probe. `bot-detector.rebrowser.net` (last commit 2024-10-25) and `brotector` (2024-12-03) now show **green for a completely unpatched Puppeteer**. We must write our own probe.
+8. **Fingerprint spoofing here is counterproductive.** `nanobrowser`'s `_addAntiDetectionScripts()` sets `navigator.webdriver` to `undefined` (real Chrome returns `false`) and replaces `window.chrome` with `{runtime:{}}`. In a real profile these make us *more* detectable. Delete them.
+9. **The most important actionable finding is §6.** Hyprland 0.56.2 implements `zwlr_virtual_pointer_manager_v1` and `zwp_virtual_keyboard_manager_v1`. A native-messaging daemon — which this project **already has** (the Doppler sidecar) — can move the real cursor and click with zero in-browser tell, no portal prompt, no root, no uinput, no debugger banner.
+10. Ranked: **(1)** MV3 + Wayland virtual input; **(2)** MV3 + session-scoped `chrome.debugger` Input; **(3)** MV3 content-script only. Everything that leaves the user's Chrome fails R-01 outright.
 
 ---
 
 ## 1. MV3 extension inside the user's real Chrome (baseline)
 
-**What/who.** The project's own harness. WXT 0.21.4 + MV3 side panel (see `extension-stack.md`).
+**What/who.** WXT 0.21.4 + MV3 side panel (`extension-stack.md`). Closest readable reference: **`nanobrowser/nanobrowser`** — 13,721★, Apache-2.0, pushed 2026-08-18, MV3 + `sidePanel` + `debugger` in the user's own Chrome.
 
-**Layer of defence: none, and that is the point.** It does not defeat detection; it never creates the
-tells. `EnableAutomationControlled` is bound only to `--enable-automation`, `--headless`,
-`--remote-debugging-pipe`, and `--remote-debugging-port=0`
-([runtime_features.cc](https://source.chromium.org/chromium/chromium/src/+/main:content/child/runtime_features.cc)).
-None applies. No CDP session exists unless you attach one.
+**Layer of defence: none, and that is the point.** It does not defeat detection; it never creates the tells. `EnableAutomationControlled` binds only to `--enable-automation`, `--headless`, `--remote-debugging-pipe`, and `--remote-debugging-port=0` ([runtime_features.cc:377-379, 420-436](https://source.chromium.org/chromium/chromium/src/+/main:content/child/runtime_features.cc)) — none applies. (`kHeadless` is not even propagated to the renderer's command line, so headless's real tell is the `HeadlessChrome/…` UA token, not the flag.) No CDP session exists unless we attach one.
 
-**What it "spoofs": nothing — everything is genuinely real.** `navigator.webdriver` false, no
-`Runtime.enable` leak, no headless tells, canvas/WebGL/audio/fonts/screen/timezone/WebRTC are the
-user's actual machine, TLS JA3/JA4 + HTTP/2 SETTINGS + client hints are stock Chrome 152, IP is the
-user's residential IP, and cookies/history/account age are real. **No other option on this list can
-say that.**
+**What it "spoofs": nothing — everything is genuinely real.** Canvas/WebGL/audio/fonts/screen/timezone/WebRTC are the user's machine; TLS JA3/JA4, HTTP/2 SETTINGS and client hints are stock Chrome 152; the IP is residential; cookies, history and account age are real. **No other option can say that.**
 
 **What still leaks — and the precedent is exact.**
-- **Behaviour.** FP-Agent detected Claude for Chrome at F1≈1.0 combined
-  ([arXiv:2605.01247](https://arxiv.org/abs/2605.01247), 2026-05-02). Tells named: filling fields with
-  a bare `change` event, paste-based typing, inter-key and hold latency **both <1ms**, direct jumps to
-  click targets with no continuous mouse movement, delete-and-retype loops, instantaneous scroll jumps.
-- **Akamai, 2026-08-19** ("Identifying Agentic Automation with Behavioral Telemetry"): **63.2% of
-  agentic requests contained 0 mouse events**, 35.8% more were below threshold. Their model treats
-  mouse events "like language tokens". Named signals: no idle cursor movement while reading, **no
-  hover before clicking**, no exploratory scrolling, and multi-second irregular pauses.
-- **CHEQ, 2026-02-18** — *"The Cyborg Session: Reversing & Detecting Claude AI Agent Chrome
-  Extension"* ([cheq.ai](https://cheq.ai/blog/the-cyborg-session-reversing-detecting-claude-ai-agent-chrome-extension/)).
-  Someone has already productised detection of exactly this architecture. Three published methods:
-  (1) WAR probe of `chrome-extension://fcoeoabgfenejglbffodgkkbkcdhcgfn/assets/accessibility-tree.js-*`;
-  (2) MutationObserver on the DOM nodes it injects — `id="claude-agent-stop-container"` and
-  `id="claude-agent-animation-styles"`; (3) **forensic residue** — the style element *persists after
-  the agent goes idle*, so a page can tell an agent ran earlier in the session. **All three are
-  self-inflicted and all three are avoidable.**
-- **`isTrusted:false`** on every content-script event, plus no transient activation
-  (`navigator.userActivation.isActive` stays false) — see `trusted-input-and-stealth.md` §5. Chrome
-  declined to change this ([chromium-dev, 2023-01](https://groups.google.com/a/chromium.org/g/chromium-dev/c/94t2J_Jylyw)).
-- **Extension enumeration.** LinkedIn's AED probes 6,167 `chrome-extension://<id>/<war>` URLs with
-  `Promise.allSettled` (~50–150ms) *and* runs "Spectroscopy", a `TreeWalker` over the DOM for any
-  attribute containing `chrome-extension://`
-  ([leestack.dev](https://leestack.dev/writing/linkedin-aed-systems-analysis/); corroborated by
-  [Castle, 2026-01-14](https://blog.castle.io/detecting-browser-extensions-for-bot-detection-lessons-from-linkedin-and-castle/)).
-  `automation` is one of its 48 signals.
-- **Academic base rate.** Sjösten et al., CODASPY 2017: >50% of top-1000 Chrome extensions
-  WAR-detectable. Bucci & Li (LNCS, Dec 2023, 108,416 extensions): MV3 gives only a **4–10% relative
-  reduction** in WAR detectability, because authors set `matches` wide. Carnus (NDSS 2020) still
-  fingerprinted **83.6–87.92%** of behaviour-detectable extensions *with CloakX randomisation applied*.
-  **Agarwal, Fass & Stock, ACM CCS 2024** ("Peeking through the window", tool *Raider*): 2,747 Chrome
-  extensions uniquely fingerprinted, **64% via `new Error().stack` alone** — and that vector *survives
-  randomised extension IDs*. Critically, Raider only works against **MAIN-world** code; the paper
-  explicitly exempts isolated-world content scripts.
-- **`use_dynamic_url`** ships from Chrome 130 (PSA 2024-10-09) and does kill the URL probe — but only
-  that probe, adoption is near-zero, and BrowserLeaks still advertises a **fetch-timing** distinction
-  ("fetching an enabled extension will, in most cases, take slightly longer"), the generalisation of
-  z0ccc's 2022 bypass.
+- **Behaviour.** FP-Agent tested 7 agents against 56 human undergraduates: behavioural F1 ≥ 0.99; combined precision and recall **1.0000**; classification lands in **1–3 minutes**. Claude for Chrome was caught because it *"programmatically filled text fields using change events"* — *"revealing its underlying automation nature regardless of deployment method."* Other tells: paste-based typing, inter-key and hold latency **both <1 ms**, delete-and-retype loops, instantaneous scroll jumps.
+- **Akamai, 2026-08-19** ("Identifying Agentic Automation with Behavioral Telemetry"): **63.2% of agentic requests contained 0 mouse events**; 35.8% more were below threshold. Named signals: no idle cursor movement while reading, **no hover before clicking**, no exploratory scrolling, multi-second irregular pauses.
+- **Cloudflare has productised this.** *Adaptive Intelligence* / **Precursor** measures "continuous session-behavior", explicitly targets "automation within legitimate sessions", and analyses "acceleration or correcting yourself, the rhythm and texture of your cursor movement" — **206 million evaluation events across 73,438 zones in 24 hours**. Rules are "deployed and retired at random intervals", so there is no stable target to reverse-engineer.
+- **CHEQ, 2026-02-18** — *"The Cyborg Session: Reversing & Detecting Claude AI Agent Chrome Extension"* ([cheq.ai](https://cheq.ai/blog/the-cyborg-session-reversing-detecting-claude-ai-agent-chrome-extension/)). Detection of exactly this architecture is already productised, and the category is named. Three working methods: (1) WAR probe of `chrome-extension://fcoeoabgfenejglbffodgkkbkcdhcgfn/assets/accessibility-tree.js-*`; (2) MutationObserver on the injected `id="claude-agent-stop-container"` and `id="claude-agent-animation-styles"`, catching "the exact moment the agent takes control"; (3) **forensic residue** — the `<style>` node outlives the run, so *prior* agent use is detectable later in the session. **All three are self-inflicted and all three are avoidable.**
+- **`isTrusted:false`** on every content-script event, plus no transient activation. Chrome declined to change this ([chromium-dev 2023-01](https://groups.google.com/a/chromium.org/g/chromium-dev/c/94t2J_Jylyw)).
+- **Extension enumeration.** LinkedIn's AED probes 6,167 `chrome-extension://<id>/<war>` URLs with `Promise.allSettled` (~50–150 ms) *and* runs a `TreeWalker` over the DOM for any attribute containing `chrome-extension://` ([leestack.dev](https://leestack.dev/writing/linkedin-aed-systems-analysis/); corroborated by [Castle, 2026-01-14](https://blog.castle.io/detecting-browser-extensions-for-bot-detection-lessons-from-linkedin-and-castle/)). `automation` is one of its 48 signals. DataDome ships an extension-detector product.
+- **An extension can be scored down for merely existing.** Kernel (updated 2026-08-19) measured **0% pass with a solver extension active vs 93% with it disabled** on reCAPTCHA v3 Enterprise.
+- **Academic base rate.** Sjösten et al. (CODASPY 2017): >50% of top-1000 extensions WAR-detectable. Bucci & Li (LNCS 2023, 108,416 extensions): MV3 gives only a **4–10% relative reduction**, because authors set `matches` wide. Carnus (NDSS 2020) still fingerprinted **83.6–87.92%** of behaviour-detectable extensions *with CloakX randomisation applied*. **Agarwal, Fass & Stock, ACM CCS 2024** (tool *Raider*): 2,747 extensions uniquely fingerprinted, **64% via `new Error().stack` alone**, a vector that *survives randomised extension IDs* — but which works **only against MAIN-world code**; the paper explicitly exempts isolated-world content scripts.
+- **`use_dynamic_url`** (Chrome 130, PSA 2024-10-09) kills the URL probe and only that probe; adoption is near-zero and BrowserLeaks still advertises a **fetch-timing** distinction.
 
-**R-01/R-05: perfect.** It *is* the user's open, logged-in tab. `chrome.sidePanel` is native.
+**R-01/R-05: perfect.** It *is* the user's open, logged-in tab. `chrome.sidePanel` has caught up: `getLayout()` in 140, `close()` and `onOpened` in **141**, `onClosed` in **142**. Only `open()` still needs a user gesture — design around it rather than forking Chromium for it.
 
-**Drive channel.** `chrome.scripting` (world `ISOLATED`) + `chrome.runtime` messaging. The isolated
-world is genuinely isolated: per Chromium's
-[V8BindingDesign](https://chromium.googlesource.com/chromium/src/+/main/third_party/blink/renderer/bindings/core/v8/V8BindingDesign.md),
-each world has *"its own context … its own global variable scope and prototype chains"*, so page-set
-`Object.defineProperty` traps on `HTMLElement.prototype.click`/`.focus`/`dispatchEvent` **do not fire
-for us**, and DOM *reads* (`querySelector`, `getBoundingClientRect`, `getComputedStyle`) are
-**unobservable**. Escalation channel is `chrome.debugger` (see `trusted-input-and-stealth.md`).
+**Drive channel.** `chrome.scripting` world `ISOLATED` + `chrome.runtime` messaging. Per Chromium's [V8BindingDesign](https://chromium.googlesource.com/chromium/src/+/main/third_party/blink/renderer/bindings/core/v8/V8BindingDesign.md), each world has *"its own context … its own global variable scope and prototype chains"* — so page-set `Object.defineProperty` traps on `HTMLElement.prototype.click`/`.focus`/`dispatchEvent` **do not fire for us**, and DOM *reads* (`querySelector`, `getBoundingClientRect`, `getComputedStyle`) are **unobservable**. Reading is the safe operation.
 
-**What still crosses the isolation boundary — design against exactly this list:** every DOM mutation
-(MutationObserver); every event we dispatch (the page's own listeners fire and read `isTrusted`);
-**`document.cookie` / `localStorage` / `sessionStorage` / IndexedDB, which are *shared* with the page
-and were polled at 500ms intervals in CCS '24**; `window.postMessage` (Carnus and CCS '24 both harvest
-stable message *keys*); focus changes; scroll position; injected CSS (Laperdrix et al., USENIX Sec
-2021, "Fingerprinting in Style" — 4,446 extensions uniquely identified by `getComputedStyle` on
-crafted trigger elements, 24% of them undetectable by every prior technique); and our own network
-requests, visible via `performance.getEntriesByType("resource")`.
+**What does cross the boundary — design against exactly this:** every DOM mutation (MutationObserver); every event we dispatch (the page's listeners fire and read `isTrusted`); **`document.cookie` / `localStorage` / `sessionStorage` / IndexedDB, which are *shared* with the page and were polled at 500 ms intervals in CCS '24**; `window.postMessage` (Carnus and CCS '24 harvest stable message *keys*); focus changes; scroll position; injected CSS (Laperdrix et al., USENIX Sec 2021 — 4,446 extensions uniquely identified via `getComputedStyle` on crafted trigger elements, 24% of them undetectable by every prior technique); and our own requests, visible via `performance.getEntriesByType("resource")`.
 
-**Free mitigations, in evidence order:** declare **no** `web_accessible_resources`; declare **no**
-`externally_connectable` (since Chrome 106, `chrome.runtime` is *undefined* on a page unless some
-installed extension's `externally_connectable.matches` covers that origin — declaring it hands the
-page a free bit,
-[announcement 2022-08-24](https://groups.google.com/a/chromium.org/g/chromium-extensions/c/tCWVZRq77cg/m/KB6-tvCdAgAJ));
-**never** use `world: "MAIN"` (MDN's own warning: *"the web page can detect and interfere with the
-executed code"*); zero page-DOM mutation and zero injected `<style>`; use `chrome.storage`, never the
-page-shared stores; use `chrome.runtime` messaging, never `postMessage`. **Do not reach for
-`chrome.userScripts`**: since Chrome 138 (2025-05-29) it needs a per-extension "Allow User Scripts"
-toggle that is **off by default**, and `USER_SCRIPT` buys no invisibility over `ISOLATED`.
+**Free mitigations, in evidence order.** Declare **no** `web_accessible_resources` (else `use_dynamic_url: true` + narrow `matches`). Declare **no** `externally_connectable` — since Chrome 106 `chrome.runtime` is *undefined* on a page unless some extension's `externally_connectable.matches` covers that origin ([announcement 2022-08-24](https://groups.google.com/a/chromium.org/g/chromium-extensions/c/tCWVZRq77cg/m/KB6-tvCdAgAJ)), so declaring it hands the page a free bit. Never use `world: "MAIN"` (MDN's own warning: *"the web page can detect and interfere with the executed code"*). Zero page-DOM mutation and zero injected `<style>`. Use `chrome.storage`, never the page-shared stores; `chrome.runtime` messaging, never `postMessage`. **Do not reach for `chrome.userScripts`** — since Chrome 138 (2025-05-29) it needs a per-extension "Allow User Scripts" toggle that is **off by default**, and `USER_SCRIPT` buys no invisibility over `ISOLATED`.
+
+**Delete the inherited anti-detection scripts.** `nanobrowser`'s `chrome-extension/src/background/browser/page.ts` `_addAntiDetectionScripts()` is 2019 puppeteer-extra boilerplate: it sets `navigator.webdriver` to `undefined` (real Chrome returns `false` — the mismatch *is* the tell, and rebrowser's own detector flags `typeof === 'undefined'` explicitly), replaces `window.chrome` with `{runtime:{}}` (destroying the genuinely rich object real Chrome has), and forces `Element.prototype.attachShadow` to `mode:"open"` (detectable and site-breaking). In a real profile these make us **more** detectable than doing nothing.
 
 ---
 
 ## 2. Camoufox
 
-**What/who.** A hard fork of Firefox that patches fingerprint spoofing into the C++ tree.
-`daijro/camoufox`, **11,645★**, MPL-2.0, last commit **2026-09-02** (`d75ebdf41a`), latest release
-**v152.0.4-beta.30, 2026-09-01**. Fingerprints from `daijro/browserforge` (1,238★, Apache-2.0).
+**What/who.** A hard fork of Firefox that patches fingerprint spoofing into the C++ tree. `daijro/camoufox`, **11,645★**, MPL-2.0, last commit **2026-09-02** (`d75ebdf41a`), latest release **v152.0.4-beta.30, 2026-09-01**. Fingerprints from `daijro/browserforge` (1,238★, Apache-2.0).
 
-**Maintenance and governance.** daijro **stepped down** on 2026-01-10
-([Discussion #452](https://github.com/daijro/camoufox/discussions/452)); Clover Labs now maintains it,
-and `JWriter20` is the top commit author. The commit histogram shows **2025-04 → 2025-11 essentially
-dead** (2 commits), matching the 17-month PyPI gap (0.4.11 → 0.5.3). The README's own box:
-*"There has been a year gap in maintenance… Camoufox has gone down in performance due to the base
-Firefox version and newly discovered fingerprint inconsistencies."* Base is Firefox **152.0.4**;
-stable is **155.0** (2026-09-01) and Mozilla moved to a **2-week cadence from 155**, so the gap gets
-structurally harder to hold.
+**Maintenance and governance.** daijro **stepped down** 2026-01-10 ([Discussion #452](https://github.com/daijro/camoufox/discussions/452)); Clover Labs maintains it and `JWriter20` is the top commit author. The commit histogram shows **2025-04 → 2025-11 essentially dead** (2 commits), matching a 17-month PyPI gap. The README's own box: *"There has been a year gap in maintenance… Camoufox has gone down in performance due to the base Firefox version and newly discovered fingerprint inconsistencies."* Base is Firefox **152.0.4**; stable is **155.0** (2026-09-01) and Mozilla moved to a **2-week cadence from 155**, so the gap gets structurally harder to hold.
 
-**C-04 problem: it is no longer fully readable.** `upstream.sh:3` pins `closedsrc_rev=1.0.0`;
-`closedsrc` is in `.gitignore` and `.dockerignore`; `.github/workflows/build.yml` passes a
-`CAMOUFOX_PASSWD` secret the public Makefile never reads. `canvas:seed`/`aaOffset`/`aaCapOffset` are
-declared in `settings/properties.json` with **no implementing patch in `patches/`**. **You cannot
-build the shipped binary from the public repo**, and canvas spoofing in particular is closed
-([#388](https://github.com/daijro/camoufox/issues/388)). C-04 says libraries are chosen *by reading
-their code*. This one cannot be fully read.
+**C-04 problem: readability is contested.** Docs claim all source is public since v146.0.1-beta.25 (Jan 2026). But the current tree still pins `closedsrc_rev=1.0.0` (`upstream.sh:3`), `closedsrc` is in `.gitignore`/`.dockerignore`, CI passes a `CAMOUFOX_PASSWD` secret the public Makefile never reads, and `canvas:seed`/`aaOffset`/`aaCapOffset` are declared in `settings/properties.json` with **no implementing patch** ([#388](https://github.com/daijro/camoufox/issues/388)). C-04 requires reading the code; resolve this before trusting it.
 
-**Layer: genuine C++ patches — this part is real and best-in-class.** ~37 patch files against the
-Firefox tree, all reading a JSON config from `CAMOU_CONFIG_<n>` env vars via
-`additions/camoucfg/MaskConfig.hpp`. Highlights: `navigator-spoofing.patch` covers
-`WorkerNavigator` too (the classic JS-shim killer); `timezone-spoofing.patch` patches
-`js/src/vm/DateTime.cpp` so `Date` and `Intl` agree; `screen-spoofing.patch` also patches
-`nsMediaFeatures.cpp` so `matchMedia` agrees with `screen.width`; `webrtc-ip-spoofing.patch` rewrites
-ICE/SDP before send; `anti-font-fingerprinting.patch` (1,424 lines) adds per-letter spacing jitter
-through the whole text-shaping pipeline; `debugger-invisible-to-content.patch` adds an
-`invisibleToContent` flag to SpiderMonkey's `Debugger` to hide Juggler's use of it. No
-`Object.defineProperty`, no `toString` traps.
+**Layer: genuine C++ patches — best-in-class, and this part survives scrutiny.** ~37 patch files reading JSON from `CAMOU_CONFIG_<n>` env vars via `additions/camoucfg/MaskConfig.hpp`. `navigator-spoofing.patch` covers `WorkerNavigator` too (the classic JS-shim killer); `timezone-spoofing.patch` patches `js/src/vm/DateTime.cpp` so `Date` and `Intl` agree; `screen-spoofing.patch` also patches `nsMediaFeatures.cpp` so `matchMedia` agrees with `screen.width`; `webrtc-ip-spoofing.patch` rewrites ICE/SDP before send; `anti-font-fingerprinting.patch` (1,424 lines) adds per-letter spacing jitter through the text-shaping pipeline. No `defineProperty`, no `toString` traps.
 
-**Network layer: explicitly out of scope.** Exactly three HTTP headers are touched
-(`network-patches.patch`: UA, Accept-Language, Accept-Encoding). No patch touches `security/nss` or
-HTTP/2 framing. Maintainer, closing [#358](https://github.com/daijro/camoufox/issues/358) 2026-07-20:
-*"our JA3 and JA4 fingerprints already match Firefox, because this **is** Firefox. Deliberately
-altering them would make us stand out."* **Measured** in
-[#555](https://github.com/daijro/camoufox/issues/555) (2026-04-02): Camoufox and stock-Firefox emit
-**byte-identical** JA3/JA4/Akamai-H2 hashes. So the "Firefox TLS is a tell" folk claim is unsupported
-— Paterson's bench put it at net zero (loses dev.to, wins google-search).
+**Network layer: explicitly out of scope, and that turns out to be fine.** Three HTTP headers are touched (UA, Accept-Language, Accept-Encoding); no patch touches `security/nss` or HTTP/2 framing. Maintainer, closing [#358](https://github.com/daijro/camoufox/issues/358): *"our JA3 and JA4 fingerprints already match Firefox, because this **is** Firefox."* [#555](https://github.com/daijro/camoufox/issues/555) (2026-04-02) **measured** Camoufox and stock Firefox emitting **byte-identical** JA3/JA4/Akamai-H2 hashes. The "Firefox TLS is a tell" folk claim is unsupported — across 31 Cloudflare targets it cost one cell (dev.to) and won one (google-search).
 
-**Humanised cursor: mouse only, and thin.** `additions/camoucfg/MouseTrajectories.hpp` (235 lines,
-ported from riflosnake/HumanCursor): Bézier over the endpoints plus 2 random knots, y-only Gaussian
-distortion, `easeOutQuad` tween. Called from `juggler/protocol/PageHandler.js:555-576`. **No keyboard
-humanisation, no scroll humanisation** — grep shows `humanize` is checked in exactly one place,
-`type === 'mousemove'`. [Issue #19](https://github.com/daijro/camoufox/issues/19) (open since
-2024-09) asks for typing. And `PageHandler.js:573` sleeps a **fixed 10 ms** between points, which is
-itself a behavioural signature.
+**Humanised cursor: mouse only, and thin.** `additions/camoucfg/MouseTrajectories.hpp` (235 lines, ported from riflosnake/HumanCursor): Bézier over the endpoints plus 2 random knots, **y-only** Gaussian distortion, `easeOutQuad` tween; called from `juggler/protocol/PageHandler.js:555-576`. **No keyboard and no scroll humanisation** — `humanize` is checked in exactly one place, `type === 'mousemove'` ([#19](https://github.com/daijro/camoufox/issues/19), open since 2024-09). `PageHandler.js:573` sleeps a **fixed 10 ms** between points, itself a signature. **This code is MPL-2.0 and portable even though the browser is not usable for us.**
 
-**What still leaks — and one of them is fatal.**
-- 🔴 **13 enumerable `window.set*` functions.** On the *current* release (152.0.4-beta.30),
-  `Object.keys(window).filter(k => k.startsWith("set"))` returns
-  `setFontSpacingSeed, setAudioFingerprintSeed, setTimezone, setScreenDimensions, setScreenColorDepth,
-  setNavigatorPlatform, setNavigatorOscpu, setNavigatorHardwareConcurrency, setWebGLVendor,
-  setWebGLRenderer, setFontList, setSpeechVoices, setWebRTCIPv4`. **Stock Firefox has exactly one,
-  `setResizable`.** Reported independently as
-  [Discussion #723](https://github.com/daijro/camoufox/discussions/723) (2026-08-11) and
-  [Issue #749](https://github.com/daijro/camoufox/issues/749) (2026-09-01, **open, no maintainer
-  response**). Descriptors are `{writable, enumerable, configurable}` and `toString()` returns
-  `[native code]` — so a page can both **identify Camoufox with certainty in one line** and *rewrite
-  the values it is shown* (`window.setNavigatorHardwareConcurrency(999)` works from page script).
-  These are WebIDL setters gated by a `Func=` check that is meant to self-destruct after the init
-  script runs; **the self-destruct is not firing.**
-- 🔴 **WebAssembly never tiers up.** Juggler makes every content realm a debuggee, so wasm stays on
-  the baseline compiler. Measured wasm/JS timing ratio **2.49 (Camoufox) vs 0.21 (patched)** — real
-  Firefox has wasm at or above JS speed. Detectable **with no fingerprint and no reference machine**
-  (#723).
-- **Sticky user activation with no input.** `Runtime.evaluate` calls `notifyUserGestureActivation()`,
-  so any `page.evaluate` flips `navigator.userActivation.hasBeenActive` true (#723).
-- **Playwright globals in the main world** — `__pwInitScripts`, `__playwright_builtins__`,
-  `__playwright__binding__` enumerable on `window` in cloverlabs 0.6.0
-  ([#733](https://github.com/daijro/camoufox/issues/733), 2026-08-22, open).
-- Benchmarks: Paterson 2026-05-18 (651 verdicts) — **25 OK / 3 gated / 3 blocked**, mid-table, behind
-  nodriver's 28/3/**0**, and the only browser blocked on dev.to; run on the stale FF135 base, so treat
-  as a floor. The Web Scraping Club, 2026-07-23, 15 libraries judged by `deviceandbrowserinfo.com`:
-  Camoufox was one of only **four** to pass — best-in-class in the *lab*, mid-table *live*.
-- BrowserForge's Bayesian net is a **naive-Bayes star** (every node's only parent is `userAgent`), so
-  GPU ⟂ screen ⟂ fonts; Pixelscan flags the results as masking
-  ([#729](https://github.com/daijro/camoufox/issues/729), PR #730 open). Prefer
-  `fingerprint_preset=True` — 312 real scraped device presets, `fingerprint-presets-v150.json`.
-- **The SpiderMonkey wall**, conceded in Camoufox's own README: engine behaviour is observable and
-  cannot be made to look like V8.
+**What still leaks — and one is fatal.**
+- 🔴 **13 enumerable `window.set*` functions.** On the *current* release, `Object.keys(window).filter(k => k.startsWith("set"))` returns `setFontSpacingSeed, setAudioFingerprintSeed, setTimezone, setScreenDimensions, setScreenColorDepth, setNavigatorPlatform, setNavigatorOscpu, setNavigatorHardwareConcurrency, setWebGLVendor, setWebGLRenderer, setFontList, setSpeechVoices, setWebRTCIPv4`. **Stock Firefox has exactly one, `setResizable`.** Reported independently as [Discussion #723](https://github.com/daijro/camoufox/discussions/723) (2026-08-11) and [Issue #749](https://github.com/daijro/camoufox/issues/749) (2026-09-01, **open, no maintainer response**). Descriptors are `{writable, enumerable, configurable}` and `toString()` returns `[native code]`, so a page can **identify Camoufox with certainty in one line** *and rewrite the values it is shown*. The self-destruct these setters are meant to have is not firing.
+- 🔴 **WebAssembly never tiers up.** Juggler makes every content realm a debuggee, so wasm stays on the baseline compiler. Measured wasm/JS timing ratio **2.49 (Camoufox) vs 0.21 (patched)**. Detectable **with no fingerprint and no reference machine**.
+- **Sticky user activation with no input** — `Runtime.evaluate` calls `notifyUserGestureActivation()`, so any `page.evaluate` flips `navigator.userActivation.hasBeenActive` true.
+- **Playwright globals in the main world** — `__pwInitScripts`, `__playwright_builtins__`, `__playwright__binding__` enumerable in cloverlabs 0.6.0 ([#733](https://github.com/daijro/camoufox/issues/733), 2026-08-22, open).
+- Benchmarks: Paterson (651 verdicts, tested May 2026) — **25 OK / 3 gated / 3 blocked**, mid-table, behind nodriver's 28/3/**0**, and the only browser blocked on dev.to; run on the stale FF135 base, so treat as a floor. The Web Scraping Club LAB #111, **2026-07-23**, 15 tools judged on the JS-fingerprint layer: only **camoufox, CloakBrowser, RayoBrowse, scrapling** passed — *"three of them get there the same way, by rebuilding the browser itself."* Best-in-class in the *lab*, mid-table *live*.
+- BrowserForge's Bayesian net is a **naive-Bayes star** (every node's only parent is `userAgent`), so GPU ⟂ screen ⟂ fonts; Pixelscan flags the output as masking ([#729](https://github.com/daijro/camoufox/issues/729)). Prefer `fingerprint_preset=True` — 312 real scraped device presets.
+- **The SpiderMonkey wall**, conceded in Camoufox's own README: engine behaviour is observable and cannot be made to look like V8.
 
-**R-01: architecturally foreclosed, not merely unsupported.** Juggler activates **only** on
-`--juggler-pipe` and its transport is an **anonymous stdio pipe on fd 3/4** inherited from the
-spawning process (`additions/juggler/components/Juggler.js:63-115`). There is no port, no WebSocket,
-no discovery endpoint, and Playwright's Firefox has no `connect_over_cdp` equivalent. **You cannot
-launch it, log in, and then attach.** `persistent_context=True` + `user_data_dir` persists logins
-across *Playwright-launched* runs, but importing an existing Firefox profile is unsupported
-(`policies.json` sets `DisableProfileImport: true`) — and **the user has no Firefox at all**.
-The docs also say plainly: *"Camoufox is not meant for human use"*, the outer viewport can never be
-resized, and the build ships `--disable-updater` + `DisableAppUpdate` — **no security updates, ever**,
-on a base three releases behind.
+**R-01: architecturally foreclosed, not merely unsupported.** Juggler activates **only** on `--juggler-pipe`, over an **anonymous stdio pipe on fd 3/4** inherited from the spawning process (`additions/juggler/components/Juggler.js:63-115`). No port, no WebSocket, no discovery endpoint, and Playwright's Firefox has no `connect_over_cdp` equivalent. **You cannot launch it, log in, then attach.** `persistent_context=True` persists logins across *Playwright-launched* runs, but importing an existing Firefox profile is unsupported (`policies.json`: `DisableProfileImport: true`) — and **the user has no Firefox at all**. The docs say plainly *"Camoufox is not meant for human use"*, the outer viewport can never be resized, and the build ships `--disable-updater` + `DisableAppUpdate`: **no security updates, ever**, on a base three releases behind.
 
-**R-05: extensions work well; the sidebar is untested.** `browser-init.patch` adds
-`installTemporaryAddon()`, signing is off (`MOZ_REQUIRE_SIGNING=` empty,
-`--with-unsigned-addon-scopes=app,system`), `extensions.webextensions.restrictedDomains=""`, uBO
-auto-installs. But **no reference to `sidebar` exists anywhere in `patches/`, `settings/`, or
-`additions/`**, and `settings/chrome.css` hides `#unified-extensions-button` and `#PersonalToolbar`.
-`sidebar_action` *should* work; it is unverified.
+**R-05: extensions work well; the sidebar is untested.** `browser-init.patch` adds `installTemporaryAddon()`, signing is off, `extensions.webextensions.restrictedDomains=""`, uBO auto-installs. But **no reference to `sidebar` exists anywhere in `patches/`, `settings/` or `additions/`**, and `settings/chrome.css` hides `#unified-extensions-button` and `#PersonalToolbar`. `sidebar_action` *should* work; unverified.
 
-**The architectural killer.** Every Camoufox stealth win that matters for *acting* — isolated-world
-evaluation, trusted event synthesis (`trusted-automation-events.patch`), the humanised cursor — lives
-in `PageHandler.js`/`FrameTree.js`, i.e. **on the Juggler path, outside the browser**. That is the
-"driven from outside" architecture R-05 and N-02 rule out. There *is* a real alternative — run the
-standalone binary with `CAMOU_CONFIG_1={...}` env vars and **no** `--juggler-pipe`, driving it from a
-WebExtension you write (confirmed working with no Playwright at all in
-[#691](https://github.com/daijro/camoufox/discussions/691)) — but that keeps only the C++ fingerprint
-spoofing and throws away every input advantage, leaving the same `isTrusted:false` content-script
-input we have in Chrome. **You would pay Camoufox's entire cost for the half we need least.**
+**The architectural killer.** Every Camoufox win that matters for *acting* — isolated-world evaluation, trusted event synthesis (`trusted-automation-events.patch`), the humanised cursor — lives in `PageHandler.js`/`FrameTree.js`, i.e. **on the Juggler path, outside the browser**: the "driven from outside" architecture R-05 and N-02 rule out. There *is* an alternative — run the standalone binary with `CAMOU_CONFIG_1={...}` and **no** `--juggler-pipe`, driven by a WebExtension you write (confirmed working with no Playwright at all in [#691](https://github.com/daijro/camoufox/discussions/691)) — but that keeps only the C++ fingerprint spoofing and throws away every input advantage, leaving the same `isTrusted:false` content-script input we already have in Chrome. **You would pay Camoufox's whole cost for the half we need least.**
 
 ---
 
 ## 3. Patchright and rebrowser-patches — evidence, not options
 
-Playwright is out per the user. These matter only as the public map of *which CDP leaks exist*.
+Playwright is out per the user. These are the public map of *which CDP leaks exist*.
 
-**Patchright** (`Kaliiiiiiiiii-Vinyzu/patchright`, **4,262★**, Apache-2.0, pushed **2026-09-02**,
-v1.62.1 2026-08-17). An AST rewrite (`patchright_driver_patch.ts`, ts-morph) of the Playwright driver
-source. Leaks it removes, with mechanism:
+**Patchright** (`Kaliiiiiiiiii-Vinyzu/patchright`, **4,262★**, Apache-2.0, pushed **2026-09-02**, PyPI 1.62.3 on 2026-09-02, automated release pipeline tracking upstream within days). It is a `ts-morph` codemod over the **Playwright Node driver source** — it does *not* patch Chromium.
 
-| Leak | Patchright's fix |
+| Leak | Fix (verified in `driver_patches/`) |
 | --- | --- |
-| `Runtime.enable` | Never called. Execution contexts resolved manually by parsing the context id out of the `objectId` returned by `Runtime.evaluate`; iframes via `DOM.getFrameOwner`→`describeNode`→`resolveNode` |
-| `Console.enable` | Never enabled — `console.log` is dead inside Patchright, by design |
-| `Page.addScriptToEvaluateOnNewDocument` | Replaced by `Fetch.requestPaused` HTML rewriting with a self-removing `<script>` — **and it appends `'unsafe-eval'`, `'unsafe-inline'`, `*` to the page's `script-src`**, a real security downgrade Foil flagged and the README does not |
-| `--enable-automation` / `navigator.webdriver` | Flag removed, `--disable-blink-features=AutomationControlled` added |
-| Utility-world naming, closed shadow roots | Renamed / pierced |
+| `Runtime.enable` | **Zero occurrences remain.** All five upstream call sites removed. Contexts are obtained by `Runtime.evaluate("globalThis", serialization:"idOnly")` and parsing the context id out of the returned `objectId`; cross-origin iframes via `DOM.getFrameOwner`→`describeNode`→`resolveNode`; utility world via `Page.createIsolatedWorld({grantUniveralAccess:true})` with a locally *synthesised* `executionContextCreated` |
+| `Console.enable` | Upstream never sends it — console arrives via `Runtime.consoleAPICalled`, so killing the above kills console as collateral. **34 Playwright tests fail; `ConsoleMessage`/`PageError`/`WebError` are dead APIs** (issue #30) |
+| Branded globals | Removes `__playwright__binding__`, `__playwright__binding__controller__`, `__pw_fn_`, the `--playwright--set--content--<guid>--` tag; renames callback bindings to `'f'+createGuid()`. **But `page.expose_function("myFn")` still uses your literal name**, and `__pwClock.controller` / `__pwWebAuthnBinding` survive |
+| Utility-world name | Not actually randomised — the runtime path creates the world as `"utility"`, and `__playwright_utility_world_*` survives on the initial `addScriptToEvaluateOnNewDocument`. Low risk (world names are not page-readable) but the "randomised" claim is wrong |
+| Launch flags | Removes `--enable-automation`, `--disable-popup-blocking`, `--disable-component-update`, `--disable-default-apps`, `--disable-extensions`, `--disable-ipc-flooding-protection`, and the whole upstream `--disable-features` blob; adds `--disable-blink-features=AutomationControlled`; strips `--enable-unsafe-swiftshader` (the fix for the SwiftShader WebGL red flag, issue #170) |
+| `sourceURL` | `addSourceUrlToScript()` gutted to `return source;` |
+| Target/serviceWorker | `Target.setAutoAttach(flatten:true)` **retained** — auto-attach is not hidden |
 
-Its README claims passes on Brotector, Cloudflare, Kasada, Akamai, Shape/F5, DataDome,
-Fingerprint.com, CreepJS, Sannysoft, BrowserScan, Pixelscan — **vendor claim, no methodology, no
-dates**. Independently, Paterson 2026-05-18 measured **25 OK / 3 gated / 3 blocked**, only +1 OK over
-vanilla Playwright, still hard-blocked on google-search. **It does no fingerprint spoofing and no TLS
-impersonation** — canvas, WebGL, audio, UA, hardware concurrency are stock. Teardown:
-[Foil, 2026-05-29](https://usefoil.com/research/stealth-browsers).
+**Why the flags still matter in 2026:** Playwright launches with `--remote-debugging-pipe`, and `kRemoteDebuggingPipe` unconditionally sets `EnableAutomationControlled` → `navigator.webdriver === true`. So `--disable-blink-features=AutomationControlled` is **load-bearing for Patchright, not cosmetic**.
 
-**rebrowser-patches** (1,422★, **no license**, last push **2025-05-09** — ~16 months stale;
-`rebrowser-bot-detector` 158★, last push 2024-10-25). Same core insight (avoid `Runtime.enable`; use
-`Page.createIsolatedWorld` or `addBinding`). **Paterson measured rebrowser-playwright as functionally
-identical to vanilla Playwright** — 24 OK / 2 gated / 5 blocked, *same five blocked targets*. Treat
-rebrowser as historically important and currently dead.
+**Its new observable:** with no `Runtime.enable`, `add_init_script`/`expose_function` cannot use the normal path, so Patchright registers `context.route('**/*')`, **rewrites the page's CSP to add a nonce**, and injects a self-removing `<script>` with randomised id/class. The README concedes *"Patchright InitScripts can be detected by Timing Attacks."* **If you never call `add_init_script` or `expose_function`, none of this fires.**
 
-**Two dated CDP facts worth carrying forward.**
-- Around **2025-02**, Cloudflare deployed a check on a Chrome bug where CDP-synthesised clicks inside
-  an iframe carried iframe-relative rather than main-frame coordinates. It hit Puppeteer, Playwright,
-  Patchright, Selenium **and nodriver alike** — the tell was in Chrome, not in any library
-  ([crawlex, 2026-04-11](https://blog.crawlex.net/blog/nodriver-undetected-chromedriver/)).
-- **Chromium CL 6917162**, "Fix screen coordinates to avoid automation detection", merged
-  **2025-09-15**, bug 40280325: *"Set PositionInScreen based on the view's actual screen bounds
-  instead of copying PositionInWidget. This prevents a common automation detection fingerprint where
-  screenX/Y and clientX/Y are identical."* Vinyzu **archived CDP-Patches** on 2025-09-28 with:
-  *"CoalescedEvents are now also emitted by Input Events. There is no reason to use this package
-  anymore, except for Select Elements."* The user runs Chrome 152 — **this is already fixed for us.**
+**Correction worth recording:** Patchright's README contains **no literal "we do not do fingerprint spoofing" sentence** — its README says only *"Best Practice — use Chrome without Fingerprint Injection"*. The disclaimer lives in the issue tracker: ttlns, 2026-02-14 (#170) *"fingerprinting (e.g. using WebGL) is out of scope"*; Vinyzu, 2026-07-19 (#224) *"That sounds like fingerprinting to me, which is currently not covered by patchright."* Substance confirmed, quote does not exist.
+
+**rebrowser-patches is dead** — 1,422★, MIT in `package.json` but no LICENSE file, last push **2025-05-09**, pinned to Playwright 1.52.0 / Puppeteer 24.8.1. Its `Runtime.enable` fix is a randomised `addBinding` + isolated world (the mechanism is sound). But **four independent 2026 measurements put it level with vanilla**: Paterson 24 OK / 5 blocked, *same five targets*; issue #127 (2026-07-29) measured 48/100 for both on identical Chrome. It shipped **Chromium 136** while everything else ran 145–148 — **a stale browser version is itself a fingerprint, and it now outweighs the leak fix.**
+
+### 🚨 The finding that changes how we validate
+
+**The `Runtime.enable` console probe has been dead in Chrome stable since 2025-06-24 (Chrome 138).** V8 CLs 6506243 (`61a9075`, 2025-05-07) and 6513972 (`e08e973`, 2025-05-09), *"Prevent side effects during object preview / error preview"* (V8 bug 415094795), added `isBuiltinGetter()` in `src/inspector/value-mirror.cc:262`, which `descriptionForError()` consults before invoking `stack`, `name` or `message`. Writeup: Antoine Vastel (Castle), [*Why a classic CDP bot detection signal suddenly stopped working (and nobody noticed)*](https://blog.castle.io/why-a-classic-cdp-bot-detection-signal-suddenly-stopped-working-and-nobody-noticed/), 2025-08-28.
+
+**Consequence: `bot-detector.rebrowser.net` (last commit 2024-10-25) and `brotector` (2024-12-03) now return 🟢 "no leak detected" for a completely unpatched Puppeteer or Playwright.** A green board from either proves nothing. Its remaining tests are still useful (`sourceUrlLeak`, `mainWorldExecution`, `exposeFunctionLeak`, `navigatorWebdriver` — which flags `typeof === 'undefined'` too — `pwInitScripts`, `bypassCsp`, `viewport` 800×600/1280×720, `useragent` Chromium-not-Google-Chrome).
+
+**And the V8 guard is structurally incomplete.** `getErrorProperty()` reads only the *own* property descriptor and otherwise falls through to an unguarded `object->Get(...)`, which walks the prototype chain. A getter installed on **`Error.prototype.stack`** produces no own descriptor and therefore still fires. A `Proxy` with an `ownKeys` trap in a plain object's prototype chain is a second unguarded channel. So `Runtime.enable` detection did not die — **it moved, and the public detectors did not follow.** We must write our own probe on those two channels.
+
+**Two more dated CDP facts.** Around **2025-02** Cloudflare shipped a check on a Chrome bug where CDP clicks inside an iframe carried iframe-relative coordinates — it hit Puppeteer, Playwright, Patchright, Selenium **and nodriver alike**, because the tell was in Chrome. And **CL 6917162** (merged 2025-09-15, bug 40280325, stable in **M142 on 2025-10-28**): *"Set PositionInScreen based on the view's actual screen bounds instead of copying PositionInWidget. This prevents a common automation detection fingerprint where screenX/Y and clientX/Y are identical."* CDP-Patches was archived 2025-09-28 as a result. **From Chrome 142 on, CDP-injected input is geometrically indistinguishable from real input. What remains is the motion profile — which none of these tools implements.**
+
+**Live leak in the obvious stack:** `puppeteer-core`'s `src/cdp/FrameManager.ts:245` calls `client.send('Runtime.enable')` unconditionally, and `nanobrowser` uses `puppeteer-core ^24.31.0` over `ExtensionTransport.connectTab`. Overriding `console.debug` or wrapping in a `Proxy` does not fix it — rebrowser documents that DataDome and Cloudflare check for `Proxy` and `Object.defineProperty`. Use `Page.createIsolatedWorld`, or `Runtime.enable` immediately followed by `Runtime.disable`.
 
 ---
 
-## 4. nodriver / zendriver
+## 4. nodriver / zendriver — blocked by Chrome's default-profile refusal
 
-**nodriver** (`ultrafunkamsterdam/nodriver`, **4,717★**, **AGPL-3.0**, pushed **2026-05-13**, no
-GitHub releases). **zendriver** (`cdpdriver/zendriver`, **1,413★**, AGPL-3.0, pushed **2026-08-16**,
-v0.16.0) is the more actively maintained fork. Predecessor `undetected-chromedriver` (12,821★) last
-pushed **2025-07-05** with 1,141 open issues — effectively abandoned.
+**nodriver** (`ultrafunkamsterdam/nodriver`, **4,717★**, **AGPL-3.0**, pushed **2026-05-13**, PyPI 0.50.3, ~4 months idle). **zendriver** (`cdpdriver/zendriver`, **1,413★**, AGPL-3.0, pushed **2026-08-16**, v0.16.0) is the more active fork. `undetected-chromedriver` (12,821★, last push 2025-07-05, 1,141 open issues) is functionally dead; its own author built nodriver as the successor.
 
-**Layer: subtraction, not patching.** No chromedriver binary, no Selenium, no Playwright — raw CDP
-over a WebSocket. That deletes the entire `$cdc_` / `call_function.js` family by construction, and
-removes Playwright's characteristic startup handshake (`Runtime.enable` + `Target.setAutoAttach`).
+**Layer: subtraction.** Raw async CDP over a WebSocket — no chromedriver, no Selenium, no Playwright. Grepping both trees finds **no `Runtime.enable`, no `Console.enable`, no `addBinding`, no isolated worlds, no `sourceURL`, no `__pw*` globals**. They enable only `Page.enable`, `DOM.enable` and `Target.setAutoAttach`. **The tradeoff: everything runs in the main world** — `tab.py:889` calls `cdp.runtime.evaluate(..., user_gesture=True, allow_unsafe_eval_blocked_by_csp=True)` with no `contextId`, which is rebrowser's `mainWorldExecution` and `bypassCsp` leaks by construction. Neither spoofs fingerprints or touches TLS. Note zendriver ships `--disable-component-update` by default — the exact flag Patchright removes as a stealth-driver tell.
 
-**Spoofs: essentially nothing.** No canvas/WebGL/audio/font spoofing, no TLS work. It drives the
-*system Chrome*, so the fingerprint and TLS are genuinely Chrome's.
+**Input is worse than Patchright's, not better.** `nodriver/core/tab.py:1837` `mouse_move(x,y,steps=10)` computes `step_size_x = x // steps`, i.e. it interpolates **from the origin (0,0)**, not from the current cursor, in perfectly linear equal-spaced points with a fixed `sleep(0.05)`. Typing uses one `dispatch_key_event("char")` per character with no delay — and `char` events fire **no `keydown` or `keyup` at all**, so a page listening for `keydown` sees text appear from nowhere.
 
-**Published testing.** Paterson 2026-05-18: **28 OK / 3 gated / 0 blocked — the only tool with zero
-blocked cells**, on system Google Chrome 148. It alone passed `canadianinsider` (Cloudflare Turnstile)
-where all six other stealth tools hard-blocked, reproducibly across three sweeps. The author's read:
-the discriminator is **automation-protocol fingerprinting**, not cipher lists — and nodriver has no
-framework shim in the control plane.
+**Published testing: the best live-site numbers in the survey.** Paterson (651 verdicts): **28 OK / 3 gated / 0 blocked** — the only tool with zero blocked cells, on system Chrome 148, alone passing `canadianinsider` (Turnstile) where all six others hard-blocked, reproducibly. Author's thesis: *"anti-bot gates check HOW the browser is being driven, not what the browser claims to be."* Counter-evidence: `techinz/browsers-benchmark` (2026-05-27) put nodriver at 80% and Patchright headed at **100%**; The Web Scraping Club (2026-07-23) failed nodriver, zendriver, Patchright and rebrowser alike on the JS-fingerprint layer. And multiple open issues report exactly the gap above — zendriver #165 *"click() → untrusted input on brotector"*, #181 *"cf_verify click got detected"* (open), #210 *"Detected by Google"* (open); nodriver #31 *"mouse_click detected by Cloudflare where manual clicking passes."*
 
-**R-01: partially, at a price.** Both expose `Browser.connect(endpoint)` / `use_running_browser(port)`
-and attach to an already-running Chrome without killing it. **But** Chrome's user-data-dir singleton
-lock means you cannot attach to a Chrome that was not started with `--remote-debugging-port=N` — there
-is no retroactive attach. So the user's daily Chrome would have to run permanently with an open
-debug port. That is a standing local-privilege hole (any local process can drive the browser and read
-every logged-in session) and it is a poor fit for R-12. `N != 0` does not set `navigator.webdriver`
-(only `--remote-debugging-port=0` and `--remote-debugging-pipe` do), so the flag itself is not the
-problem — the exposure is.
+**R-01: blocked, and this decides the option.** Both attach to a running Chrome via `start(host=, port=)` → `GET /json/version` → `webSocketDebuggerUrl`. `--remote-debugging-port=N` with **N ≠ 0** does **not** set `navigator.webdriver` (only `0`, `--remote-debugging-pipe` and `--enable-automation` do) — that part of the folklore is correct. But [`remote_debugging_server.cc:160-183`](https://chromium.googlesource.com/chromium/src/+/main/chrome/browser/devtools/remote_debugging_server.cc) `IsRemoteDebuggingAllowed()` returns `kDisabledByDefaultUserDataDir` on Win/Mac/Linux under `GOOGLE_CHROME_BRANDING` whenever the default user-data-dir is in use — unbranded Chromium exempts itself. **On branded Chrome, remote debugging of the user's real profile is silently refused.** Comply with an explicit `--user-data-dir` and you have a different profile, logged into nothing. R-05 fails too: these are Python libraries with no side panel, driven from outside, which N-02 rules out.
 
-**R-05: fails.** They are Python libraries. There is no side panel; the run is driven from outside,
-which N-02 rules out.
+**Worth watching.** Current Chromium `main` has a sanctioned alternative: with **no** `--remote-debugging-*` switch and `features::kDevToolsAcceptDebuggingConnections` enabled, Chrome starts a DevTools server in **approval mode** gated on `prefs::kDevToolsRemoteDebuggingEnabled` (toggled from `chrome://inspect`), where each connection is user-approved. Because no switch is on the command line, `EnableAutomationControlled` is never set. **This would be the lowest-observability attach path that exists** — rollout state unverified. Re-check on Chrome upgrades.
 
 ---
 
 ## 5. Chrome-based agent / antidetect browsers
 
-**BrowserOS** (`browseros-ai/BrowserOS`, **13,532★**, **AGPL-3.0**, pushed **2026-09-03**). A genuine
-Chromium fork (Chromium 146 as of v0.42, 2026-03) plus an agent platform. Its `chromium_patches/` tree
-has **10 top-level dirs** (`base chrome components content extensions third_party tools ui` + config)
-and is privacy/branding/agent-UI work derived from ungoogled-chromium — e.g. the
-`components/infobars/core/infobar_delegate.h` patch **adds** two BrowserOS infobar types rather than
-suppressing any. A repo-wide code search for `silent-debugger-extension-api` returns **0**. **It is
-not a stealth fork.** It ships a side panel (`apps/app`, WXT + React) and uses CDP internally.
-"BrowserOS neo" is explicitly a *second* browser that **imports** your Chrome logins — a copy, not the
-live session. R-01 fails; R-05 passes.
+**BrowserOS** (`browseros-ai/BrowserOS`, **13,532★**, **AGPL-3.0**, pushed **2026-09-03**, multiple releases per day). A genuine Chromium fork: `CHROMIUM_VERSION` = 151.0.7922.137, **370 patch files**, carrying ungoogled-chromium patches. Contributions require a **CLA granting sublicensing rights** — open core: excellent as a reference, awkward as a dependency.
 
-**Steel** (`steel-dev/steel-browser`, 7,589★, Apache-2.0, pushed 2026-09-03, v0.5.4-beta) — a
-containerised browser API for agents. **Lightpanda** (34,408★, AGPL-3.0) is a headless-only
-purpose-built browser: no rendering, no real fingerprint, **not relevant** to R-02.
-**Browserbase / Anchor / Hyperbrowser / Kernel** are cloud browsers: datacentre IPs, someone else's
-profile, and Browserbase and Anchor are in **Cloudflare's first signed-agent cohort**
-([Cloudflare, 2025-08-28](https://blog.cloudflare.com/signed-agents/)) — i.e. they are designed to be
-*identified*, the opposite of R-02. All of them fail R-01 outright.
+*It contains exactly two stealth-relevant patches, and they are the two worth knowing:* `third_party/blink/renderer/core/frame/navigator.cc` replaces the whole `Navigator::webdriver()` body with `return false;` (strictly better than a JS override, which returns `undefined` and mismatches); and `chrome/browser/extensions/api/debugger/debugger_api.cc` appends **`|| true`** to `suppress_warning`, unconditionally killing the "started debugging this browser" banner. They also comment out `TargetInfoChanged()` in `content/browser/devtools/protocol/target_handler.cc`. **Everything else is product work** — 325 of 370 files are under `chrome/`; grepping all 370 for `fingerprint|canvas_noise|webgl|user_agent|Sec-CH-UA` returns nothing, and the docs make no stealth claim anywhere. It also **calls `Runtime.enable`** (`crates/browseros-core/src/pages.rs:429`), and its `input/mouse.rs` is 123 lines of raw `Input.dispatchMouseEvent` with no curves and no jitter. Side panel: yes, plus a forked `side_panel.idl` adding `browserosToggle()` — largely unnecessary now that stock Chrome shipped `close()`/`onOpened`/`onClosed` in 141–142. **R-01 fails:** neo is explicitly *"NOT a Chrome replacement… a secondary browser that sits next to Chrome"*, and it reaches your sessions by **decrypting Chrome's OS-crypt store** (`chrome/utility/importer/browseros/chrome_{cookie,password}_importer.cc`) — a cookie transplant into a different profile, the exact pattern anti-fraud scoring is built to catch.
 
-**Folk remedies.** `--disable-blink-features=AutomationControlled` and `--exclude-switches` only matter
-if you set `--enable-automation` in the first place; an extension never does. They are irrelevant here.
+**Cloud services fail structurally** — a remote browser cannot touch a tab on the user's desktop. **Browserbase** has *removed* Stealth basic/advanced and rebuilt around **Agent Identity**: verified sessions plus **Web Bot Auth via Cloudflare Signed Agents**, designed to be *identified* — the opposite of R-02. **Anchor** and **Kernel** likewise lean on residential proxies plus verified-agent status (Anchor's real stealth browser is gated at $2,000/mo). **Steel** (7,589★, Apache-2.0, still v0.5.4-beta) is weakest technically — `puppeteer-extra-plugin-stealth`-lineage JS monkey-patching, and it does not patch `Runtime.enable`. **Hyperbrowser**'s docs are content-free, MCP repo stale since 2025-11. **Lightpanda** (34,408★, AGPL-3.0, Zig, V8-only, no rendering engine) is a maximal stealth *liability*: every unimplemented Web API is a presence/absence mismatch, and DataDome maintains a dedicated classification page for it. **Notte** is SSPL-1.0 — not OSI open source.
 
-**SeleniumBase** (12,979★, MIT, pushed 2026-09-02, v4.53.6) is the community's current favourite for
-Chromium stealth: UC Mode (patched chromedriver that *disconnects* WebDriver at strategic times) now
-superseded by **CDP Mode** ("maximum stealth" per maintainer's own architecture chart,
-[issue #4247](https://github.com/seleniumbase/SeleniumBase/issues/4247), 2026-02-18). Notably, when
-CDP is not enough it falls back to **PyAutoGUI** — `sb.cdp.gui_click_element()` moves the real OS
-mouse so the site sees a genuine hover before the click. That is the same conclusion as section 6.
+**Folk remedies.** `--disable-blink-features=AutomationControlled` only matters if something set `--enable-automation` or `--remote-debugging-pipe` first; an extension never does. Chrome now also renders a persistent **"You are using an unsupported command-line flag"** infobar for it. **SeleniumBase** (12,979★, MIT, pushed 2026-09-02) is the most active project in the space and the Python mainstream's pick — UC Mode (patched chromedriver, disconnect/reconnect) and CDP Mode ("maximum stealth" per the maintainer's own [architecture chart](https://github.com/seleniumbase/SeleniumBase/issues/4247), 2026-02-18). Notably, when CDP is not enough it falls back to **PyAutoGUI** — `sb.cdp.gui_click_element()` moves the real OS mouse so the site sees a genuine hover. Same conclusion as §6.
 
-**Multilogin / GoLogin / Kameleo / Octo / Dolphin Anty / AdsPower** — closed source. **C-04 excludes
-them** ("libraries are chosen by reading their code"). None offers a "drive the session already open
-in my Chrome" mode.
+**Commercial antidetect (Multilogin, GoLogin, Kameleo, Octo, Dolphin Anty, AdsPower): all six fail for the same reason** — each launches its own binary against a fresh managed profile, the user logs in again, and none ships a side panel for the daily browser. **C-04 excludes them** (closed at the layer that matters). Three further disqualifiers: DataDome publishes **per-product detection pages** for Multilogin, Kameleo, GoLogin, Octo and Lightpanda, so adopting one *raises* observability; ScrapingBee's July 2026 roundup caught **Dolphin Anty via localhost port-scanning** (a locally-listening automation API on a predictable port is itself a fingerprint — Octo listens unauthenticated on `localhost:58888`); and AdsPower shipped a **backdoored extension to users for three days in Jan 2025, ~$4.7M stolen**.
 
 ---
 
 ## 6. OS-level input injection — the finding that matters
 
-**Goal:** `isTrusted:true` input with **no** `chrome.debugger`, therefore **no browser-wide infobar**
-and no viewport-shrink signal.
+**Goal:** `isTrusted:true` input with **no** `chrome.debugger`, therefore no browser-wide infobar and no viewport-shrink signal.
 
-**What is actually available on this machine (verified by inspecting the installed binaries).**
+**What is actually available here (verified by inspecting the installed binaries).**
 
 | Mechanism | Status on Hyprland 0.56.2 / Arch, 2026-09-03 |
 | --- | --- |
-| `zwlr_virtual_pointer_manager_v1` | **Supported.** `strings /usr/bin/Hyprland` contains the interface; [`src/protocols/VirtualPointer.cpp`](https://raw.githubusercontent.com/hyprwm/Hyprland/v0.56.2/src/protocols/VirtualPointer.cpp) emits `IPointer::SMotionEvent` / `SMotionAbsoluteEvent` / `SButtonEvent` / `SAxisEvent` / `frame` — **the same event structs as a physical pointer** |
-| `zwp_virtual_keyboard_manager_v1` | **Supported.** `wtype 0.4` is already installed and uses it |
-| `org.freedesktop.impl.portal.RemoteDesktop` | **NOT implemented.** `/usr/share/xdg-desktop-portal/portals/hyprland.portal` lists only `Screenshot;ScreenCast;GlobalShortcuts;InputCapture`. XDPH PR #268 (InputCapture) merged; **PR #308 (RemoteDesktop) still unmerged as of 2026-08** ([issue #252](https://github.com/hyprwm/xdg-desktop-portal-hyprland/issues/252)) |
-| libei / libeis | `libei 1.6.0` installed, but only as the InputCapture (receive) side. No EIS **sender** path without RemoteDesktop. A 2026-08 comment on #252 from the `oh-my-pi` agent project records exactly this: "On Hyprland today neither exists, so input is impossible" |
-| `/dev/uinput` (ydotool) | Not installed. Would work (Hyprland sees it via libinput as a normal device) but needs a root/daemon + udev setup — strictly worse than the protocol route |
-| `xdotool` | X11 only. Chrome on Hyprland is a native Wayland client. Not usable |
-| `hyprctl dispatch movecursor X Y` | Exists (confirmed in the binary) — moves the cursor, but there is no button dispatcher. Useful for calibration, not for clicking |
+| `zwlr_virtual_pointer_manager_v1` | **Supported.** Present in `strings /usr/bin/Hyprland`; [`src/protocols/VirtualPointer.cpp`](https://raw.githubusercontent.com/hyprwm/Hyprland/v0.56.2/src/protocols/VirtualPointer.cpp) emits `IPointer::SMotionEvent` / `SMotionAbsoluteEvent` / `SButtonEvent` / `SAxisEvent` / `frame` — **the same event structs as a physical pointer** |
+| `zwp_virtual_keyboard_manager_v1` | **Supported.** `wtype 0.4` is installed and uses it |
+| `org.freedesktop.impl.portal.RemoteDesktop` | **NOT implemented.** `/usr/share/xdg-desktop-portal/portals/hyprland.portal` lists only `Screenshot;ScreenCast;GlobalShortcuts;InputCapture`. XDPH PR #268 (InputCapture) merged; **PR #308 (RemoteDesktop) unmerged as of 2026-08** ([issue #252](https://github.com/hyprwm/xdg-desktop-portal-hyprland/issues/252)) |
+| libei / libeis | `libei 1.6.0` installed, but only the InputCapture (receive) side; no EIS *sender* path without RemoteDesktop. A 2026-08 comment on #252 from the `oh-my-pi` agent project records exactly this: "On Hyprland today neither exists, so input is impossible" |
+| `/dev/uinput` (ydotool) | Not installed. Would work (Hyprland sees it via libinput) but needs a root daemon + udev rules — strictly worse |
+| `xdotool` | X11 only; Chrome runs as a native Wayland client here. Unusable |
+| `hyprctl dispatch movecursor X Y` | Exists (confirmed in the binary) — moves the cursor, no button dispatcher. Calibration only |
 
-**Conclusion: skip the portal entirely.** Every third-party Hyprland "RemoteDesktop" shim
-([gac3k/xdg-desktop-portal-hypr-remote](https://github.com/gac3k/xdg-desktop-portal-hypr-remote),
-[hypr-kdeconnect-fix](https://github.com/gfhdhytghd/hypr-kdeconnect-fix),
-[luminous](https://github.com/waycrate/xdg-desktop-portal-luminous)) is a thin D-Bus wrapper over
-**exactly these two Wayland protocols**. Talk to them directly: no portal, no consent dialog, no
-`restore_token`, no root, no uinput, no XWayland.
+**Conclusion: skip the portal entirely.** Every third-party Hyprland "RemoteDesktop" shim ([xdg-desktop-portal-hypr-remote](https://github.com/gac3k/xdg-desktop-portal-hypr-remote), [hypr-kdeconnect-fix](https://github.com/gfhdhytghd/hypr-kdeconnect-fix), [luminous](https://github.com/waycrate/xdg-desktop-portal-luminous)) is a thin D-Bus wrapper over **exactly these two Wayland protocols**. Talk to them directly: no portal, no consent dialog, no `restore_token`, no root, no uinput, no XWayland.
 
-**What Chrome sees.** The compositor delivers virtual-pointer events into its normal seat and forwards
-them as ordinary `wl_pointer` events. Chrome cannot distinguish them from a physical mouse: real
-`isTrusted`, real `screenX/screenY`, real focus chain, real transient activation, real coalescing —
-and **no automation banner, no CDP session, no `Runtime.*`, nothing for the page to enumerate.** The
-only in-browser artefact is the behaviour itself, which is section 1's problem and is exactly what
-FP-Agent measures.
+**What Chrome sees.** The compositor delivers virtual-pointer events into its normal seat and forwards them as ordinary `wl_pointer` events. Chrome cannot distinguish them from a physical mouse: real `isTrusted`, real `screenX/screenY`, real focus chain, real transient activation, real coalescing — and **no automation banner, no CDP session, nothing for the page to enumerate.** The only in-browser artefact is the behaviour itself, which is §1's problem and exactly what FP-Agent measures.
 
-**Coordinate mapping — the one hard part, and it is solvable.**
-`MouseEvent.screenX/Y` are in **DIPs**: scaled by device-scale-factor but **not** by browser zoom;
-`clientX/Y` are CSS pixels (`DIP * BrowserZoom = CssPixel`)
-([w3c/pointerevents#607](https://github.com/w3c/pointerevents/issues/607), with the cross-browser
-table). So the robust method is **self-calibration from the user's own mouse**: a content script
-listens for real `mousemove`s and solves `screenX = originX + clientX / zoom` from two samples. That
-one equation absorbs window position, browser chrome height, `devicePixelRatio`, page zoom and
-fractional scaling without any Chrome API. On this machine DIP space and Hyprland logical space
-coincide 1:1 (1920x1200 @ scale 1.5 = 1280x800 logical), so the daemon can use the result directly;
-`hyprctl monitors -j` gives `x`, `y`, `scale` for the general multi-monitor case.
+**⚠️ Coordinate mapping: the obvious method does not work on Wayland.** On X11 you would calibrate from the user's own mouse, since `MouseEvent.screenX/Y` are DIPs and `clientX/Y` CSS pixels ([w3c/pointerevents#607](https://github.com/w3c/pointerevents/issues/607)). **On Wayland that is unavailable by design.** `ui/ozone/platform/wayland/ozone_platform_wayland.cc` sets `supports_global_screen_coordinates = false` — *"clients simply don't know their position on screens and always assume they are located at some arbitrary position"*. The window-placement tracker ([webscreens/window-placement#68](https://github.com/webscreens/window-placement/issues/68), open) records the consequences: **`window.screenX|Y` are always 0**, `moveTo/moveBy` are disregarded, but `screen.availTop|Left|Width|Height` do work. The host origin is (0,0), so **`screenX ≈ clientX` and `screenY ≈ clientY + toolbar height` — for humans and bots alike on this machine.** (Aside: CL 6917162's `screenX == clientX` heuristic therefore false-positives on every Wayland user, which is its own argument against relying on that class of check.)
 
-**Transport is already built.** `live-testing-real-chrome.md` §4 establishes that the extension
-already calls `chrome.runtime.connectNative` to reach the Doppler sidecar, and that the port keeps the
-MV3 service worker alive for a whole run. The input daemon is a message type on a port that already
-exists. `nativeMessaging` is invisible to the page.
+**So get the geometry from the compositor, not the browser.** `hyprctl clients -j` gives each window's `at` and `size` in logical coordinates; `hyprctl monitors -j` gives `x`, `y`, `scale`. The daemon computes `screen = window.at + chromeOffset + clientXY`, where `chromeOffset` is measured **once** per window by a one-time calibration (move to a known logical point, read `document.elementFromPoint` / `clientX` from a real `mousemove`, solve for the offset). Here DIP space and Hyprland logical space coincide 1:1 (1920x1200 @ scale 1.5 = 1280x800 logical), so no scale conversion is needed on this machine — but do not hardcode that.
 
-**Costs and risks, stated plainly.** The events go to the **focused window and active tab only** —
-this cannot drive a background tab (the same limitation CDP-Patches documented). The real cursor
-visibly moves and races the user; the run must own the pointer, or hand it back. If the window moves
-mid-action the mapping is stale — re-calibrate per action, and verify with `document.elementFromPoint`
-before committing a click. And nothing here bypasses behavioural fingerprinting: **trusted input with
-robot kinematics is still detected.** Humanised motion is not optional, it is the product.
+**Transport already exists.** `live-testing-real-chrome.md` §4 establishes that the extension already calls `chrome.runtime.connectNative` to reach the Doppler sidecar, and that the port keeps the MV3 service worker alive for a whole run. The input daemon is a message type on a port we already open, and `nativeMessaging` is invisible to the page.
+
+**Prior art: this pattern is settled, not novel.** **UI.Vision RPA** (`A9T9/RPA`, **2,001★**, pushed **2026-08-09**, live in the Chrome Web Store as `gcbalfbdmfieckjlnblleoemohcganoc`) has shipped exactly this ladder commercially for years: its manifest declares both `debugger` and `nativeMessaging`, `src/services/xy/kantu-xy-host.ts` connects to `com.a9t9.kantu.xy` over `connectNative`, and its [docs](https://ui.vision/ai/ai-system-prompt) name three tiers — `uiv.page.*` (synthetic DOM events, `isTrusted:false`) → `uiv.browser.*` ("trusted input through the debugger API") → `uiv.desktop.*` (`XClick`/`XType`, real OS input via the "RealUser Simulation XModule", **no infobar**). Others: `Ryan-AI-Studios/hands` (MV3 + `nativeMessaging`, **no `debugger`**, Windows `SendInput` on Bézier paths — its author names the residual OS tell himself, `LLMHF_INJECTED`); `dwilliams27/phantom`, whose `docs/decisions/003-istrusted-validation.md` (2026-03-29) is a committed empirical test confirming *"All cliclick-generated events are isTrusted=true"*; `DedInc/emunium` (138★); and `MONTBRAIN/vadgr-computer-use` (MV3 + `/dev/uinput`, `pkexec`, claims Wayland). **The honest positioning is "UI.Vision's XClick tier, on Wayland/Hyprland, driven by an agent" — not a new technique.** (Correction to folklore while we are here: Claude in Chrome's `nativeMessaging` permission is only a `ping`/`pong` discovery handshake; all its page input is `chrome.debugger`.)
+
+**Two fingerprint traps if we ever fall back to uinput.** (1) **Never create a touch-class device.** `ui/ozone/platform/wayland/host/wayland_connection.cc` reports any `wl_touch` capability as a touchscreen with a **hardcoded 10 touch points** — that flips `navigator.maxTouchPoints` 0→10 and `any-pointer: coarse` for the whole profile, persistently. **`ydotool -T` does exactly this** (it adds `ABS_MT_*` and `ABS_PRESSURE`), which is a second reason to skip it. (2) The correct shape is the "VMware absolute mouse": `ABS_X`/`ABS_Y` + `BTN_LEFT` and *none* of `BTN_TOUCH`, `INPUT_PROP_DIRECT`, `BTN_TOOL_*`, `ABS_MT_*`, `ABS_PRESSURE` — systemd's `udev-builtin-input_id.c` `test_pointers()` then tags it `ID_INPUT_MOUSE`, and it arrives as absolute pointer motion with no acceleration filter. Leave `resolution` at 0 in `UI_ABS_SETUP` or Hyprland's "pointer with a physical size is a touchpad" heuristic may misclassify it. The `zwlr_virtual_pointer` path needs none of this and no `input` group membership, which is why it is first choice.
+
+**Costs and risks, stated plainly.** Events go to the **focused window and active tab only** — this cannot drive a background tab (the same limitation CDP-Patches documented). The real cursor visibly moves and races the user; the run must own the pointer or hand it back. If the window moves mid-action the mapping is stale — re-read `hyprctl clients -j` per action and verify with `document.elementFromPoint` before committing a click. Blink synthesises `pointerId = 1` and `pressure = buttons ? 0.5 : 0` for all mouse input anyway, so those fields carry no signal either way. And nothing here bypasses behavioural fingerprinting: **trusted input with robot kinematics is still detected.** Humanised motion is not optional; it is the product.
 
 ---
 
 ## 7. Current approaches not on the original list
 
-- **Chrome's own actor framework.** `chrome/browser/actor` + `chrome/renderer/actor`
-  (`click_dispatcher.cc`, `type_tool.cc`, `mouse_move_tool.cc`, `drag_and_release_tool.cc`) dispatch
-  `blink::WebMouseEvent` through `widget->HandleInputEvent()` — trusted, no CDP, no banner. Gated to
-  Glic; `kGlicActor` and `kGlicActorUi` are `FEATURE_ENABLED_BY_DEFAULT` in Chrome 152 and disabled by
-  `--disable-features=GlicActor,GlicActorUi`. Its UI params (`kGlicActorUiOverlay`, `...Toast`,
-  `...TabIndicator`, `...BorderGlow`, magic cursor) are all on by default: **Google's own agent
-  chooses to be visible.** Strong evidence no extension trusted-input API is coming.
-- **Web Bot Auth / Cloudflare signed agents.** Ed25519 HTTP message signatures (RFC 9421) with a
-  `/.well-known/http-message-signatures-directory`. Cloudflare merged signed agents and verified bots
-  on **2026-07-01** into Direct/Intermediary, and from **2026-09-15** blocks Agent- and
-  Training-class bots by default on ad-supported pages for new/free-tier sites. This is the
-  *opposite* of R-02 and is listed only so it is not mistaken for a mitigation.
-- **Behavioural fingerprinting is the live frontier.** Beyond FP-Agent: HUMAN's Agentic Trust and
-  DataDome's Agent Trust both shipped in 2026. Amazon v. Perplexity — Judge Chesney ruled for Amazon
-  on **2026-03-10**, finding Comet accessed the site "without authorization" and "masked" its
-  automated nature. Treat aggressive impersonation as carrying legal, not just technical, risk.
-- **`curl_cffi`** (impersonate=chrome) scored **26 OK / 3 gated / 2 blocked** in Paterson's bench —
-  tying a 130MB patched Chromium fork with a 6.4MB wheel. Relevant only for JS-free fetches, but a
-  useful reminder that the network layer is cheap to get right and Chrome already gets it right.
+- **Chrome's own actor framework.** `chrome/browser/actor` + `chrome/renderer/actor` (`click_dispatcher.cc`, `type_tool.cc`, `mouse_move_tool.cc`, `drag_and_release_tool.cc`) dispatch `blink::WebMouseEvent` through `widget->HandleInputEvent()` — trusted, no CDP, no banner. Gated to Glic; `kGlicActor` and `kGlicActorUi` are `FEATURE_ENABLED_BY_DEFAULT` in Chrome 152, disabled by `--disable-features=GlicActor,GlicActorUi`. Its UI params (overlay, toast, tab indicator, border glow, magic cursor) are all on by default: **Google's own agent chooses to be visible.** Strong evidence no extension trusted-input API is coming.
+- **The declared-agent lane is winning.** Cloudflare Web Bot Auth / Signed Agents (2025-08-28, Ed25519 + RFC 9421) merged with Verified Bots on **2026-07-01**; from **2026-09-15** Agent- and Training-class bots are blocked by default on ad-supported pages for new/free-tier sites. AWS WAF, Akamai, HUMAN, Vercel and Shopify verify signatures. Agents Week (2026-08-06) shipped **WebMCP** (`document.modelContext`, **experimental in Chrome 146**). Cloudflare de-listed Perplexity on 2025-08-04 for UA and ASN rotation. The opposite of R-02, listed so it is not mistaken for one.
+- **Legal position moved *toward* this architecture.** Amazon sued Perplexity Nov 2025; a preliminary injunction issued 2026-03-09; the **Ninth Circuit vacated it on 2026-08-04**, holding Amazon unlikely to succeed on CFAA/CDAFA because *"it was the user who 'accessed' Amazon's computers"* and Perplexity *"does not directly communicate with Amazon's servers"* — traffic routes through the user's machine. Contract/ToS theories were left open. **An agent originating from the user's own machine, session and IP is the fact pattern the court found most defensible** — another reason not to leave the user's Chrome.
+- **Two dead metrics — stop citing them.** reCAPTCHA v3 scores **0.90 for essentially every engine including vanilla Selenium**. CreepJS trust/bot scores read 0.00 because **CreepJS disabled them upstream** ([creepjs#292](https://github.com/abrahamjuliot/creepjs/issues/292)).
+- **`curl_cffi`** (impersonate=chrome) scored 26 OK / 3 gated / 2 blocked — tying a 130 MB patched Chromium fork with a 6.4 MB wheel. A reminder that the network layer is cheap to get right and Chrome already gets it right.
 
 ---
 
 ## Decision matrix
 
-Scale: ●●● strong / ●● partial / ● weak / ✗ fails. Effort is for *this* project, given WXT + a native
-host already exist.
+●●● strong / ●● partial / ● weak / ✗ fails. Effort assumes WXT + a native host already exist.
 
 | Option | Network (TLS/H2/IP) | JS fingerprint | CDP/automation layer | Behavioural/input | R-01 open logged-in tab | R-05 side panel | Maintenance / adoption | Effort |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| **1. MV3 + Wayland virtual input** | ●●● real Chrome 152 | ●●● real machine | ●●● no CDP at all | ●●● trusted, humanisable | ●●● | ●●● | ●●● WXT 10.4k★; Hyprland 38.4k★ | Medium — daemon + calibration |
-| **2. MV3 + session-scoped `chrome.debugger` Input** | ●●● | ●●● | ●● attach visible via infobar reflow; `screenX` fixed by CL 6917162 | ●●● trusted | ●●● | ●●● | ●●● first-party API | Low — already specced |
+| **1. MV3 + Wayland virtual input** | ●●● real Chrome 152 | ●●● real machine | ●●● no CDP at all | ●●● trusted + humanisable | ●●● | ●●● | ●●● WXT 10.4k★, Hyprland 38.4k★ | Medium — daemon + calibration |
+| **2. MV3 + session-scoped `chrome.debugger` Input** | ●●● | ●●● | ●● attach visible via infobar reflow; geometry fixed by CL 6917162 | ●●● trusted | ●●● **only sanctioned route** | ●●● | ●●● first-party API | Low — already specced |
 | **3. MV3 content-script only (today)** | ●●● | ●●● | ●●● | ● `isTrusted:false`, no activation | ●●● | ●●● | ●●● | None |
-| **4. nodriver / zendriver on user's Chrome** | ●●● real Chrome | ●●● | ●●● best measured (28/3/0) | ●● CDP Input, no humanisation | ●● needs permanent `--remote-debugging-port` | ✗ | ●● 4.7k★ AGPL, nodriver 4mo stale | High + security cost |
-| **5. Camoufox** | ● Firefox TLS is itself a tell | ●●● best in public | ●●● no CDP (Juggler) | ●● `humanize`, but Playwright-side only | ✗ own profile, user has no Firefox | ●● `sidebar_action` add-on, but cannot drive Juggler | ●● 11.6k★, 1yr maintenance gap, now Clover Labs | Very high |
-| **6. BrowserOS / neo** | ●● Chromium fork ≠ Chrome | ● no spoofing | ● stock CDP | ● | ✗ imports logins into a 2nd browser | ●●● | ●●● 13.5k★ AGPL, daily pushes | High |
-| **7. Cloud stealth browsers** | ✗ DC IP, signed-agent identity | ●● | ●● | ● | ✗ | ✗ | ●●● commercial | N/A |
-| **8. Patchright / rebrowser** | ●●● / ●● | ✗ none by design | ●●● / ● (rebrowser ≡ vanilla) | ✗ | ✗ | ✗ | ●●● / ✗ (16mo stale) | — evidence only |
+| **4. nodriver / zendriver** | ●●● real Chrome | ●●● none needed | ●●● best live numbers (28/3/0) | ● linear-from-origin moves, `char`-only typing | ✗ branded Chrome refuses debugging the default profile | ✗ | ●● 4.7k★ AGPL, ~4 mo idle | N/A |
+| **5. Camoufox** | ●● real Firefox TLS (measured identical), no control | ●●● best in public, **but 13 `window.set*` tells** | ●●● no CDP (Juggler) | ●● mouse-only `humanize`, Playwright-side | ✗ pipe-only; no Firefox on host | ●● add-ons yes, `sidebar_action` unverified | ●● 11.6k★, 1 yr gap, handover, closedsrc | Very high |
+| **6. BrowserOS / neo** | ●● Chromium fork ≠ Chrome | ● no spoofing patches | ● calls `Runtime.enable` | ● no humanisation | ✗ cookie/password transplant into a 2nd browser | ●●● | ●●● 13.5k★ AGPL + CLA | High |
+| **7. Cloud stealth browsers** | ✗ DC IP; Browserbase/Anchor now *signed agents* | ●● | ●● | ● | ✗ | ✗ | ●●● commercial | N/A |
+| **8. Commercial antidetect** | ●● | ●● (Kameleo/Dolphin strongest) | ●● | ● | ✗ | ✗ | ✗ **C-04: closed** | N/A |
+| **9. Patchright / rebrowser** | ●●● / ●● | ✗ none by design | ●●● / ● (rebrowser ≡ vanilla) | ✗ | ✗ | ✗ | ●●● / ✗ (16 mo stale) | evidence only |
 
-**Rank: 1 > 2 > 3 > 4 > 5 > 6 > 7.**
+**Rank: 1 > 2 > 3 > everything else, and the gap after 3 is a cliff, not a slope.**
 
 ---
 
 ## Recommendation
 
-**Stay in the user's real Chrome. This is the best-stealth choice, and the evidence is not close.**
+**Stay in the user's real Chrome. This is the best-stealth choice, and it is now also the only choice that satisfies R-01 at all.**
 
-The reason is not that MV3 is clever — it is that the real browser is the only place where the
-network fingerprint, the device fingerprint, the IP reputation, the cookie jar and the account history
-are all *genuinely true* rather than *convincingly forged*. Every alternative trades one of those away
-to buy a control channel. And per FP-Agent, the control channel is not what current detection reads:
-**behavioural features alone hit F1 = 0.9993 within 1–3 minutes**, and browser fingerprints alone only
-0.7969. Optimising the harness optimises the weaker axis.
+The reason is not that MV3 is clever — it is that the real browser is the only place where the network fingerprint, the device fingerprint, the IP reputation, the cookie jar and the account history are all *genuinely true* rather than *convincingly forged*. Every alternative trades one of those away to buy a control channel. And branded Chrome now refuses remote debugging on the default profile, so the trade is not even available: nodriver's excellent 28/3/0 was measured on a browser it launched itself, never on anyone's daily profile.
+
+Meanwhile, per FP-Agent, the control channel is not what current detection reads: **behavioural features alone hit F1 = 0.9993 within 1–3 minutes**, browser fingerprints alone only 0.7969. Optimising the harness optimises the weaker axis.
 
 **Build, in this order:**
 
-1. **Behavioural fidelity first, harness second.** Every named FP-Agent tell is an implementation
-   choice we control: never fill a field with a bare `change` event; never paste; inter-key latency
-   log-normal with a human floor (well above 1ms) and per-character variance; always move the pointer
-   along a curved, bell-velocity path with overshoot before clicking; scroll in continuous bursts, not
-   instantaneous jumps. This is the highest-value work and it is harness-independent.
-2. **Add a Wayland virtual-input path to the existing native host.** `zwlr_virtual_pointer_v1` +
-   `zwp_virtual_keyboard_v1`, calibrated from the user's own `mousemove` events. This is trusted input
-   with **zero in-browser tell and no banner** — strictly better than `chrome.debugger` on R-02, and
-   the marginal cost is one message type on a port the project already opens. Gate it behind R-13's
-   escalation toggle exactly as the debugger path is gated.
-3. **Keep `chrome.debugger` Input as the portable fallback**, session-scoped, `Input`+`DOM` only, per
-   `trusted-input-and-stealth.md` §6. It is now *better than it was*: CL 6917162 removed the
-   `screenX == clientX` tell in Chrome 142+, and CDP-Patches was archived because of it. The infobar
-   remains the cost.
-4. **Extension hygiene as a hard rule:** zero `web_accessible_resources`, `use_dynamic_url: true` if
-   any become unavoidable, zero MAIN-world injection, zero persistent page DOM. LinkedIn's AED and
-   Spectroscopy are the reference threat.
+1. **Behavioural fidelity first, harness second.** Every named tell is an implementation choice we control. Never fill a field with a bare `change` event; never paste. Inter-key latency log-normal with a human floor well above 1 ms and real per-character variance, and always emit `keydown`/`keyup` (not `char`-only). **Always move the pointer along a curved, bell-velocity path from its *current* position, with overshoot, before clicking** — teleporting is the strongest single signal in the literature, and nodriver's from-origin linear interpolation is the anti-pattern. Scroll in continuous bursts, not instantaneous jumps. Port Camoufox's MPL-2.0 `MouseTrajectories.hpp` as a starting point, then fix its two weaknesses: the y-only distortion (x is a clean Bézier) and the fixed 10 ms inter-point sleep.
+2. **Delete `_addAntiDetectionScripts()`.** In a real profile it is net-negative. Do not spoof anything: the user's real profile already *is* the fingerprint.
+3. **Add a Wayland virtual-input path to the existing native host.** `zwlr_virtual_pointer_v1` + `zwp_virtual_keyboard_v1`, calibrated from the user's own `mousemove` events. Trusted input with **zero in-browser tell and no banner** — strictly better than `chrome.debugger` on R-02, at the marginal cost of one message type on a port we already open. Gate it behind R-13's escalation toggle exactly as the debugger path is gated.
+4. **Keep `chrome.debugger` Input as the portable fallback**, session-scoped, `Input`+`DOM` only, per `trusted-input-and-stealth.md` §6 — and **never enable `Runtime`**. It is better than it was: CL 6917162 removed the geometry tell and coalesced events now fire. The infobar remains the cost; the honest mitigations are the enterprise forcelist policy or `--silent-debugger-extension-api`, both user/admin decisions, neither shippable by us.
+5. **Write our own CDP probe** and put it in the test suite (A-01). The public suites are stale: `bot-detector.rebrowser.net` and `brotector` both return green for unpatched Puppeteer since Chrome
+   138. Base ours on the two channels the May-2025 V8 guard does not cover — a getter installed on `Error.prototype.stack`, and a `Proxy` with an `ownKeys` trap in a prototype chain — plus `mainWorldExecution`, `pwInitScripts`, `navigatorWebdriver` (including the `undefined` case) and a `getCoalescedEvents()` check.
+6. **Extension hygiene as a hard rule:** zero `web_accessible_resources`, zero `externally_connectable`, zero MAIN-world injection, zero persistent page DOM and zero injected `<style>` — CHEQ's third detection was residue that outlived the run.
 
-**What the runner-up costs in R-01 terms.** Runner-up on raw measured stealth is **nodriver/zendriver
-on the user's own Chrome** — the only tool in Paterson's 651-verdict bench with zero blocked cells,
-*because* it drives the user's real Chrome with no framework shim. The cost is that Chrome must be
-launched permanently with `--remote-debugging-port=N` (no retroactive attach; the profile singleton
-lock forbids it), which hands every local process control of every logged-in session — a direct
-conflict with R-12 — and it has no side panel, so R-05 and N-02 both fail. **Camoufox costs more:**
-the user has no Firefox, so R-01 fails at the first login, and because its stealth lives outside the
-browser, a sidebar add-on inside it would get the same untrusted input we have today.
+**What the runner-up costs in R-01 terms.** There is no real runner-up. On raw measured stealth it would be **nodriver on the user's own Chrome**, but branded Chrome refuses to debug the default user-data-dir, so "the user's own Chrome" becomes a fresh profile logged into nothing: R-01 fails completely, not partially, and R-05 and N-02 fail with it. **Camoufox costs more still:** the user has no Firefox, Juggler cannot attach to a running instance at all, and the current release is identifiable by one line of page script.
 
 ---
 
 ## Risks / unverified
 
-- **FP-Agent has 0 citations and is a preprint.** Its numbers are from one honey site, three tasks,
-  seven agents, fixed versions (Browser Use 0.9.2, Skyvern 0.2.23). The *direction* is well-supported
-  by prior behavioural-biometrics work; the exact F1 figures are not yet replicated. Artifacts at
-  `github.com/ethanbwang/fp_agent`.
-- **Paterson's benchmark is one residential IP, one night, headed, 31 targets.** It measures those
-  targets on 2026-05-18. `nodriver`'s clean sweep may not generalise or persist.
-- **The CDP coalesced-events claim is unverified.** CL 6917162 is confirmed for `screenX/Y`; the
-  "CoalescedEvents are now also emitted" line is CDP-Patches' archive notice only — I found no
-  matching Chromium CL. Verify empirically with `getCoalescedEvents()` before relying on it.
-- **The Wayland virtual-input path has not been executed here.** Protocol support is confirmed by
-  reading the installed binary and Hyprland v0.56.2 source; end-to-end delivery into Chrome, the exact
-  event timestamps/coalescing Chrome produces, and the calibration accuracy are **untested**. Build a
-  spike and measure before designing around it.
-- **No published project combines extension + native host + Wayland virtual input for stealth.** The
-  closest public precedents are SeleniumBase's PyAutoGUI fallback and the archived CDP-Patches. We
-  would be first, which means no prior art on what it leaks.
-- **Camoufox maintenance is a moving target.** daijro stepped back; the handover to Clover Labs /
-  JWriter20 is recent and several fingerprint-consistency PRs (#730) are unmerged. Re-check before
-  any decision that depends on it.
-- **Chrome could close the virtual-input path.** Nothing stops a future Chromium from distinguishing
-  compositor-injected input, and nothing stops Hyprland from gating `zwlr_virtual_pointer` behind a
-  prompt. Both are plausible; neither is announced.
-- **Legal, not technical.** Amazon v. Perplexity (2026-03-10) treats "masking the automated nature" of
-  an agent as an authorization problem. R-02 has a ceiling that is not made of code.
+- **FP-Agent is a preprint with 0 citations** — one honey site, three tasks, seven agents, pinned versions. The direction is well-supported by prior behavioural-biometrics work; the exact F1 figures are not replicated. Artifacts at `github.com/ethanbwang/fp_agent`.
+- **The benchmarks disagree and each is one night's work.** Paterson: one residential IP, 31 targets, May 2026, nodriver first. techinz (2026-05-27): 10 targets, Patchright headed first at 100% and headless at 40%. The Web Scraping Club (2026-07-23): only browser-rebuilds passed. They measure different layers; none is authoritative alone.
+- **Camoufox's closed-source status is contested.** Docs claim fully open since v146.0.1-beta.25; the current tree still pins `closedsrc_rev=1.0.0` with declared-but-unimplemented canvas keys. Resolve before any decision that depends on it.
+- **The coalesced-events claim rests on CDP-Patches' archive notice**, not a Chromium CL I could find. CL 6917162 is confirmed for `screenX/Y` only. Verify `getCoalescedEvents()` empirically.
+- **The `Error.prototype.stack` bypass is verified in V8 source but not measured.** The mechanism (`getErrorProperty` falling through to an unguarded `object->Get`) is confirmed at `src/inspector/value-mirror.cc`; the one blog post claiming it still fires on Chrome 151 is a zero-star single-commit repo. Measure it before relying on it either way.
+- **`kDevToolsAcceptDebuggingConnections` approval mode** exists in current `main` and would be the lowest-observability attach path, but its rollout state is unverified. Re-check on Chrome upgrades — it could reopen option 4.
+- **The Wayland virtual-input path has not been executed here.** Protocol support is confirmed by reading the installed binary and Hyprland v0.56.2 source; end-to-end delivery into Chrome, the exact timestamps and coalescing Chrome produces, and calibration accuracy are **untested**. Build a spike and measure before designing around it.
+- **The pattern is not novel — only the Wayland backend is.** UI.Vision RPA has shipped the same three-tier ladder in the Chrome Web Store for years (§6), and four smaller projects implement it on Windows/macOS/uinput. That is reassuring for feasibility and removes any "we invented this" framing; what has no prior art is the `zwlr_virtual_pointer` backend specifically.
+- **Chrome or Hyprland could close this.** Nothing stops a future Chromium from distinguishing compositor-injected input, or Hyprland from gating `zwlr_virtual_pointer` behind a prompt. The default-user-data-dir refusal is the precedent for exactly this kind of unilateral narrowing.
+- **Stealth may be the wrong axis, and that deserves a decision rather than a default.** Behavioural detection of agents in real sessions is close to solved for the defenders, while Cloudflare's signed agents, WebMCP in Chrome 146 and the Ninth Circuit's reasoning all build a *declared-agent* lane in which a user-directed side-panel agent on the user's own IP and session is the strongest possible position. R-02 is the user's requirement and this document serves it — but the tension is real, and it is theirs to resolve, not ours.
