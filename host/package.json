@@ -1,0 +1,18 @@
+{
+  "name": "@nanobrowser/host",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Native-messaging host + local daemon for the nanobrowser extension.",
+  "scripts": {
+    "start": "node src/main.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
+  }
+}
