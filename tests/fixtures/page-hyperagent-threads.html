@@ -1,0 +1,40 @@
+<!--
+  Fixture: a Hyperagent-like thread sidebar. Not a copy of any real page — a synthetic
+  layout with the shapes that matter to the snapshot: a labelled navigation landmark, a
+  search box, a list of thread rows each carrying a title link and a status badge, a
+  disabled control, an aria-hidden decoration, and a display:none row.
+-->
+<div class="app">
+  <nav aria-label="Threads">
+    <h2>Threads</h2>
+    <label for="q">Filter threads</label>
+    <input id="q" type="search" placeholder="Search threads" value="deploy">
+    <ul class="thread-list">
+      <li class="thread">
+        <a href="/threads/1">Ship the MV3 rewrite</a>
+        <span class="badge">running</span>
+      </li>
+      <li class="thread">
+        <a href="/threads/2">Audit isTrusted fallbacks</a>
+        <span class="badge">blocked</span>
+      </li>
+      <li class="thread" style="display:none">
+        <a href="/threads/3">Archived thread</a>
+      </li>
+    </ul>
+    <button type="button" aria-label="New thread">
+      <span aria-hidden="true">+</span>
+    </button>
+    <button type="button" disabled>Archive selected</button>
+  </nav>
+  <main>
+    <h1>Ship the MV3 rewrite</h1>
+    <p>Follower returned RETURN_TO_LEADER after two subgoals.</p>
+    <select id="mode" aria-label="Observe mode">
+      <option value="dom" selected>DOM</option>
+      <option value="pixels">Pixels</option>
+      <option value="both">Both</option>
+    </select>
+    <textarea aria-label="Reply">Looks good.</textarea>
+  </main>
+</div>
