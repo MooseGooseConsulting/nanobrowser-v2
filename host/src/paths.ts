@@ -22,6 +22,11 @@ export function hostLogPath(): string {
   return path.join(dataDir(), 'host.log');
 }
 
+/** Extension-side diagnostics forwarded over `log.append`, one JSON object per line. */
+export function extLogPath(): string {
+  return path.join(dataDir(), 'ext.log');
+}
+
 export function socketPath(): string {
   const runtime = process.env.XDG_RUNTIME_DIR || path.join(dataDir(), 'run');
   return process.env.NANOBROWSER_SOCK || path.join(runtime, 'nanobrowser.sock');

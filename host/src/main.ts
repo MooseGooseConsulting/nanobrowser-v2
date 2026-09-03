@@ -11,7 +11,7 @@ import { Dispatcher } from './dispatcher.ts';
 import { encodeFrame, FrameParser } from './framing.ts';
 import { LlmProxy } from './llm.ts';
 import { log } from './log.ts';
-import { cassetteDir, runsDir, socketPath } from './paths.ts';
+import { cassetteDir, extLogPath, runsDir, socketPath } from './paths.ts';
 import type { OutboundMsg } from './protocol.ts';
 import { DopplerSecretProvider, SecretStore } from './secrets.ts';
 import { TriggerServer } from './trigger.ts';
@@ -52,6 +52,7 @@ async function main(): Promise<void> {
     send,
     llm,
     runsDir: runsDir(),
+    extLogPath: extLogPath(),
     onRunEvent: (runId, event) => trigger?.publish(runId, event),
   });
 

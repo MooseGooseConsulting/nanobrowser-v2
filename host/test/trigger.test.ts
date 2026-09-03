@@ -25,6 +25,7 @@ beforeEach(async () => {
     keyStatus: async () => key,
     extensionConnected: () => connected,
     hostVersion: '0.0.1-test',
+    pid: () => 4242,
   });
   await server.start();
 });
@@ -94,7 +95,7 @@ describe('dev trigger socket', () => {
     expect((await c.next()).op).toBe('status');
   });
 
-  it('answers status with liveness and key readiness', async () => {
+  it('answers status with liveness, key readiness, and the host pid', async () => {
     key = { ready: false, reason: 'GET /key returned 401' };
     connected = false;
     const c = await client();
@@ -104,9 +105,31 @@ describe('dev trigger socket', () => {
       ok: true,
       extensionConnected: false,
       hostVersion: '0.0.1-test',
+      pid: 4242,
       key: { ready: false, reason: 'GET /key returned 401' },
     });
     await c.closed;
+  });
+
+  describe('reload', () => {
+    it('answers before pushing ext.reload, since the push kills this process', async () => {
+      const c = await client();
+      c.send({ op: 'reload' });
+      // The reply must be on the wire first: chrome.runtime.reload() tears down the
+      // service worker, the native port drops, and the host exits -- there is no later.
+      expect(await c.next()).toEqual({ op: 'reloading', pid: 4242 });
+      expect(sent).toEqual([{ type: 'ext.reload' }]);
+      await c.closed;
+    });
+
+    it('refuses and pushes nothing when no extension is connected', async () => {
+      connected = false;
+      const c = await client();
+      c.send({ op: 'reload' });
+      expect(await c.next()).toEqual({ op: 'error', message: 'no extension connected to the host' });
+      expect(sent).toEqual([]);
+      await c.closed;
+    });
   });
 
   it('round-trips a run: forwards run.start and streams events to run.end', async () => {

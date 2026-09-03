@@ -1,19 +1,33 @@
+import { appendExtLog, ExtLogError, mirrorToHostLog, toEntry } from './extlog.ts';
 import { getInjector, type InputInjector } from './input/index.ts';
 import type { LlmProxy } from './llm.ts';
 import { log } from './log.ts';
-import type { ErrorCode, InboundMsg, InputMsg, LlmRequestMsg, OutboundMsg, RunLogAppendMsg } from './protocol.ts';
+import type {
+  ErrorCode,
+  InboundMsg,
+  InputMsg,
+  LlmRequestMsg,
+  LogAppendMsg,
+  OutboundMsg,
+  RunLogAppendMsg,
+} from './protocol.ts';
 import { appendRunLog, assertRunId, RunLogError } from './runlog.ts';
 
 export interface DispatcherDeps {
   send: (msg: OutboundMsg) => void;
   llm: LlmProxy;
   runsDir: string;
+  /** Where extension-forwarded diagnostics land. Defaults to ~/.local/share/nanobrowser/ext.log. */
+  extLogPath?: string;
   /** Mirrors run-log events to dev unix-socket subscribers. */
   onRunEvent?: (runId: string, event: unknown) => void;
   injector?: () => InputInjector;
 }
 
 const INPUT_TYPES = new Set(['input.moveTo', 'input.click', 'input.typeText', 'input.key']);
+
+/** Fire-and-forget messages: `id` is optional on these two, required everywhere else. */
+const OPTIONAL_ID_TYPES = new Set(['runlog.append', 'log.append']);
 
 export class Dispatcher {
   readonly #deps: DispatcherDeps;
@@ -32,7 +46,7 @@ export class Dispatcher {
     }
     const msg = raw as InboundMsg;
     const id = (raw as { id?: unknown }).id;
-    if (msg.type !== 'runlog.append' && typeof id !== 'string') {
+    if (!OPTIONAL_ID_TYPES.has(msg.type) && typeof id !== 'string') {
       return this.#fail(undefined, 'bad_request', `${msg.type} requires a string "id"`);
     }
 
@@ -77,6 +91,23 @@ export class Dispatcher {
         }
         this.#deps.onRunEvent?.(m.runId, m.event);
         return this.#deps.send({ type: 'runlog.ack', ...(m.id ? { id: m.id } : {}), runId: m.runId, ok: true });
+      }
+
+      case 'log.append': {
+        const m = msg as LogAppendMsg;
+        let entry;
+        try {
+          entry = toEntry(m);
+        } catch (err) {
+          return this.#fail(m.id, 'bad_request', (err as ExtLogError).message);
+        }
+        try {
+          await appendExtLog(entry, this.#deps.extLogPath);
+        } catch (err) {
+          return this.#fail(m.id, 'io', (err as Error).message);
+        }
+        mirrorToHostLog(entry);
+        return this.#deps.send({ type: 'log.ack', ...(m.id ? { id: m.id } : {}), ok: true });
       }
 
       default: {

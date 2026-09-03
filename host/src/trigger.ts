@@ -21,6 +21,8 @@ export interface TriggerDeps {
   keyStatus: () => Promise<{ ready: boolean; reason?: string }>;
   extensionConnected: () => boolean;
   hostVersion: string;
+  /** Test seam over `process.pid`. nb-reload watches it change to prove a new host came up. */
+  pid?: () => number;
 }
 
 export function newRunId(): string {
@@ -91,8 +93,23 @@ export class TriggerServer {
         ok: true,
         extensionConnected: this.#deps.extensionConnected(),
         hostVersion: this.#deps.hostVersion,
+        pid: this.#pid(),
         key,
       });
+      sock.end();
+      return;
+    }
+
+    if (req.op === 'reload') {
+      if (!this.#deps.extensionConnected()) {
+        write(sock, { op: 'error', message: 'no extension connected to the host' });
+        sock.end();
+        return;
+      }
+      // `chrome.runtime.reload()` tears down the service worker, which drops the native
+      // port, which kills THIS process. So answer first -- there is no later.
+      write(sock, { op: 'reloading', pid: this.#pid() });
+      this.#deps.send({ type: 'ext.reload' });
       sock.end();
       return;
     }
@@ -122,6 +139,10 @@ export class TriggerServer {
     }
 
     write(sock, { op: 'error', message: `unknown op ${String((req as { op: string }).op)}` });
+  }
+
+  #pid(): number {
+    return (this.#deps.pid ?? (() => process.pid))();
   }
 
   /** Mirror a run-log event to whoever is streaming that run; close them on run.end. */

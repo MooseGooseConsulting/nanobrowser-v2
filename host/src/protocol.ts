@@ -44,6 +44,24 @@ export interface RunLogAppendMsg {
   event: unknown;
 }
 
+export type LogLevel = 'error' | 'warn' | 'info';
+export type LogSource = 'worker' | 'panel';
+
+/**
+ * One extension-side diagnostic line. The extension redacts on the way out and the
+ * host redacts again before it writes -- neither side trusts the other with a secret.
+ */
+export interface LogAppendMsg {
+  type: 'log.append';
+  id?: string;
+  level: LogLevel;
+  source: LogSource;
+  message: string;
+  stack?: string;
+  /** epoch ms, taken in the extension. */
+  at: number;
+}
+
 export interface InputMsg {
   type: 'input.moveTo' | 'input.click' | 'input.typeText' | 'input.key';
   id: string;
@@ -61,6 +79,7 @@ export type InboundMsg =
   | LlmRequestMsg
   | LlmAbortMsg
   | RunLogAppendMsg
+  | LogAppendMsg
   | InputMsg;
 
 /* ---------------- host -> extension ---------------- */
@@ -122,6 +141,21 @@ export interface RunStartMsg {
   options?: Record<string, unknown>;
 }
 
+export interface LogAckMsg {
+  type: 'log.ack';
+  id?: string;
+  ok: true;
+}
+
+/**
+ * Host -> extension self-reload (dev loop). The worker calls `chrome.runtime.reload()`,
+ * which re-reads an unpacked extension from disk -- so a `pnpm build` needs no human
+ * click on chrome://extensions.
+ */
+export interface ExtReloadMsg {
+  type: 'ext.reload';
+}
+
 export interface InputResultMsg {
   type: 'input.result';
   id: string;
@@ -146,6 +180,8 @@ export type OutboundMsg =
   | LlmErrorMsg
   | RunLogAckMsg
   | RunStartMsg
+  | LogAckMsg
+  | ExtReloadMsg
   | InputResultMsg
   | ErrorMsg;
 
@@ -165,11 +201,21 @@ export type CassetteMode = 'off' | 'record' | 'replay';
 
 export type SocketRequest =
   | { op: 'run'; prompt: string; url?: string; runId?: string; options?: Record<string, unknown> }
-  | { op: 'status' };
+  | { op: 'status' }
+  | { op: 'reload' };
 
 export type SocketResponse =
   | { op: 'accepted'; runId: string }
   | { op: 'event'; runId: string; event: unknown }
   | { op: 'end'; runId: string }
-  | { op: 'status'; ok: true; extensionConnected: boolean; hostVersion: string; key: { ready: boolean; reason?: string } }
+  | {
+      op: 'status';
+      ok: true;
+      extensionConnected: boolean;
+      hostVersion: string;
+      /** This host process. nb-reload watches it change to prove a NEW host came up. */
+      pid: number;
+      key: { ready: boolean; reason?: string };
+    }
+  | { op: 'reloading'; pid: number }
   | { op: 'error'; message: string };

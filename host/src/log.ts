@@ -16,7 +16,9 @@ export function protectSecret(value: string | null | undefined): void {
   if (value && value.length >= 8) secrets.add(value);
 }
 
-const KEY_SHAPES = [/sk-or-v1-[A-Za-z0-9]{8,}/g, /\bsk-[A-Za-z0-9]{20,}\b/g, /\bdp\.(?:ct|st)\.[A-Za-z0-9._-]{8,}/g];
+// `sk-or-` covers every OpenRouter key shape, v1 and whatever comes next; the second
+// shape catches other providers' `sk-` tokens; the third is a Doppler service token.
+const KEY_SHAPES = [/sk-or-[A-Za-z0-9._-]+/g, /\bsk-[A-Za-z0-9]{20,}\b/g, /\bdp\.(?:ct|st)\.[A-Za-z0-9._-]{8,}/g];
 
 export function redact(line: string): string {
   let out = line;
