@@ -1,6 +1,46 @@
 @import 'tailwindcss';
 
+/*
+ * Semantic tokens. Everything structural in the panel uses these (paper / surface /
+ * raised / line / ink / muted / accent) so the dark theme is one block of variable
+ * overrides rather than a `dark:` class on every element.
+ */
 @theme {
-  --color-ink: oklch(0.22 0.01 260);
   --color-paper: oklch(0.99 0.002 260);
+  --color-surface: oklch(0.975 0.003 260);
+  --color-raised: oklch(0.945 0.005 260);
+  --color-line: oklch(0.9 0.006 260);
+  --color-ink: oklch(0.22 0.01 260);
+  --color-muted: oklch(0.52 0.012 260);
+  --color-accent: oklch(0.58 0.16 262);
+  --color-accent-ink: oklch(0.99 0.002 260);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-paper: oklch(0.19 0.008 260);
+    --color-surface: oklch(0.23 0.009 260);
+    --color-raised: oklch(0.28 0.011 260);
+    --color-line: oklch(0.34 0.012 260);
+    --color-ink: oklch(0.94 0.004 260);
+    --color-muted: oklch(0.68 0.012 260);
+    --color-accent: oklch(0.68 0.15 262);
+    --color-accent-ink: oklch(0.17 0.01 260);
+  }
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+}
+
+/* The run log is a long list of small monospace blocks; keep them from stretching the panel. */
+pre {
+  overflow-x: auto;
 }
