@@ -40,13 +40,55 @@ export interface CreateChatModelOptions {
   temperature?: number;
 }
 
+/**
+ * OpenRouter reports upstream provider failures (and free-tier hiccups) as an
+ * HTTP 200 whose JSON body is `{ error: { code, message } }` or simply lacks
+ * `choices`. The openai SDK only retries on real error statuses, and LangChain
+ * dereferences `choices[0]` and dies with "reading 'message'" otherwise (seen
+ * live against `nvidia/nemotron-3-ultra-550b-a55b:free`, 2026-09-03). This
+ * rewrites such replies into the status they should have carried so the SDK's
+ * retry policy (429/5xx) engages.
+ */
+export function hardenOpenRouterFetch(fetch: typeof globalThis.fetch): typeof globalThis.fetch {
+  return async (input, init) => {
+    const res = await fetch(input, init);
+    if (res.status !== 200) return res;
+    const contentType = res.headers.get('content-type') ?? '';
+    if (!contentType.includes('application/json')) return res;
+    const text = await res.text();
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      return errorResponse(502, 'openrouter returned unparseable JSON', res.headers);
+    }
+    const obj = parsed !== null && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : undefined;
+    const error = obj?.error as { code?: unknown; message?: unknown } | undefined;
+    if (error && typeof error === 'object') {
+      const code = typeof error.code === 'number' && error.code >= 400 && error.code < 600 ? error.code : 502;
+      return errorResponse(code, typeof error.message === 'string' ? error.message : 'provider error', res.headers);
+    }
+    if (obj && !Array.isArray(obj.choices) && obj.object !== 'list') {
+      return errorResponse(502, `openrouter reply has no choices: ${text.slice(0, 200)}`, res.headers);
+    }
+    return new Response(text, { status: res.status, statusText: res.statusText, headers: res.headers });
+  };
+}
+
+function errorResponse(status: number, message: string, upstream: Headers): Response {
+  const headers = new Headers(upstream);
+  headers.set('content-type', 'application/json');
+  return new Response(JSON.stringify({ error: { message, code: status } }), { status, headers });
+}
+
 export function createChatModel(options: CreateChatModelOptions): ChatOpenAI {
   const { model, fetch, baseURL = DEFAULT_BASE_URL, temperature = 0 } = options;
   return new ChatOpenAI({
     model,
     temperature,
     apiKey: PROXY_MANAGED_KEY,
-    configuration: { baseURL, fetch },
+    maxRetries: 4,
+    configuration: { baseURL, fetch: hardenOpenRouterFetch(fetch) },
     modelKwargs: {
       provider: { data_collection: dataCollectionFor(model), allow_fallbacks: true },
     },
