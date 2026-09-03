@@ -326,6 +326,60 @@ so any `externally_connectable` key and extra `commands` are emitted only when `
 Gate it in CI: after `wxt build`, fail if `.output/chrome-mv3` contains `127.0.0.1`, `testHook`,
 `externally_connectable`, or the `op":"start` literal. That grep is the guarantee, not the guard.
 
+## Unattended testing (as built)
+
+The research above assumed the WXT dev server's `wxt:reload-extension` event. The shipped
+loop does not need it: the host already has a native port to the service worker, so the
+reload rides that instead — one fewer moving part, and it works against a plain
+`pnpm build` artifact loaded unpacked, with no dev server running at all.
+
+**One manual step, once ever.** Load `.output/chrome-mv3` unpacked at
+`chrome://extensions` with Developer mode on, and run `host/install.sh --dev`. Both survive
+every rebuild, because `chrome.runtime.reload()` re-reads an unpacked extension from disk
+and the manifest `key` pins the ID (`dnicmmdhogcepeiooangkhhmdgphmonb`).
+
+**Then, forever:**
+
+```
+scripts/e2e.sh
+```
+
+which is:
+
+1. `pnpm build`
+2. `host/bin/nb-reload` — socket op `reload` → host pushes `ext.reload` → the worker calls
+   `chrome.runtime.reload()`. That kills the service worker, the native port, and the host
+   itself, so "it answered" is not success. nb-reload polls `status` until the host **pid
+   has changed** *and* `extensionConnected` is true again (30 s default). Exit 2 means no
+   extension is connected at all — the one case that needs a human.
+3. `host/bin/nb-status` — validated key readiness (R-11), not assumed.
+4. `host/bin/nb-run "<prompt>" --url … --option leaderModel=… --option followerModel=…
+   --option observe=… --option inputFidelity=…`, streaming the run log to
+   `runs/e2e-<timestamp>.jsonl` (gitignored).
+5. Assert the final `run.ended.status` is `done`, print the `done` tool's summary, then
+   print every `ext.log` error stamped inside the run window
+   (`host/bin/nb-logs --since <iso> --level error`). A run that "passed" while the worker
+   was throwing exits non-zero: the whole point of forwarding those is that they stop being
+   invisible.
+
+Defaults are the read-only Hyperagent threads task on `https://hyperagent.com` with
+`nvidia/nemotron-3-ultra-550b-a55b:free` leading and `nvidia/nemotron-3.5-lightning:free`
+following, `observe=dom`, `inputFidelity=in-page`. Every one is overridable by flag or
+`NB_E2E_*` environment variable; `--skip-build` reuses the current `.output/chrome-mv3`.
+
+**The one thing a human still has to get right:** the worker navigates the active tab of
+the last focused normal window to `--url` before the run starts, and it refuses to script a
+`chrome://` page. Leave a normal web page focused. If that tab is `chrome://extensions`
+(easy to do right after loading the extension) the script prints the refusal verbatim and
+says what to do about it, rather than reporting a generic error.
+
+**Where the errors go.** `self.addEventListener('error')`, `unhandledrejection`, and
+wrapped `console.error`/`console.warn` in the worker; the same on `window` in the panel,
+relayed over the existing panel→worker port. Everything lands in
+`~/.local/share/nanobrowser/ext.log` as JSON lines, with errors mirrored into `host.log`.
+The original console call always still happens, so the DevTools view a human opens is
+unchanged. Both sides redact `sk-or-` shapes (R-12).
+
 ## Risks
 
 - **One tier, no safety net.** Every regression is now caught by a run against a live third-party

@@ -19,6 +19,8 @@ What it provides:
 | `key.status` — validated readiness, not assumed readiness | R-11 |
 | Run-log sink (`runs/<runId>.jsonl`) | R-07 |
 | Dev-only unix-socket run trigger | live testing |
+| Dev-only extension self-reload (`reload` op) | unattended loop |
+| Extension error sink (`ext.log`) | unattended loop |
 | Input-injection slot (`NullInjector` today) | R-13 |
 
 ## Framing
@@ -163,6 +165,33 @@ Redaction is the **extension's** job, on the way out: strip provider-key shapes 
 `input[type=password]` values before posting the event, so a secret never reaches disk even if a
 run misbehaves (R-12).
 
+### `log.append` → `log.ack`
+
+```json
+{ "type": "log.append", "id": "g1", "level": "error", "source": "worker",
+  "message": "uncaught: cannot read properties of null", "stack": "at step (chunk.js:41)", "at": 1767225600000 }
+{ "type": "log.ack", "id": "g1", "ok": true }
+```
+
+Appends one JSON line to `~/.local/share/nanobrowser/ext.log`, and mirrors `error` entries
+into `host.log` prefixed `[ext:<source>]` so one tail shows both sides of a failure.
+
+`level` is `error` | `warn` | `info`; `source` is `worker` | `panel`. Anything else is
+`bad_request` and nothing is written. `at` is epoch ms taken in the extension; a missing
+one defaults to the host's clock. `id` is optional — like `runlog.append`, this is
+fire-and-forget, and the extension does not wait for the ack.
+
+This exists because an extension-side error is otherwise visible only on the
+`chrome://extensions` page, which nothing is watching during an unattended run.
+
+The extension redacts (`redactText`, `src/host/redact.ts`) before it posts, and the host
+redacts the serialized line again before it writes: neither side trusts the other with a
+secret (R-12). Nothing matching `sk-or-` survives either pass.
+
+Read it with `host/bin/nb-logs [--since <iso>] [--level error|warn|info] [--json]`, which
+reads the file directly rather than the socket — the log outlives every host process, and
+after a reload the host that saw the error is already gone.
+
 ### `input.moveTo` | `input.click` | `input.typeText` | `input.key` → `input.result`
 
 ```json
@@ -194,6 +223,20 @@ Pushed by the host, not requested by the extension. Only ever emitted by the dev
 The extension starts the run **with the side panel closed** (`sidePanel.open()` needs a user
 gesture) and streams every event back via `runlog.append`.
 
+### host → extension: `ext.reload`
+
+Pushed by the host, not requested by the extension. Only ever emitted by the dev socket's
+`reload` op.
+
+```json
+{ "type": "ext.reload" }
+```
+
+The worker answers with `chrome.runtime.reload()`, which **re-reads an unpacked extension
+from disk** — so `pnpm build` followed by this needs no human click on
+`chrome://extensions`. It also tears the service worker down, which drops the native port,
+which kills the host process that sent it. Nothing after the push runs, on either side.
+
 ## Dev trigger (unix socket)
 
 Bound only when `NANOBROWSER_DEV=1` (or `--dev`, which `install.sh --dev` bakes into the wrapper).
@@ -211,26 +254,42 @@ Client → host:
 ```json
 { "op": "status" }
 { "op": "run", "prompt": "…", "url": "https://…", "runId": "optional", "options": { … } }
+{ "op": "reload" }
 ```
 
 Host → client:
 
 ```json
-{ "op": "status", "ok": true, "extensionConnected": true, "hostVersion": "0.0.1", "key": { "ready": true } }
+{ "op": "status", "ok": true, "extensionConnected": true, "hostVersion": "0.0.1", "pid": 12345, "key": { "ready": true } }
+{ "op": "reloading", "pid": 12345 }
 { "op": "accepted", "runId": "run-mgh1-9f3c" }
 { "op": "event", "runId": "run-mgh1-9f3c", "event": { … } }
 { "op": "end", "runId": "run-mgh1-9f3c" }
 { "op": "error", "message": "no extension connected to the host" }
 ```
 
-`run` is refused when no extension has connected. After `accepted`, the client receives one
+`run` and `reload` are both refused when no extension has connected.
+
+`reload` answers `reloading` **before** it pushes `ext.reload`, because the push kills this
+host: there is no "after". `pid` is this host process, and it is how a caller tells a new
+host from the one it just asked to die — `nb-reload` polls `status` until the pid has
+changed *and* `extensionConnected` is true again.
+ After `accepted`, the client receives one
 `event` per `runlog.append` for that run, then `end` once an event with `type: "run.end"` passes
 through, and the socket closes. A generated `runId` looks like `run-<base36 ms>-<8 hex>` and
 always satisfies the `runId` grammar.
 
-CLIs: `host/bin/nb-run "<prompt>" [--url <url>] [--run-id <id>] [--option k=v]` streams the run
-log to stdout; `host/bin/nb-status` prints the status object and exits non-zero unless the key is
-ready.
+CLIs:
+
+| CLI | What it does |
+| --- | --- |
+| `nb-run "<prompt>" [--url <url>] [--run-id <id>] [--option k=v]` | streams the run log to stdout |
+| `nb-status` | prints the status object; exits non-zero unless the key is ready |
+| `nb-reload [--timeout <s>]` | reloads the extension in place; exits 0 with the new host pid, 2 if no extension is connected, 1 on timeout (default 30 s) |
+| `nb-logs [--since <iso>] [--level <level>] [--json] [--file <path>]` | prints `ext.log` entries |
+
+`scripts/e2e.sh` chains the first four into one unattended loop; see
+`docs/research/live-testing-real-chrome.md` § Unattended testing.
 
 ## Cassettes
 
@@ -275,4 +334,5 @@ Tests use `FakeSecretProvider` and never reach a real store.
 | `NANOBROWSER_CASSETTE_DIR` | override `host/cassettes/` |
 | `NANOBROWSER_DOPPLER_PROJECT` / `_CONFIG` | override `ai-automation` / `dev` |
 | `NANOBROWSER_LOG_STDERR=0` | log to file only |
+| `NB_RELOAD_TIMEOUT` | nb-reload's default wait in seconds (30) |
 | `NB_HOME` | move the whole home-relative tree (install.sh, tests) |
