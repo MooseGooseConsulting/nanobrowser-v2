@@ -1,0 +1,5 @@
+#!/bin/sh
+# Dev CLI. Run from an interactive shell, so `node` on PATH is fine here --
+# unlike the Chrome-spawned host wrapper, which must bake an absolute node path.
+here=$(cd "$(dirname "$0")" && pwd)
+exec node "$here/../src/cli/nb-run.ts" "$@"
