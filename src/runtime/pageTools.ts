@@ -1,0 +1,443 @@
+/**
+ * `PageTools` over a real tab (R-01: the tab the user already has open).
+ *
+ * This is the join between three finished subsystems that never import each
+ * other: the agent's `PageTools` port (`src/agent/tools.ts`), the page tier
+ * (`src/page/driver.ts`), and the input tiers (`src/input/*`). Nothing here
+ * decides policy — the user's `inputFidelity` (R-13) and `observe` (R-08) come
+ * from the side panel's `Config` and are handed in.
+ *
+ * Two shape mismatches are absorbed here rather than by editing a subsystem:
+ *
+ * 1. `PageDriver` reports failure as `{ ok:false, error }`; `InputTier` /
+ *    `RefInputTier` are `Promise<void>` and signal failure by throwing. The
+ *    adapter below throws on `ok:false`, so a failed click reaches the graph as
+ *    a `tool.result { ok:false }` instead of being silently swallowed.
+ * 2. The in-page tier addresses elements by ref, the debugger tier by viewport
+ *    point. `RunInput` (src/input/select.ts) already erases that difference via
+ *    `getBox` + `refToPoint`; {@link EscalatableInput} adds what a *run* needs on
+ *    top: attach once at the start, detach once at the end, and a one-way
+ *    fallback to the in-page tier if the user cancels the debugging banner.
+ */
+import type {
+  PageTools,
+  ScreenshotResult as ToolScreenshot,
+  ScrollTarget,
+  SnapshotResult as ToolSnapshot,
+} from '@/src/agent/tools';
+import type { ScreenshotResult, SnapshotResponse } from '@/src/page/driver';
+import type { SnapshotOptions } from '@/src/page/snapshot';
+import type { ActionResult, ScrollOptions } from '@/src/page/actions';
+import {
+  InPageInputTier,
+  RunInput,
+  selectTier,
+  type Box,
+  type ElementRef,
+  type GetBox,
+  type InputTier,
+  type PageDriverLike,
+  type RefInputTier,
+} from '@/src/input';
+import type { RunEvent, UserscriptRunResult } from '@/src/messaging';
+import type { InputFidelity, ObserveMode } from '@/src/storage';
+import { toRunEvents } from '@/src/userscripts/debug';
+
+/** The slice of {@link PageDriver} the runtime uses. `PageDriver` satisfies it structurally. */
+export interface RuntimeDriver {
+  snapshot(tabId: number, opts?: SnapshotOptions): Promise<SnapshotResponse>;
+  screenshot(tabId: number): Promise<ScreenshotResult>;
+  click(tabId: number, ref: string): Promise<ActionResult>;
+  type(tabId: number, ref: string, text: string): Promise<ActionResult>;
+  press(tabId: number, key: string): Promise<ActionResult>;
+  select(tabId: number, ref: string, value: string): Promise<ActionResult>;
+  scroll(tabId: number, opts?: ScrollOptions): Promise<ActionResult>;
+  hover(tabId: number, ref: string): Promise<ActionResult>;
+  /** Page metrics from the injected side; also the injection health check. */
+  ping_(tabId: number): Promise<ActionResult & { width?: number; height?: number }>;
+  getBox(tabId: number, ref: string): Promise<{ ok: boolean; error?: string; box?: Box & { centerX: number; centerY: number } }>;
+  navigate(tabId: number, url: string): Promise<ActionResult>;
+  download(url: string, filename?: string): Promise<ActionResult & { downloadId?: number }>;
+}
+
+/** Runs a userscript by id against a tab (R-09). Wired to the userscripts subsystem. */
+export type RunUserscript = (scriptId: string, tabId: number) => Promise<UserscriptRunResult>;
+
+function must<T extends ActionResult>(result: T, what: string): T {
+  if (!result.ok) throw new Error(result.error ?? `${what} failed`);
+  return result;
+}
+
+/**
+ * `PageDriverLike` (what `InPageInputTier` drives) over the real `PageDriver`.
+ *
+ * `press` drops the ref: the driver's `press` targets whatever has focus, which
+ * is what the in-page tier means by "press a key". `scroll` turns a delta back
+ * into the driver's direction/amount vocabulary.
+ */
+export function createInPageDriverAdapter(driver: RuntimeDriver): PageDriverLike {
+  return {
+    async click(tabId, ref) {
+      must(await driver.click(tabId, ref), 'click');
+    },
+    async moveTo(tabId, ref) {
+      must(await driver.hover(tabId, ref), 'hover');
+    },
+    async type(tabId, ref, text) {
+      must(await driver.type(tabId, ref, text), 'type');
+    },
+    async press(tabId, _ref, key) {
+      must(await driver.press(tabId, key), 'press');
+    },
+    async scroll(tabId, ref, deltaX, deltaY) {
+      const opts: ScrollOptions = deltaY !== 0
+        ? { ref, direction: deltaY > 0 ? 'down' : 'up', amount: Math.abs(deltaY) }
+        : deltaX !== 0
+          ? { ref, direction: deltaX > 0 ? 'right' : 'left', amount: Math.abs(deltaX) }
+          : { ref };
+      must(await driver.scroll(tabId, opts), 'scroll');
+    },
+  };
+}
+
+/** What {@link EscalatableInput} needs from the page beyond ref-addressed input. */
+export interface InputPagePort {
+  getBox: GetBox;
+  /** In-page viewport scroll (no ref): the driver's own `window.scrollBy`. */
+  scrollViewport(opts: ScrollOptions): Promise<void>;
+  /** Viewport centre in CSS pixels — where a coordinate tier aims a wheel event. */
+  viewportCentre(): Promise<{ x: number; y: number }>;
+}
+
+export interface EscalatableInputOptions {
+  /** The user's choice (R-13). `escalated` needs `debuggerTier`. */
+  fidelity: InputFidelity;
+  inPageTier: RefInputTier;
+  /** Absent means escalation is impossible; the run stays in-page. */
+  debuggerTier?: InputTier;
+  page: InputPagePort;
+  emit: (event: RunEvent) => void;
+  rng?: () => number;
+  now?: () => number;
+}
+
+/**
+ * The run's input, with R-13's escalation and its one-way fallback.
+ *
+ * Hygiene from docs/research/trusted-input-and-stealth.md: attach once per run
+ * segment, never per action, and treat `onDetach` as a real user stop — the
+ * banner's Cancel button is the user saying no. We do not re-attach; the rest of
+ * the run continues on the in-page tier, and `input.fidelity { attached:false }`
+ * puts that in the run log (R-07).
+ */
+export class EscalatableInput {
+  #fidelity: InputFidelity;
+  readonly #requested: InputFidelity;
+  readonly #inPage: RunInput;
+  readonly #escalated?: RunInput;
+  readonly #debuggerTier?: InputTier;
+  readonly #inPageTier: RefInputTier;
+  readonly #page: InputPagePort;
+  readonly #emit: (event: RunEvent) => void;
+  readonly #now: () => number;
+  #tabId: number | null = null;
+
+  constructor(opts: EscalatableInputOptions) {
+    this.#requested = opts.fidelity;
+    this.#inPageTier = opts.inPageTier;
+    this.#debuggerTier = opts.debuggerTier;
+    this.#page = opts.page;
+    this.#emit = opts.emit;
+    this.#now = opts.now ?? Date.now;
+
+    const chosen = selectTier(opts.fidelity, {
+      inPageTier: opts.inPageTier,
+      // selectTier only ever reads this when the fidelity is `escalated`.
+      debuggerTier: (opts.debuggerTier ?? opts.inPageTier) as InputTier,
+    });
+    this.#fidelity = chosen.name === 'in-page' || !opts.debuggerTier ? 'in-page' : 'escalated';
+
+    this.#inPage = new RunInput({ tier: opts.inPageTier, getBox: opts.page.getBox, rng: opts.rng });
+    this.#escalated = opts.debuggerTier
+      ? new RunInput({ tier: opts.debuggerTier, getBox: opts.page.getBox, rng: opts.rng })
+      : undefined;
+  }
+
+  /** The tier actually in force right now — not necessarily the one the user asked for. */
+  get fidelity(): InputFidelity {
+    return this.#fidelity;
+  }
+
+  get escalated(): boolean {
+    return this.#fidelity === 'escalated';
+  }
+
+  /** True while the debugger tier holds a session. */
+  attached(): boolean {
+    return this.#debuggerTier?.isAttached() ?? false;
+  }
+
+  /** Attach once, at the start of the run. */
+  async attach(tabId: number): Promise<void> {
+    this.#tabId = tabId;
+    await this.#inPageTier.attach(tabId);
+    if (this.#fidelity !== 'escalated' || !this.#debuggerTier) {
+      this.#emit({ kind: 'input.fidelity', fidelity: 'in-page', attached: false, at: this.#now() });
+      return;
+    }
+    try {
+      await this.#debuggerTier.attach(tabId);
+      this.#emit({ kind: 'input.fidelity', fidelity: 'escalated', attached: true, at: this.#now() });
+    } catch (error) {
+      this.#fidelity = 'in-page';
+      console.warn('[nanobrowser] debugger attach failed; staying on the in-page tier', error);
+      this.#emit({ kind: 'input.fidelity', fidelity: 'in-page', attached: false, at: this.#now() });
+    }
+  }
+
+  /** Detach once, at the end of the run. Idempotent. */
+  async detach(): Promise<void> {
+    this.#tabId = null;
+    await this.#inPageTier.detach();
+    if (!this.#debuggerTier) return;
+    try {
+      await this.#debuggerTier.detach();
+    } catch (error) {
+      console.warn('[nanobrowser] debugger detach failed', error);
+    }
+  }
+
+  /**
+   * The user cancelled the debugging banner (or Chrome dropped the session).
+   * One way: the rest of the run runs in-page.
+   */
+  handleDetach(reason: string): void {
+    if (this.#fidelity !== 'escalated') return;
+    this.#fidelity = 'in-page';
+    console.warn(`[nanobrowser] debugger detached (${reason}); falling back to the in-page tier`);
+    this.#emit({ kind: 'input.fidelity', fidelity: 'in-page', attached: false, at: this.#now() });
+  }
+
+  #active(): RunInput {
+    return this.#fidelity === 'escalated' && this.#escalated ? this.#escalated : this.#inPage;
+  }
+
+  async click(ref: ElementRef): Promise<void> {
+    await this.#active().click(ref);
+  }
+
+  async hover(ref: ElementRef): Promise<void> {
+    await this.#active().moveTo(ref);
+  }
+
+  /**
+   * A coordinate tier types into whatever has focus, so it must click the field
+   * first (documented on `RunInput.typeText`). The in-page tier addresses the
+   * element directly and needs no such click.
+   */
+  async typeText(ref: ElementRef, text: string): Promise<void> {
+    if (this.#fidelity === 'escalated' && this.#escalated) {
+      await this.#escalated.click(ref);
+      await this.#escalated.typeText(ref, text);
+      return;
+    }
+    await this.#inPage.typeText(ref, text);
+  }
+
+  async press(ref: ElementRef | null, key: string): Promise<void> {
+    await this.#active().press(ref, key);
+  }
+
+  /** Scroll one element into view. */
+  async scrollRef(ref: ElementRef): Promise<void> {
+    if (this.#fidelity === 'escalated' && this.#escalated) {
+      await this.#escalated.scroll(ref, 0, 0);
+      return;
+    }
+    await this.#page.scrollViewport({ ref });
+  }
+
+  /** Scroll the viewport by a delta, with no element in mind. */
+  async scrollViewport(direction: 'up' | 'down', amount?: number): Promise<void> {
+    if (this.#fidelity === 'escalated' && this.#debuggerTier) {
+      const { x, y } = await this.#page.viewportCentre();
+      const delta = amount ?? DEFAULT_SCROLL_AMOUNT;
+      await this.#debuggerTier.scroll(x, y, 0, direction === 'down' ? delta : -delta);
+      return;
+    }
+    await this.#page.scrollViewport({ direction, ...(amount !== undefined ? { amount } : {}) });
+  }
+
+  /** The tab this input is bound to, if any. */
+  get tabId(): number | null {
+    return this.#tabId;
+  }
+
+  /** What the user asked for, regardless of what is in force. */
+  get requested(): InputFidelity {
+    return this.#requested;
+  }
+}
+
+/** Default wheel/scroll delta in CSS pixels when the caller names no amount. */
+export const DEFAULT_SCROLL_AMOUNT = 600;
+/** Enough to reach either end of any realistic page in one call. */
+const SCROLL_TO_END_AMOUNT = 10_000_000;
+
+/** Snapshot node budget per observe mode (R-08). Pixels mode leans on the image. */
+export function snapshotBudget(observe: ObserveMode): number {
+  return observe === 'pixels' ? 200 : 400;
+}
+
+export interface CreatePageToolsOptions {
+  tabId: number;
+  driver: RuntimeDriver;
+  input: EscalatableInput;
+  observe: ObserveMode;
+  runUserscript: RunUserscript;
+  emit: (event: RunEvent) => void;
+  maxNodes?: number;
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
+}
+
+/** {@link PageTools} plus `hover`, which the port does not name but the tiers support. */
+export interface RuntimePageTools extends PageTools {
+  hover(ref: string): Promise<string>;
+}
+
+const realSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Builds the page port for one run against one tab. */
+export function createPageTools(options: CreatePageToolsOptions): RuntimePageTools {
+  const { tabId, driver, input, observe, runUserscript, emit } = options;
+  const sleep = options.sleep ?? realSleep;
+  const now = options.now ?? Date.now;
+  const maxNodes = options.maxNodes ?? snapshotBudget(observe);
+
+  return {
+    async snapshot(): Promise<ToolSnapshot> {
+      const res = await driver.snapshot(tabId, { interactiveOnly: false, maxNodes });
+      if (!res.ok) throw new Error(res.error ?? 'snapshot failed');
+      return { text: res.text ?? '', ...(res.approxTokens !== undefined ? { tokens: res.approxTokens } : {}) };
+    },
+
+    async screenshot(): Promise<ToolScreenshot> {
+      const res = await driver.screenshot(tabId);
+      if (!res.ok || !res.dataUrl) throw new Error(res.error ?? 'screenshot failed');
+      return { dataUrl: res.dataUrl, width: res.width ?? 0, height: res.height ?? 0 };
+    },
+
+    async click(ref) {
+      await input.click(ref);
+      return `clicked ${ref}`;
+    },
+
+    async hover(ref) {
+      await input.hover(ref);
+      return `hovered ${ref}`;
+    },
+
+    async type(ref, text) {
+      await input.typeText(ref, text);
+      return `typed ${text.length} characters into ${ref}`;
+    },
+
+    async press(key) {
+      await input.press(null, key);
+      return `pressed ${key}`;
+    },
+
+    async scroll(target: ScrollTarget) {
+      // `ScrollTarget` widens to `string`, so this is an if-chain, not a switch.
+      const keyword = String(target);
+      if (keyword === 'up' || keyword === 'down') {
+        await input.scrollViewport(keyword);
+        return `scrolled ${keyword}`;
+      }
+      if (keyword === 'top' || keyword === 'bottom') {
+        // A whole-document jump, not synthesized user input: always the page tier.
+        const res = await driver.scroll(tabId, {
+          direction: keyword === 'top' ? 'up' : 'down',
+          amount: SCROLL_TO_END_AMOUNT,
+        });
+        if (!res.ok) throw new Error(res.error ?? 'scroll failed');
+        return `scrolled to the ${keyword}`;
+      }
+      await input.scrollRef(keyword);
+      return `scrolled ${keyword} into view`;
+    },
+
+    async select(ref, value) {
+      // No CDP `Input` command sets a <select>'s value, so this is the page tier
+      // on both fidelities: the trusted tier has nothing to offer here.
+      const res = await driver.select(tabId, ref, value);
+      if (!res.ok) throw new Error(res.error ?? 'select failed');
+      return `selected "${value}" in ${ref}`;
+    },
+
+    async navigate(url) {
+      const res = await driver.navigate(tabId, url);
+      if (!res.ok) throw new Error(res.error ?? 'navigate failed');
+      return `navigated to ${url}`;
+    },
+
+    async download(target) {
+      if (/^https?:\/\//i.test(target)) {
+        const res = await driver.download(target);
+        if (!res.ok) throw new Error(res.error ?? 'download failed');
+        return `download started (id ${res.downloadId ?? 'unknown'})`;
+      }
+      // A ref: click it and let the page start its own download.
+      await input.click(target);
+      return `clicked ${target} to start the download`;
+    },
+
+    async runUserscript(scriptId) {
+      const result = await runUserscript(scriptId, tabId);
+      for (const event of toRunEvents(result, now)) emit(event);
+      if (!result.ok) throw new Error(result.error ?? `userscript ${scriptId} failed`);
+      const value = result.value === undefined ? '(no value)' : JSON.stringify(result.value);
+      return `userscript ${scriptId} ran in ${result.durationMs}ms: ${value}`;
+    },
+
+    async wait(ms) {
+      await sleep(ms);
+      return `waited ${ms}ms`;
+    },
+
+    async done(summary) {
+      return summary;
+    },
+
+    async blocked(reason) {
+      return reason;
+    },
+  };
+}
+
+/** The {@link InputPagePort} over a real driver and tab. */
+export function createInputPagePort(driver: RuntimeDriver, tabId: number): InputPagePort {
+  return {
+    async getBox(ref) {
+      const res = await driver.getBox(tabId, ref);
+      if (!res.ok || !res.box) throw new Error(res.error ?? `no box for ${ref}`);
+      const { x, y, width, height } = res.box;
+      return { x, y, width, height };
+    },
+    async scrollViewport(opts) {
+      const res = await driver.scroll(tabId, opts);
+      if (!res.ok) throw new Error(res.error ?? 'scroll failed');
+    },
+    async viewportCentre() {
+      const metrics = await driver.ping_(tabId);
+      if (!metrics.ok) throw new Error(metrics.error ?? 'the page did not report its viewport');
+      return { x: Math.round((metrics.width ?? 0) / 2), y: Math.round((metrics.height ?? 0) / 2) };
+    },
+  };
+}
+
+/** Convenience: the in-page tier over a real driver. */
+export function createInPageTier(driver: RuntimeDriver): RefInputTier {
+  return new InPageInputTier(createInPageDriverAdapter(driver));
+}
