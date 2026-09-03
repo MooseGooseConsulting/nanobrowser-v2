@@ -45,7 +45,9 @@ export function RunLog({ events, emptyMessage }: { events: RunEvent[]; emptyMess
 
   useEffect(() => {
     if (!pinned) return;
-    endRef.current?.scrollIntoView({ block: 'end' });
+    // `scrollIntoView` is missing in jsdom and in some embedded surfaces; pinning is a
+    // convenience and must never take the log down.
+    endRef.current?.scrollIntoView?.({ block: 'end' });
   }, [pinned, visible.length]);
 
   const toggleFilter = (kind: RunEvent['kind']) =>

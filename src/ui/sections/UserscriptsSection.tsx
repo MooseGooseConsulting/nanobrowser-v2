@@ -25,6 +25,11 @@ const LEVEL_CLASS: Record<'log' | 'warn' | 'error', string> = {
  * Execute and debug userscripts live (R-09/R-10). Run sends whatever is in the editor
  * right now — not the last saved copy — so edit-and-re-run needs no save step (O-03).
  */
+/** Match patterns are edited as free text; whitespace is only split when it is read. */
+function parseMatches(text: string): string[] {
+  return text.split(/\s+/).filter(Boolean);
+}
+
 export function UserscriptsSection({
   scripts,
   scriptsStatus,
@@ -45,28 +50,27 @@ export function UserscriptsSection({
   onRefresh: () => void;
 }) {
   const [draft, setDraft] = useState<Userscript>(BLANK);
+  const [matchesText, setMatchesText] = useState(() => draft.matches.join(' '));
   const [dirty, setDirty] = useState(false);
+
+  const load = (script: Userscript, asDirty: boolean) => {
+    setDirty(asDirty);
+    setDraft(script);
+    setMatchesText(script.matches.join(' '));
+  };
 
   // Adopt a stored script the first time the list arrives, unless the user is mid-edit.
   useEffect(() => {
     if (dirty) return;
-    const match = scripts.find((script) => script.id === draft.id);
-    if (match) {
-      setDraft(match);
-      return;
-    }
-    const first = scripts[0];
-    if (first) setDraft(first);
-  }, [scripts, dirty, draft.id]);
+    const match = scripts.find((script) => script.id === draft.id) ?? scripts[0];
+    if (!match || match === draft) return;
+    setDraft(match);
+    setMatchesText(match.matches.join(' '));
+  }, [scripts, dirty, draft]);
 
   const edit = (patch: Partial<Userscript>) => {
     setDirty(true);
     setDraft((prev) => ({ ...prev, ...patch }));
-  };
-
-  const select = (script: Userscript) => {
-    setDirty(false);
-    setDraft(script);
   };
 
   return (
@@ -80,10 +84,7 @@ export function UserscriptsSection({
             </Button>
             <Button
               variant="ghost"
-              onClick={() => {
-                setDirty(true);
-                setDraft(BLANK());
-              }}
+              onClick={() => load(BLANK(), true)}
             >
               new
             </Button>
@@ -103,7 +104,7 @@ export function UserscriptsSection({
               <li key={script.id} className="flex items-center gap-1 bg-surface px-2 py-1">
                 <button
                   type="button"
-                  onClick={() => select(script)}
+                  onClick={() => load(script, false)}
                   aria-current={script.id === draft.id}
                   className={cn(
                     'min-w-0 flex-1 truncate text-left text-xs outline-none focus-visible:ring-2 focus-visible:ring-accent',
@@ -152,10 +153,11 @@ export function UserscriptsSection({
             <Field label="Matches" htmlFor="script-matches" hint="Space-separated match patterns.">
               <input
                 id="script-matches"
-                value={draft.matches.join(' ')}
-                onChange={(event) =>
-                  edit({ matches: event.target.value.split(/\s+/).filter(Boolean) })
-                }
+                value={matchesText}
+                onChange={(event) => {
+                  setMatchesText(event.target.value);
+                  edit({ matches: parseMatches(event.target.value) });
+                }}
                 className="w-full rounded-md border border-line bg-paper px-2 py-1.5 font-mono text-[11px] text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent"
               />
             </Field>
