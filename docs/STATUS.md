@@ -1,0 +1,112 @@
+# Status against REQUIREMENTS.md
+
+One row per item in `REQUIREMENTS.md`, as of the integration of the subsystems into a
+working service worker. `REQUIREMENTS.md` is canonical and untouched; this file only
+reports against it.
+
+Status is **done** (built and proved by a test), **partial** (built, but something the
+item asks for is missing — the note says what), or **open** (not built).
+
+Test names below are the `it(...)` text in the named file. `pnpm test` runs everything
+under `tests/`, `src/` and `entrypoints/` (39 files, 1158 tests) and then
+`scripts/check-invariants.sh`. The native host has its own suite under `host/` with its
+own vitest config; it is **not** part of the root `pnpm test` run.
+
+## Requirements
+
+| Item | Status | Implementing file(s) | Proving test(s) | Notes |
+| --- | --- | --- | --- | --- |
+| **R-01** Acts on the tab the user already has open | done | `src/runtime/runManager.ts` (`chromeTabsPort`, `refuseReason`), `src/page/driver.ts` | `src/runtime/runManager.test.ts`: "acts on the active tab of the last focused window and names it in run.started (R-01)", "refuses a chrome:// tab with a run.ended error rather than starting", "refuses the side panel itself" | No tab is ever created; the active tab of the last focused normal window is the target, and browser/extension pages are refused with a clear `run.ended{error}`. |
+| **R-02** Low observability | partial | `scripts/check-invariants.sh`, `src/page/actions.ts`, `src/page/driver.ts` (on-demand injection), `src/input/humanize.ts`, `wxt.config.ts` | `scripts/check-invariants.sh` (4 manifest/source invariants); `tests/page-actions.test.ts`: "attaches nothing to the document or window", "leaves no listener, timer or observer in the source at all", "every event it emits is isTrusted:false — the R-13 tier-1 tell"; `tests/page-handler.test.ts`: "adds no global to the page and no node to the DOM"; `tests/page-driver.test.ts`: "does not inject at all when the ping already answers" | Every structural tell is closed and guarded. Not proved against a real detector: no live run has been made (see the e2e row), so "not detectable by the site" is asserted from code review plus `docs/research/bot-detection-research.md`, not measured. |
+| **R-03** Leader/Follower with a Follower-initiated signal | done | `src/agent/graph.ts`, `src/agent/tools.ts` (`controlEnvelope`) | `src/agent/graph.test.ts`: "ends the run on BLOCKED without returning to the leader", "keeps the leader and follower message histories separate"; `src/runtime/smoke.test.ts`: "produces the run log the side panel renders, in order" | The four-value vocabulary is verbatim. The signal rides on the tool call's own arguments (see assumptions), so control returns without a turn-count trigger. |
+| **R-04** Deterministic `planningInterval`, `maxSteps` as a safety valve | done | `src/agent/graph.ts` (`decideNext`), `src/agent/state.ts` | `src/agent/graph.test.ts`: "replans exactly every planningInterval follower steps"; `src/agent/run.test.ts`: "ends with max-steps after exactly maxSteps follower steps" | Both are user-set in the panel and validated there (`src/ui/state/gate.test.ts`: "rejects out-of-range or non-integer cadence values"). |
+| **R-05** The side panel is the primary surface | done | `entrypoints/sidepanel/*`, `src/ui/sections/*`, `src/runtime/worker.ts` | `src/ui/sections/RunSection.test.tsx`: "offers Pause and Abort while running", "re-enables Run after the run ends"; `src/runtime/worker.test.ts`: "greets a panel on connect and answers its heartbeat" | The panel opens on the toolbar action; pause/resume/abort delegate to the live run. |
+| **R-06** Modern side-panel UI that shows tool calls | done | `src/ui/runlog/ToolCallCard.tsx`, `src/ui/runlog/RunLog.tsx` | `src/ui/runlog/ToolCallCard.test.tsx`: "starts collapsed, showing name, outcome and duration only", "expands on click and pretty-prints the arguments", "marks a failed call"; `src/agent/graph.test.ts`: "emits tool.call then tool.result in order with matching callIds" | |
+| **R-07** A visible log of the run, including control moving between roles | done | `src/runtime/runManager.ts` (fan-out + ring buffer), `src/ui/runlog/HandoffCard.tsx`, `src/ui/state/runlog.ts` | `src/runtime/worker.test.ts`: "fans every run event out to every panel and to the host run log (R-07)", "replays the buffered log for a reopened panel"; `src/ui/runlog/HandoffCard.test.tsx`: "names both roles, the direction, the reason and the signal" | Every event goes three ways: all connected panels, `hostClient.appendRunLog` (redacted inside the client), and a 2000-event ring buffer per run that backs `runlog.replay`. |
+| **R-08** `dom \| pixels \| both`, chosen by the user | done | `src/storage/config.ts`, `src/agent/graph.ts` (observe block), `src/runtime/pageTools.ts` | `src/agent/graph.test.ts`: "sends an image content block in pixels mode and none in dom mode"; `src/ui/sections/SetupSection.test.tsx`: "writes every change to the Config storage item" | The mode is read from the panel's `Config` on every run; the snapshot budget follows it (`snapshotBudget`). |
+| **R-09** The agent can execute userscripts live | done | `src/userscripts/runner.ts`, `src/runtime/pageTools.ts` (`runUserscript` tool), `entrypoints/background.ts` | `src/userscripts/runner.test.ts`: "injects into the USER_SCRIPT world, immediately, in the named tab", "returns the script value and the captured console lines"; `src/runtime/pageTools.test.ts`: "emits userscript console lines into the run log (R-07/R-09)" | The Follower's `run_userscript` tool runs a stored script against the run's tab; its console lines become `userscript.output` events. |
+| **R-10** The agent can debug userscripts live | partial | `src/userscripts/debug.ts` (`DebugSession`), `src/ui/sections/UserscriptsSection.tsx` | `src/userscripts/debug.test.ts`: "re-runs edited code in place and replaces the previous result", "exposes the last run as run-log events, with the error line mapped back"; `src/ui/sections/UserscriptsSection.test.tsx`: "sends the live editor code on Run, without saving first (O-03)" | Edit-and-re-run in place, console capture by level, and errors mapped back to the user's own line/column. Missing: breakpoints and step debugging (impossible from an extension — `docs/research/i03-userscript-page-access.md`), and the *agent* can only run a stored script by id; edit-and-re-run is panel-driven. O-03 is still unanswered by the user. |
+| **R-11** Models chosen in the panel, Leader and Follower separately, validated readiness | done | `src/ui/components/ModelSelect.tsx`, `src/storage/config.ts`, `src/runtime/worker.ts` (`models.list`, `readiness.get`), `src/runtime/runManager.ts` | `src/runtime/worker.test.ts`: "answers from the host and then from the cache for ten minutes", "maps a host-connection failure to an actionable reason", "passes a validated readiness through unchanged (R-11)"; `src/runtime/runManager.test.ts`: "builds the leader and the follower models separately (R-11/C-07)"; `src/ui/components/ModelSelect.test.tsx`: "keeps Leader and Follower selections independent" | Readiness is the host's validated `GET /key` answer, never assumed; config is saved to and restored from `local:config`. |
+| **R-12** Credentials never exposed by the extension | done | `src/host/fetch.ts`, `src/host/redact.ts`, `host/src/secrets.ts`, `host/src/llm.ts` | `src/host/fetch.test.ts`: "never forwards a client-supplied Authorization header", "rejects an off-origin URL locally, without sending a message"; `src/host/redact.test.ts`: "strips an OpenRouter key wherever it appears, nested in unknown args"; `host/test/dispatcher.test.ts`: "reports ready when GET /key succeeds, and never sends the key to the panel" | The extension holds no key and adds no `Authorization`; the host attaches it. Run-log events are redacted before they leave the extension. |
+| **R-13** Escalatable input fidelity, default in-page | done | `src/input/*`, `src/runtime/pageTools.ts` (`EscalatableInput`) | `src/runtime/pageTools.test.ts`: "routes to the in-page tier by ref when fidelity is in-page", "routes to the debugger tier by viewport point when fidelity is escalated", "attaches the debugger tier once for the whole run and detaches at the end", "falls back to the in-page tier for the rest of the run when the user detaches"; `tests/input/debugger.test.ts`: "never sends Runtime/Page/DOM/Emulation commands across a mixed run" | Escalation is the user's explicit toggle in the panel, never the standing mode. Attach happens once per run and detach once at `run.ended`; a user-cancelled banner is a one-way fallback to in-page, logged as `input.fidelity{attached:false}`. Never exercised against a real Chrome (see the e2e row). |
+
+## Requirements to investigate
+
+| Item | Status | Implementing file(s) | Proving test(s) | Notes |
+| --- | --- | --- | --- | --- |
+| **I-01** Satisfy R-13 without giving up R-02 | partial | `docs/research/trusted-input-and-stealth.md` §§1–3, 6; `docs/research/bot-detection-research.md` §D.3 + ranked leaks 6–7; `docs/research/stealth-harness-landscape.md` §§6–7; built as `src/input/debugger.ts` + `EscalatableInput` | `tests/input/debugger.test.ts` (attach-once, `Input`-domain-only, onDetach semantics); `src/runtime/pageTools.test.ts` (escalation + fallback) | All three named unknowns are answered **qualitatively**: the banner cannot be suppressed by any shippable means (`--silent-debugger-extension-api` / policy install only); per-action attach is decisively the wrong pattern (`kAutoCloseDelay = 5s`, browser-wide infobar); attach itself issues no CDP command. Missing: nothing is **measured** — attach latency and the infobar's viewport delta are source-derived and flagged unmeasured, and no evidence exists that any vendor detects attachment. The banner-free alternative the docs recommend (Wayland `zwlr_virtual_pointer_v1` via the native host, `host/src/input/`) is a stub that has never been executed. |
+| **I-02** Which sites actually require trusted input | partial | `docs/research/trusted-input-and-stealth.md` §5; `docs/research/bot-detection-research.md` Part C + §A.6 | — (no test; this is a finding, not code) | The **API class** is fully pinned: the activation-gated set (~30 APIs), the sticky/transient activation rules, the post-Chrome-53 default-action rule with `click` grandfathered, and the read of ~60 checks across five detectors showing exactly one (`isTrusted`) fires in in-page mode. Missing is the requirement's literal question — *which sites*: there is no site list, no probe run against a real target, and no prevalence figure for `isTrusted`/`userActivation` checks. Drag-and-drop, payment iframes and the big login flows are explicitly unverified, and per-site `e.isTrusted` guards are conceded to be non-enumerable. The live e2e run is the first thing that would move this. |
+| **I-03** Whether R-09/R-10 can route around R-13 via the page's own APIs | done | `docs/research/i03-userscript-page-access.md`; probe in `src/userscripts/i03.ts` | `src/userscripts/i03.test.ts`: "reports what the world can reach on the page", "gates the one network request behind an explicit opt-in" | Answered in both directions with running code: **yes** for same-origin credentialed `fetch` (HttpOnly cookies ride along without being exposed), DOM-derived CSRF tokens and CSP-exempt injection; **no** for the page's own heap/globals, cross-origin without CORS, HttpOnly values, trusted input and breakpoints. Caveat worth settling: `docs/research/stealth-harness-landscape.md` §1 advises against `chrome.userScripts` (Chrome 138+ per-extension toggle, off by default) while I-03 is built on it, and `docs/research/userscripts-api.md` still recommends `world:'MAIN'`, which `check-invariants.sh` forbids. |
+
+## Constraints
+
+| Item | Status | Implementing file(s) | Proving test(s) | Notes |
+| --- | --- | --- | --- | --- |
+| **C-01** MV3 (or the best-stealth harness) | done | `wxt.config.ts`, `.output/chrome-mv3/manifest.json`, `docs/research/extension-stack.md`, `docs/research/stealth-harness-landscape.md` | `scripts/check-invariants.sh` | MV3 chosen after the harness survey; the manifest declares no `web_accessible_resources`, no `externally_connectable` and no `content_scripts`. |
+| **C-02** The agent loop comes from LangGraph | done | `src/agent/graph.ts`, `src/agent/run.ts`, `src/agent/checkpointer.ts` | `src/agent/run.test.ts`: "drains at a step boundary and resumes from the checkpoint with the step count intact"; `src/agent/checkpointer.test.ts` (the vendor's checkpoint validation suite) | Supersteps, routing, checkpointing and drain all come from `@langchain/langgraph/web`; nothing re-implements the loop. |
+| **C-03** No deprecated framework APIs | done | `src/agent/state.ts` (`StateSchema`, not `Annotation.Root`), `src/agent/graph.ts` (no `createReactAgent`, no `interrupt()`), `src/agent/models.ts` (`ContentBlock`, not `image_url`) | `pnpm typecheck` (the deprecated surfaces are gone in the pinned versions, so `tsc` is the guard); `src/agent/graph.test.ts`: "sends an image content block in pixels mode and none in dom mode" | No standalone lint rule enforces this; the choice is recorded in `docs/research/langgraph.md`. |
+| **C-04** Libraries chosen on adoption and by reading the code | done | `docs/research/extension-stack.md`, `docs/research/langgraph.md`, `docs/research/userscripts-api.md` | — | Each dependency in `package.json` is justified in a research doc that cites the library's own source, not a search result. |
+| **C-05** Set-of-marks is optional, not the interaction model | done | `src/agent/tools.ts`, `src/page/snapshot.ts` | `src/agent/graph.test.ts`: "sends an image content block in pixels mode and none in dom mode"; `tests/page-snapshot.test.ts`: "gives one element exactly one ref within a snapshot, and resolves it" | Interaction is by accessibility-tree `[ref=eNN]`; the pixel mode sends a plain screenshot with no marks drawn. Nothing overlays the page. |
+| **C-06** Secrets live in the desktop store; the extension holds none | done | `host/src/secrets.ts` (`DopplerSecretProvider`), `src/host/fetch.ts` | `host/test/dispatcher.test.ts`: "emits llm.error no_key when no secret is available, without calling fetch", "strips a client-supplied Authorization header rather than forwarding it" | Doppler today behind a one-method `SecretProvider` seam, so OpenBao or an OS keychain is a swap that touches no protocol. |
+| **C-07** Whatever holds the key does not choose the model | done | `src/runtime/runManager.ts` (`createModel` per role), `src/agent/models.ts`, `host/src/llm.ts` | `src/runtime/runManager.test.ts`: "builds the leader and the follower models separately (R-11/C-07)"; `host/test/dispatcher.test.ts`: "passes GET /models through with no Authorization header" | The host proxies the request body verbatim and never rewrites `model`; the panel's two selections are the only source. |
+
+## Not requirements
+
+| Item | Status | Implementing file(s) | Proving test(s) | Notes |
+| --- | --- | --- | --- | --- |
+| **N-01** No human-in-the-loop | done (honoured) | `src/agent/graph.ts`, `src/agent/run.ts` | `src/agent/run.test.ts`: "ends with max-steps after exactly maxSteps follower steps" (the run needs no approval to proceed) | No approval gate anywhere; `interrupt()` is not used. Pause/resume exists only because the user asked for transport controls, and it is user-initiated, never agent-initiated. |
+| **N-02** No outside control of the run by a model or MCP | done (honoured), with one caveat | `wxt.config.ts` (no `externally_connectable`), `host/src/trigger.ts`, `src/runtime/worker.ts` | `scripts/check-invariants.sh`: "manifest has no externally_connectable"; `host/test/trigger.test.ts`: "binds with mode 0600" | Nothing on the web can reach the extension. The caveat: the host's dev trigger *can* start a run from outside (unix socket, mode 0600, bound only under `NANOBROWSER_DEV=1`). It is a developer affordance driven by the user's own CLI, not a model or MCP — but it is the one thing in the build that sits near this line, and it should be looked at if that is not wanted. |
+| **N-03** No new frameworks | done (honoured) | `package.json` | — | The dependency set is LangChain/LangGraph, React, WXT, zod, idb — all previously chosen. This integration added no dependency at all. |
+
+## Acceptance
+
+| Item | Status | Implementing file(s) | Proving test(s) | Notes |
+| --- | --- | --- | --- | --- |
+| **A-01** Tests cover the requirements above | partial | all `*.test.ts(x)` under `src/`, `tests/`, plus `host/test/` | `pnpm test`: 39 files, 1158 tests, then 4 stealth invariants | Every R and C item has at least one named proving test. The gaps are the two partial investigations (I-01 measurement, I-02 site evidence) and the fact that nothing has ever run against a real browser or a real model. |
+| **Live e2e** (real Chrome, real host, Hyperagent) | pending: run by the orchestrator | `docs/research/live-testing-real-chrome.md`, `host/bin/nb-run` | — | Not attempted here: this task drove no browser and called no LLM. This is the run that would turn R-02 and R-13 from "argued" into "observed" and give I-02 its first real data point. |
+
+## Deviations and assumptions
+
+Open items are the user's to answer (`REQUIREMENTS.md` says ask, do not decide). The
+build could not stall on them, so each one was taken as a **reversible assumption**,
+recorded here. None of them changed `REQUIREMENTS.md`.
+
+1. **O-05 — `navigate`, `plan`, `download` as Follower tools.** Assumed yes: `navigate`
+   and `download` are Follower tools (`src/agent/tools.ts`), and `plan` is the Leader's
+   only tool (`set_plan`) rather than a Follower one. Consequence: `downloads` was added
+   to the manifest permissions in `wxt.config.ts` — without it `chrome.downloads` is
+   absent and `PageDriver.download` refuses. Reversing this means dropping two tools and
+   the permission.
+2. **O-05 (download semantics).** `download` takes a full URL *or* an element ref. A URL
+   goes to `chrome.downloads`; a ref is clicked through the input tier and the page
+   starts its own download, because no driver op can read a link's `href`.
+3. **O-03 — what "debug userscripts live" includes.** Assumed edit-and-re-run in place
+   plus console and error capture, with errors mapped back to the user's own line and
+   column. **No breakpoints and no stepping**: an extension cannot attach a JS debugger
+   to a page it is scripting without `chrome.debugger`'s `Debugger` domain, which would
+   violate the `Input`-domain-only rule the stealth research imposes.
+4. **O-04 — SAM 3 as a second mark generator.** Not built. C-05 makes marks optional and
+   the pixel mode sends an unannotated screenshot, so nothing depends on this answer yet.
+5. **R-03 signal transport.** The Follower's control signal rides on the *arguments of
+   the tool call it is already making* (`signal` / `note` on every tool schema), so one
+   model round trip yields both the action and the classification. An absent `signal`
+   means `CONTINUE`. The alternative — a second classification call per step — was
+   rejected as a second LLM round trip per action.
+6. **R-04 step accounting.** `stepCount` counts **Follower actions only**; Leader turns
+   are not steps. So `maxSteps: 50` means fifty page actions, and `planningInterval: 5`
+   means the Leader is consulted after every fifth action.
+7. **R-09 userscript semantics.** Stored userscripts are function bodies: a top-level
+   `return` is how a script yields its value, and the runner wraps the code so the user's
+   first line stays at a known offset for error mapping.
+8. **Fidelity fallback is one-way.** If the user cancels Chrome's debugging banner
+   mid-run, the run continues on the in-page tier and never re-attaches, on the reading
+   that cancelling the banner is the user saying no. The fallback is logged as
+   `input.fidelity { attached: false }`.
+9. **`select` is always the page tier.** No CDP `Input` command sets a `<select>`'s
+   value, so `select` goes through the driver on both fidelities. Same for
+   `scroll('top')` / `scroll('bottom')`, which are document jumps rather than synthesized
+   input.
+10. **Dev-trigger terminator.** The host closes a socket subscriber on a run-log event
+    whose `type` is `run.end`, while every contract event is keyed by `kind`. The worker
+    therefore appends one extra host-only `{ type: 'run.end', … }` record when a
+    dev-triggered run finishes. No contract variant was added for this.
