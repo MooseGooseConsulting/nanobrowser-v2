@@ -1,0 +1,502 @@
+/**
+ * Service-worker-side client for the native-messaging host (docs/host-protocol.md).
+ *
+ * Wire types below mirror `host/src/protocol.ts` exactly (field names, message
+ * shapes). They are re-declared here rather than imported: the host is a separate
+ * Node program with its own tsconfig (excluded from this project's `tsc`), while
+ * this file ships inside the MV3 service worker bundle.
+ *
+ * `NativePortApi` is the seam over `chrome.runtime.connectNative` (production:
+ * `ChromeNativePort`; tests: `FakeNativePort`). `HostClient` owns the port: lazy
+ * connect, reconnect-with-backoff on disconnect, a request/response correlator
+ * keyed by message id, and a streaming subscription registry for `llm.*` events
+ * keyed by request id.
+ */
+import type { ModelInfo, Readiness, RunEvent } from '@/src/messaging';
+import { redactEvent } from './redact';
+
+export const HOST_NAME = 'com.nanobrowser.host';
+
+/** Initial reconnect delay; doubles on each consecutive disconnect, capped below. */
+export const INITIAL_BACKOFF_MS = 250;
+/** R-11/C-06 note aside: this is purely a liveness concern, capped per the build brief. */
+export const MAX_BACKOFF_MS = 30_000;
+
+/* ---------------- wire: extension -> host ---------------- */
+
+export interface KeyStatusMsg {
+  type: 'key.status';
+  id: string;
+}
+
+export interface ModelsListMsg {
+  type: 'models.list';
+  id: string;
+}
+
+export interface LlmRequestMsg {
+  type: 'llm.request';
+  id: string;
+  url: string;
+  method?: string;
+  headers?: Record<string, string>;
+  body?: unknown;
+}
+
+export interface LlmAbortMsg {
+  type: 'llm.abort';
+  id: string;
+}
+
+export interface RunLogAppendMsg {
+  type: 'runlog.append';
+  id?: string;
+  runId: string;
+  event: unknown;
+}
+
+export type HostRequestMsg = KeyStatusMsg | ModelsListMsg | LlmRequestMsg | LlmAbortMsg | RunLogAppendMsg;
+
+/* ---------------- wire: host -> extension ---------------- */
+
+export type CassetteMode = 'off' | 'record' | 'replay';
+
+export type ErrorCode =
+  | 'bad_request'
+  | 'unknown_type'
+  | 'no_key'
+  | 'upstream'
+  | 'aborted'
+  | 'cassette_miss'
+  | 'io'
+  | 'internal';
+
+export interface HelloMsg {
+  type: 'hello';
+  hostVersion: string;
+  dev: boolean;
+  cassette: CassetteMode;
+}
+
+export interface KeyStatusResult {
+  type: 'key.status.result';
+  id: string;
+  ready: boolean;
+  reason?: string;
+}
+
+export interface ModelsListResult {
+  type: 'models.list.result';
+  id: string;
+  status: number;
+  body: unknown;
+}
+
+export interface LlmChunkMsg {
+  type: 'llm.chunk';
+  id: string;
+  bytes: string;
+}
+
+export interface LlmEndMsg {
+  type: 'llm.end';
+  id: string;
+  status: number;
+  headers: Record<string, string>;
+}
+
+export interface LlmErrorMsg {
+  type: 'llm.error';
+  id: string;
+  code: ErrorCode;
+  message: string;
+}
+
+export interface RunLogAckMsg {
+  type: 'runlog.ack';
+  id?: string;
+  runId: string;
+  ok: true;
+}
+
+export interface RunStartMsg {
+  type: 'run.start';
+  runId: string;
+  prompt: string;
+  url?: string;
+  options?: Record<string, unknown>;
+}
+
+export interface ErrorMsg {
+  type: 'error';
+  id?: string;
+  code: ErrorCode;
+  message: string;
+}
+
+export type HostResponseMsg =
+  | HelloMsg
+  | KeyStatusResult
+  | ModelsListResult
+  | LlmChunkMsg
+  | LlmEndMsg
+  | LlmErrorMsg
+  | RunLogAckMsg
+  | RunStartMsg
+  | ErrorMsg;
+
+/** Rejection thrown by the correlator when the host replies with a generic `error`. */
+export class HostError extends Error {
+  constructor(
+    public readonly code: ErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'HostError';
+  }
+}
+
+/* ---------------- NativePortApi seam ---------------- */
+
+/** The seam over `chrome.runtime.connectNative`. `ChromeNativePort` in production, `FakeNativePort` in tests. */
+export interface NativePortApi {
+  postMessage(message: HostRequestMsg): void;
+  onMessage(handler: (message: HostResponseMsg) => void): () => void;
+  onDisconnect(handler: () => void): () => void;
+  disconnect(): void;
+}
+
+/** `NativePortApi` backed by a real `chrome.runtime.connectNative` port. Only the SW may connect. */
+export class ChromeNativePort implements NativePortApi {
+  private constructor(private readonly port: chrome.runtime.Port) {}
+
+  static connect(hostName: string = HOST_NAME): ChromeNativePort {
+    return new ChromeNativePort(chrome.runtime.connectNative(hostName));
+  }
+
+  postMessage(message: HostRequestMsg): void {
+    this.port.postMessage(message);
+  }
+
+  onMessage(handler: (message: HostResponseMsg) => void): () => void {
+    const listener = (message: unknown) => handler(message as HostResponseMsg);
+    this.port.onMessage.addListener(listener);
+    return () => this.port.onMessage.removeListener(listener);
+  }
+
+  onDisconnect(handler: () => void): () => void {
+    const listener = () => handler();
+    this.port.onDisconnect.addListener(listener);
+    return () => this.port.onDisconnect.removeListener(listener);
+  }
+
+  disconnect(): void {
+    this.port.disconnect();
+  }
+}
+
+/** In-memory `NativePortApi` double. Records everything posted; `emit`/`disconnect` simulate the host. */
+export class FakeNativePort implements NativePortApi {
+  readonly sent: HostRequestMsg[] = [];
+  private readonly messageHandlers = new Set<(message: HostResponseMsg) => void>();
+  private readonly disconnectHandlers = new Set<() => void>();
+  private isDisconnected = false;
+
+  get disconnected(): boolean {
+    return this.isDisconnected;
+  }
+
+  postMessage(message: HostRequestMsg): void {
+    if (this.isDisconnected) return;
+    this.sent.push(message);
+  }
+
+  onMessage(handler: (message: HostResponseMsg) => void): () => void {
+    this.messageHandlers.add(handler);
+    return () => this.messageHandlers.delete(handler);
+  }
+
+  onDisconnect(handler: () => void): () => void {
+    this.disconnectHandlers.add(handler);
+    return () => this.disconnectHandlers.delete(handler);
+  }
+
+  /** Simulates a message arriving from the host. */
+  emit(message: HostResponseMsg): void {
+    if (this.isDisconnected) return;
+    for (const handler of [...this.messageHandlers]) handler(message);
+  }
+
+  /** Simulates the host process going away (crash, disable, etc). */
+  disconnect(): void {
+    if (this.isDisconnected) return;
+    this.isDisconnected = true;
+    for (const handler of [...this.disconnectHandlers]) handler();
+  }
+}
+
+/* ---------------- OpenRouter /models mapping ---------------- */
+
+interface OpenRouterModelRaw {
+  id?: unknown;
+  name?: unknown;
+  context_length?: unknown;
+  pricing?: { prompt?: unknown; completion?: unknown };
+  architecture?: { input_modalities?: unknown };
+  supported_parameters?: unknown;
+}
+
+/**
+ * Maps one entry of OpenRouter's `GET /models` catalog to the panel's `ModelInfo`.
+ * `free` when pricing prompt+completion are the string "0" or the id ends `:free`;
+ * `vision` when `architecture.input_modalities` includes "image"; `tools` when
+ * `supported_parameters` includes "tools"; `contextLength` from `context_length`.
+ */
+export function mapOpenRouterModel(raw: unknown): ModelInfo | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const r = raw as OpenRouterModelRaw;
+  if (typeof r.id !== 'string' || r.id.length === 0) return null;
+
+  const pricing = r.pricing ?? {};
+  const freeByPricing = pricing.prompt === '0' && pricing.completion === '0';
+  const freeById = r.id.endsWith(':free');
+
+  const modalities = r.architecture?.input_modalities;
+  const vision = Array.isArray(modalities) && modalities.includes('image');
+
+  const supported = r.supported_parameters;
+  const tools = Array.isArray(supported) && supported.includes('tools');
+
+  return {
+    id: r.id,
+    name: typeof r.name === 'string' && r.name.length > 0 ? r.name : r.id,
+    free: freeByPricing || freeById,
+    vision,
+    tools,
+    contextLength: typeof r.context_length === 'number' ? r.context_length : 0,
+  };
+}
+
+/* ---------------- HostClient ---------------- */
+
+/** Handlers for one in-flight `llm.request`, dispatched by request id. */
+export interface LlmStreamHandlers {
+  onChunk(bytes: string): void;
+  onEnd(status: number, headers: Record<string, string>): void;
+  onError(code: ErrorCode, message: string): void;
+}
+
+interface Pending {
+  resolve: (msg: HostResponseMsg) => void;
+  reject: (err: Error) => void;
+}
+
+let idCounter = 0;
+function nextId(): string {
+  idCounter += 1;
+  return `${Date.now().toString(36)}-${idCounter.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * Owns the one native-messaging port for the service worker's lifetime. Connects
+ * lazily on first use, reconnects with exponential backoff (capped at
+ * `MAX_BACKOFF_MS`) on disconnect, and resets the backoff once a fresh `hello`
+ * proves the new port is talking to a live host.
+ */
+export class HostClient {
+  #port: NativePortApi | null = null;
+  #reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  #backoffMs = INITIAL_BACKOFF_MS;
+  readonly #portFactory: () => NativePortApi;
+  readonly #pending = new Map<string, Pending>();
+  readonly #llmStreams = new Map<string, LlmStreamHandlers>();
+  readonly #runStartHandlers = new Set<(msg: RunStartMsg) => void>();
+
+  constructor(portFactory: () => NativePortApi = () => ChromeNativePort.connect()) {
+    this.#portFactory = portFactory;
+  }
+
+  /** Connects now if not already connected, cancelling any pending backoff wait. */
+  connect(): void {
+    if (this.#port) return;
+    if (this.#reconnectTimer) {
+      clearTimeout(this.#reconnectTimer);
+      this.#reconnectTimer = null;
+    }
+    const port = this.#portFactory();
+    this.#port = port;
+    port.onMessage((msg) => this.#onMessage(msg));
+    port.onDisconnect(() => this.#onDisconnect());
+  }
+
+  /** Disconnects deliberately; does not auto-reconnect afterwards. */
+  close(): void {
+    if (this.#reconnectTimer) {
+      clearTimeout(this.#reconnectTimer);
+      this.#reconnectTimer = null;
+    }
+    const port = this.#port;
+    this.#port = null;
+    port?.disconnect();
+    this.#settleAllPendingOnDisconnect();
+  }
+
+  /** `GET /key` readiness (R-11): never assumed, always the host's validated answer. */
+  async keyStatus(): Promise<Readiness> {
+    try {
+      const res = await this.#call<KeyStatusResult>({ type: 'key.status', id: nextId() });
+      return { hostConnected: true, keyReady: res.ready, ...(res.reason ? { reason: res.reason } : {}) };
+    } catch (err) {
+      return { hostConnected: false, keyReady: false, reason: (err as Error).message };
+    }
+  }
+
+  /** `GET /models` passthrough, mapped to the panel's `ModelInfo[]`. Throws on failure. */
+  async listModels(): Promise<ModelInfo[]> {
+    const res = await this.#call<ModelsListResult>({ type: 'models.list', id: nextId() });
+    if (res.status !== 200) {
+      throw new Error(`models.list failed: upstream status ${res.status}`);
+    }
+    const body = res.body as { data?: unknown[] } | undefined;
+    const data = Array.isArray(body?.data) ? body.data : [];
+    const models: ModelInfo[] = [];
+    for (const entry of data) {
+      const mapped = mapOpenRouterModel(entry);
+      if (mapped) models.push(mapped);
+    }
+    return models;
+  }
+
+  /** Redacts then fire-and-forgets a run-log event (protocol: `id` is optional on `runlog.append`). */
+  appendRunLog(runId: string, event: RunEvent): void {
+    this.connect();
+    this.#port?.postMessage({ type: 'runlog.append', runId, event: redactEvent(event) });
+  }
+
+  /** Sends `llm.abort` for a request id. Unknown ids are a silent no-op on the host side. */
+  abortLlm(id: string): void {
+    if (!this.#port) return;
+    this.#port.postMessage({ type: 'llm.abort', id });
+  }
+
+  /**
+   * Sends `llm.request` and subscribes `handlers` to `llm.chunk`/`llm.end`/`llm.error`
+   * for the returned request id. The subscription is removed once a terminal
+   * (`llm.end` or `llm.error`) message arrives.
+   */
+  sendLlmRequest(
+    req: { url: string; method?: string; headers?: Record<string, string>; body?: unknown },
+    handlers: LlmStreamHandlers,
+  ): string {
+    this.connect();
+    const id = nextId();
+    this.#llmStreams.set(id, handlers);
+    this.#port?.postMessage({
+      type: 'llm.request',
+      id,
+      url: req.url,
+      ...(req.method ? { method: req.method } : {}),
+      ...(req.headers ? { headers: req.headers } : {}),
+      ...(req.body !== undefined ? { body: req.body } : {}),
+    });
+    return id;
+  }
+
+  /** Registers a handler for host-pushed `run.start` (the dev trigger). Returns an unsubscribe. */
+  onRunStart(handler: (msg: RunStartMsg) => void): () => void {
+    this.connect();
+    this.#runStartHandlers.add(handler);
+    return () => this.#runStartHandlers.delete(handler);
+  }
+
+  #call<T extends HostResponseMsg>(msg: HostRequestMsg & { id: string }): Promise<T> {
+    this.connect();
+    return new Promise<T>((resolve, reject) => {
+      this.#pending.set(msg.id, { resolve: resolve as (msg: HostResponseMsg) => void, reject });
+      this.#port?.postMessage(msg);
+    });
+  }
+
+  #onMessage(msg: HostResponseMsg): void {
+    switch (msg.type) {
+      case 'hello':
+        this.#backoffMs = INITIAL_BACKOFF_MS;
+        return;
+
+      case 'key.status.result':
+      case 'models.list.result':
+      case 'runlog.ack': {
+        const pending = msg.id ? this.#pending.get(msg.id) : undefined;
+        if (pending && msg.id) {
+          this.#pending.delete(msg.id);
+          pending.resolve(msg);
+        }
+        return;
+      }
+
+      case 'error': {
+        if (!msg.id) return;
+        const pending = this.#pending.get(msg.id);
+        if (pending) {
+          this.#pending.delete(msg.id);
+          pending.reject(new HostError(msg.code, msg.message));
+        }
+        return;
+      }
+
+      case 'llm.chunk': {
+        this.#llmStreams.get(msg.id)?.onChunk(msg.bytes);
+        return;
+      }
+
+      case 'llm.end': {
+        const handlers = this.#llmStreams.get(msg.id);
+        this.#llmStreams.delete(msg.id);
+        handlers?.onEnd(msg.status, msg.headers);
+        return;
+      }
+
+      case 'llm.error': {
+        const handlers = this.#llmStreams.get(msg.id);
+        this.#llmStreams.delete(msg.id);
+        handlers?.onError(msg.code, msg.message);
+        return;
+      }
+
+      case 'run.start': {
+        for (const handler of [...this.#runStartHandlers]) handler(msg);
+        return;
+      }
+    }
+  }
+
+  #onDisconnect(): void {
+    this.#port = null;
+    this.#settleAllPendingOnDisconnect();
+    this.#scheduleReconnect();
+  }
+
+  #settleAllPendingOnDisconnect(): void {
+    for (const pending of this.#pending.values()) pending.reject(new Error('host disconnected'));
+    this.#pending.clear();
+    for (const handlers of this.#llmStreams.values()) handlers.onError('io', 'host disconnected');
+    this.#llmStreams.clear();
+  }
+
+  #scheduleReconnect(): void {
+    const delay = this.#backoffMs;
+    this.#backoffMs = Math.min(this.#backoffMs * 2, MAX_BACKOFF_MS);
+    this.#reconnectTimer = setTimeout(() => {
+      this.#reconnectTimer = null;
+      this.connect();
+    }, delay);
+  }
+}
+
+let singleton: HostClient | undefined;
+
+/** The service worker's one `HostClient`. Lazily constructed on first use. */
+export function getHostClient(): HostClient {
+  if (!singleton) singleton = new HostClient();
+  return singleton;
+}
