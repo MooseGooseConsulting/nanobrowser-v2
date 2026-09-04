@@ -291,6 +291,28 @@ describe('createWorker: readiness.get', () => {
 });
 
 describe('createWorker: runs', () => {
+  it('refuses a paid model from the panel and never starts the run', async () => {
+    // Regression: the panel kept a paid Leader from before the free-only rule and
+    // the run reached OpenRouter, which answered "404 ... (Paid model training)".
+    const h = harness();
+    const panel = h.connect();
+
+    panel.send('run.start', {
+      prompt: 'find the price',
+      config: { ...config, leaderModel: 'meta/muse-spark-1.3-contributor' },
+    });
+    await settle();
+
+    expect(h.scripted.seen).toHaveLength(0);
+    const events = panel.received('run.event').map((p) => (p as { event: RunEvent }).event);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.kind).toBe('run.ended');
+    const ended = events[0] as Extract<RunEvent, { kind: 'run.ended' }>;
+    expect(ended.status).toBe('error');
+    expect(ended.message).toContain('meta/muse-spark-1.3-contributor');
+    expect(ended.message).toContain('allowPaidModels=true');
+  });
+
   it('fans every run event out to every panel and to the host run log (R-07)', async () => {
     const h = harness();
     const one = h.connect();

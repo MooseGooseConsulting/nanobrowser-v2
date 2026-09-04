@@ -202,6 +202,18 @@ export function createWorker(deps: WorkerDeps): Worker {
     switch (message.type) {
       case 'run.start': {
         const { prompt, config } = message.payload;
+        // The same free-models-only rule the dev socket gets. A stale paid model can
+        // sit in the panel's stored config from before the rule existed, and the run
+        // must not reach OpenRouter on the user's credit because of it.
+        const policy = checkModelPolicy(config);
+        if (!policy.ok) {
+          const runId: RunId = crypto.randomUUID();
+          broadcast('run.event', {
+            runId,
+            event: { kind: 'run.ended', status: 'error', message: policy.reason, steps: 0, at: now() },
+          });
+          return;
+        }
         await deps.runManager.start({ prompt, config });
         return;
       }
