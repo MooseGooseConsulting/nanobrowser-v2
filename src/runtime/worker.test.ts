@@ -480,6 +480,23 @@ describe('log.append relay', () => {
 });
 
 describe('applyRunOptions', () => {
+  it('carries the model source, so the CLI can reach a model that only works on one gateway', () => {
+    // meta/muse-spark-1.3-contributor 404s on OpenRouter and works on Kilo, so the id
+    // alone cannot say where a run should go.
+    const next = applyRunOptions(config, {
+      leaderModel: 'meta/muse-spark-1.3-contributor',
+      leaderModelSource: 'kilo',
+      followerModelSource: 'openrouter',
+    });
+    expect(next.leaderModelSource).toBe('kilo');
+    expect(next.followerModelSource).toBe('openrouter');
+  });
+
+  it('ignores a source that is not a known gateway', () => {
+    const next = applyRunOptions(config, { leaderModelSource: 'not-a-gateway' });
+    expect(next.leaderModelSource).toBe(config.leaderModelSource);
+  });
+
   it('folds known dev-trigger options over the stored config and ignores the rest', () => {
     expect(
       applyRunOptions(config, { navMode: 'both', maxSteps: 3, inputFidelity: 'escalated', nonsense: true }),

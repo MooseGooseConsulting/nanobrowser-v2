@@ -27,7 +27,7 @@ import {
   type WorkerToPanel,
   type WorkerToPanelMessage,
 } from '@/src/messaging';
-import type { Config, InputFidelity, ObserveMode } from '@/src/storage';
+import type { Config, InputFidelity, ModelSource, ObserveMode } from '@/src/storage';
 import type { ExtLogEntry } from './errorLog';
 import { handleUserscriptMessage as defaultHandleUserscript } from '@/src/userscripts';
 import type { HostRunEndEvent, StartOptions, StartResult } from './runManager';
@@ -137,6 +137,15 @@ export function applyRunOptions(config: Config, options?: Record<string, unknown
   if (typeof options.inputFidelity === 'string' && FIDELITIES.has(options.inputFidelity)) {
     next.inputFidelity = options.inputFidelity as InputFidelity;
   }
+  // A model id alone is ambiguous: the same id can exist on both gateways and behave
+  // differently (meta/muse-spark-1.3-contributor 404s on OpenRouter, works on Kilo), so
+  // the source is its own option rather than being encoded into the id.
+  const sourceOf = (raw: unknown): ModelSource | undefined =>
+    raw === 'kilo' || raw === 'openrouter' ? raw : undefined;
+  const leaderSource = sourceOf(options.leaderModelSource);
+  if (leaderSource) next.leaderModelSource = leaderSource;
+  const followerSource = sourceOf(options.followerModelSource);
+  if (followerSource) next.followerModelSource = followerSource;
   if (typeof options.leaderModel === 'string' && options.leaderModel) next.leaderModel = options.leaderModel;
   if (typeof options.followerModel === 'string' && options.followerModel) {
     next.followerModel = options.followerModel;
