@@ -25,6 +25,14 @@ export interface ComboboxProps<T> {
    * even though the stored value is untouched (it is only display that is missing it).
    */
   unresolvedHint?: (value: string) => string;
+  /**
+   * Transforms `value` for the unresolved closed-state input text only (matching,
+   * `aria-selected` and `unresolvedHint` all still see the raw `value`). Defaults to
+   * identity. Exists so a caller whose `value`/`getKey` embed extra identity (e.g.
+   * `ModelSelect` namespacing an id by source) can still show the user's own raw
+   * stored value rather than that internal encoding.
+   */
+  formatUnresolvedValue?: (value: string) => string;
 }
 
 /**
@@ -46,6 +54,7 @@ export function Combobox<T>({
   emptyMessage = 'No matches.',
   disabled = false,
   unresolvedHint,
+  formatUnresolvedValue = (v) => v,
 }: ComboboxProps<T>) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -120,7 +129,7 @@ export function Combobox<T>({
         aria-activedescendant={activeId}
         autoComplete="off"
         disabled={disabled}
-        value={open ? query : selected ? getLabel(selected) : unresolved ? value : ''}
+        value={open ? query : selected ? getLabel(selected) : unresolved ? formatUnresolvedValue(value) : ''}
         placeholder={selected ? getLabel(selected) : placeholder}
         aria-describedby={!open && unresolved && unresolvedHint ? `${id}-unresolved` : undefined}
         onFocus={() => setOpen(true)}

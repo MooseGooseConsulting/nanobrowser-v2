@@ -182,6 +182,65 @@ describe('SetupSection free models only', () => {
   });
 });
 
+describe('SetupSection model source (Kilo addition)', () => {
+  const MIXED: ModelInfo[] = [
+    ...MODELS,
+    {
+      id: 'meta/muse-spark-1.3-contributor',
+      name: 'Muse Spark',
+      free: false,
+      vision: false,
+      tools: true,
+      contextLength: 200_000,
+      source: 'kilo',
+      mayTrainOnYourPrompts: false,
+    },
+  ];
+
+  it('filters the picker by source, defaulting to showing every source', async () => {
+    const user = userEvent.setup();
+    setup({ models: MIXED });
+
+    await user.click(screen.getByRole('switch', { name: 'Free models only' }));
+    await user.click(screen.getByRole('combobox', { name: 'Leader model' }));
+    expect(screen.getByRole('option', { name: /Muse Spark/ })).toBeTruthy();
+
+    // Clicking the radio closes the combobox (it is outside its root); reopen it
+    // to see the filter take effect.
+    await user.click(screen.getByRole('radio', { name: 'Kilo' }));
+    await user.click(screen.getByRole('combobox', { name: 'Leader model' }));
+    expect(screen.queryByRole('option', { name: /Nemotron/ })).toBeNull();
+    expect(screen.getByRole('option', { name: /Muse Spark/ })).toBeTruthy();
+  });
+
+  it('persists both the model id and its source when a Kilo model is picked', async () => {
+    const user = userEvent.setup();
+    setup({ models: MIXED });
+
+    await user.click(screen.getByRole('switch', { name: 'Free models only' }));
+    await user.click(screen.getByRole('combobox', { name: 'Leader model' }));
+    await user.click(screen.getByRole('option', { name: /Muse Spark/ }));
+
+    await waitFor(async () => {
+      const stored = await getConfig();
+      expect(stored.leaderModel).toBe('meta/muse-spark-1.3-contributor');
+      expect(stored.leaderModelSource).toBe('kilo');
+    });
+  });
+
+  it('never writes a source for an OpenRouter pick, keeping old stored configs byte-identical', async () => {
+    const user = userEvent.setup();
+    setup({ models: MIXED });
+
+    await user.click(screen.getByRole('switch', { name: 'Free models only' }));
+    await user.click(screen.getByRole('combobox', { name: 'Leader model' }));
+    await user.click(screen.getByRole('option', { name: /Nemotron/ }));
+
+    await waitFor(async () => expect((await getConfig()).leaderModel).toBe('nvidia/nemotron-ultra'));
+    expect((await getConfig()).leaderModelSource).toBeUndefined();
+  });
+});
+
 describe('SetupSection readiness row', () => {
   it('is green when the worker validates the host and the key', () => {
     setup();

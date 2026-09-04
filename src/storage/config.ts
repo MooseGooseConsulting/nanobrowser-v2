@@ -6,10 +6,21 @@ export type ObserveMode = 'dom' | 'pixels' | 'both';
 /** How input is delivered (R-13). `escalated` means debugger/CDP-backed trusted input. */
 export type InputFidelity = 'in-page' | 'escalated';
 
+/** Which catalog a model came from -- also which base URL and credential it routes to. */
+export type ModelSource = 'openrouter' | 'kilo';
+
 /** User-owned run configuration. The side panel is the boss (R-05/R-11). */
 export interface Config {
   leaderModel: string;
   followerModel: string;
+  /**
+   * Absent means OpenRouter: every config stored before Kilo existed has no opinion
+   * here, and must keep routing exactly where it always did (R-11 continuity).
+   * Only set when a role is deliberately picked from Kilo, and only needed at all
+   * because the same model id can exist on both sources (disambiguates which one).
+   */
+  leaderModelSource?: ModelSource;
+  followerModelSource?: ModelSource;
   observe: ObserveMode;
   planningInterval: number;
   maxSteps: number;

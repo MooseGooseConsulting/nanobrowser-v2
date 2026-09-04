@@ -176,6 +176,28 @@ describe('RunManager.start', () => {
     await result.done;
   });
 
+  it('threads each role\'s stored source through to createModel, independently of the other role', async () => {
+    const scripted = scriptedStart([], endedOk);
+    const built: Array<[string, string | undefined]> = [];
+    const { runManager } = manager({
+      start: scripted.start,
+      createModel: (model, source) => {
+        built.push([model, source]);
+        return new FakeChatModel({ label: model });
+      },
+    });
+    const result = await runManager.start({
+      prompt: 'go',
+      config: { ...config, leaderModelSource: 'kilo' },
+    });
+    expect(built).toEqual([
+      ['fake/leader', 'kilo'],
+      ['fake/follower', undefined],
+    ]);
+    scripted.finish();
+    await result.done;
+  });
+
   it('runs one run at a time', async () => {
     const scripted = scriptedStart([], endedOk);
     const { runManager } = manager({ start: scripted.start, newRunId: () => 'run-a' });

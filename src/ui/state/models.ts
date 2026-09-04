@@ -3,6 +3,7 @@
  * Pure so the panel's list order is testable without a DOM.
  */
 import type { ModelInfo } from '@/src/messaging';
+import type { ModelSource } from '@/src/storage';
 
 /** Vendor substring pinned to the top of the list when present, per the user's ask. */
 const PINNED = 'nemotron';
@@ -32,8 +33,27 @@ export function rankModels(models: ModelInfo[], query = ''): ModelInfo[] {
     .map(({ model }) => model);
 }
 
-export function findModel(models: ModelInfo[], id: string): ModelInfo | undefined {
+/** A `ModelInfo` with no `source` predates Kilo; treat it as OpenRouter (R-11 continuity). */
+export function sourceOf(model: ModelInfo): ModelSource {
+  return model.source ?? 'openrouter';
+}
+
+/**
+ * Finds a model by id. The same id can exist on both sources (item 4), so a
+ * `source` disambiguates which one; omitted, this returns the first match by id
+ * alone (pre-Kilo behaviour, and the right fallback for a stored id whose source
+ * was never recorded).
+ */
+export function findModel(models: ModelInfo[], id: string, source?: ModelSource): ModelInfo | undefined {
+  if (source !== undefined) {
+    return models.find((model) => model.id === id && sourceOf(model) === source);
+  }
   return models.find((model) => model.id === id);
+}
+
+/** The Setup tab's "filter by source" control. `'all'` (the default) passes every model through. */
+export function filterSource(models: ModelInfo[], source: ModelSource | 'all'): ModelInfo[] {
+  return source === 'all' ? models : models.filter((model) => sourceOf(model) === source);
 }
 
 /**

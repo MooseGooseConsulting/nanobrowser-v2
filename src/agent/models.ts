@@ -25,17 +25,26 @@ import type { BaseLanguageModelInput } from '@langchain/core/language_models/bas
 import { AIMessage, type AIMessageChunk, type BaseMessage } from '@langchain/core/messages';
 import type { ChatResult } from '@langchain/core/outputs';
 import type { Runnable } from '@langchain/core/runnables';
+import type { ModelSource } from '@/src/storage';
 
 /** Sentinel key. The real credential is added by the host proxy behind `fetch` (R-12). */
 export const PROXY_MANAGED_KEY = 'host-proxy-managed';
 
 export const DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1';
+/** Kilo AI Gateway: OpenAI-compatible, same client, different base and credential. */
+export const KILO_BASE_URL = 'https://api.kilo.ai/api/gateway';
+
+function baseUrlFor(source: ModelSource): string {
+  return source === 'kilo' ? KILO_BASE_URL : DEFAULT_BASE_URL;
+}
 
 export interface CreateChatModelOptions {
-  /** OpenRouter model id, e.g. "nvidia/nemotron-3.5-lightning:free". */
+  /** The provider's own model id, e.g. "nvidia/nemotron-3.5-lightning:free". Never prefixed with a source. */
   model: string;
   /** The host proxy's fetch. Every request goes through it; it holds the key. */
   fetch: typeof globalThis.fetch;
+  /** Which catalog this model came from. Absent defaults to OpenRouter (R-11 continuity: old stored configs never named a source). */
+  source?: ModelSource;
   baseURL?: string;
   temperature?: number;
 }
@@ -48,6 +57,13 @@ export interface CreateChatModelOptions {
  * live against `nvidia/nemotron-3-ultra-550b-a55b:free`, 2026-09-03). This
  * rewrites such replies into the status they should have carried so the SDK's
  * retry policy (429/5xx) engages.
+ *
+ * OpenRouter-specific: this is a quirk of *OpenRouter's* proxying (it forwards a
+ * failed upstream provider call as if it succeeded). There is no live evidence
+ * Kilo does the same -- a real Kilo chat/completions call returned a normal
+ * `finish_reason: tool_calls` with no such wrapping -- so `createChatModel` below
+ * applies this only to the OpenRouter source and leaves Kilo's `fetch` untouched
+ * rather than assume the same failure mode without evidence for it.
  */
 export function hardenOpenRouterFetch(fetch: typeof globalThis.fetch): typeof globalThis.fetch {
   return async (input, init) => {
@@ -81,17 +97,31 @@ function errorResponse(status: number, message: string, upstream: Headers): Resp
   return new Response(JSON.stringify({ error: { message, code: status } }), { status, headers });
 }
 
+/**
+ * No `maxTokens`/completion cap is set here, and none should be added casually: a
+ * low cap silently breaks a reasoning model before it reaches its tool call (seen
+ * live against `meta/muse-spark-1.3-contributor` via Kilo -- a 400-token cap
+ * produced `finish_reason: length` with empty content and no tool call; 3000
+ * tokens let it emit a correct tool call after 682 reasoning tokens). Reasoning
+ * tokens count against whatever cap is set, so any future cap must budget for
+ * them, not just the visible completion.
+ */
 export function createChatModel(options: CreateChatModelOptions): ChatOpenAI {
-  const { model, fetch, baseURL = DEFAULT_BASE_URL, temperature = 0 } = options;
+  const { model, fetch, source = 'openrouter', baseURL = baseUrlFor(source), temperature = 0 } = options;
+  const isOpenRouter = source === 'openrouter';
   return new ChatOpenAI({
     model,
     temperature,
     apiKey: PROXY_MANAGED_KEY,
     maxRetries: 4,
-    configuration: { baseURL, fetch: hardenOpenRouterFetch(fetch) },
-    modelKwargs: {
-      provider: { data_collection: dataCollectionFor(model), allow_fallbacks: true },
-    },
+    configuration: { baseURL, fetch: isOpenRouter ? hardenOpenRouterFetch(fetch) : fetch },
+    // `provider.data_collection` is an OpenRouter-specific field; Kilo does not use it,
+    // and sending it there breaks models whose Kilo endpoint would otherwise work
+    // (live evidence: meta/muse-spark-1.3-contributor 404s on OpenRouter under `deny`
+    // but completes normally on Kilo -- only when this field is left out of the request).
+    ...(isOpenRouter
+      ? { modelKwargs: { provider: { data_collection: dataCollectionFor(model), allow_fallbacks: true } } }
+      : {}),
   });
 }
 

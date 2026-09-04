@@ -9,7 +9,7 @@
  */
 import { defineBackground } from '#imports';
 import { ChromePort, SIDEPANEL_PORT } from '@/src/messaging';
-import { createChatModel, DEFAULT_BASE_URL } from '@/src/agent/models';
+import { createChatModel } from '@/src/agent/models';
 import { createChromeDebuggerApi, DebuggerInputTier } from '@/src/input';
 import { HostClient, createHostFetch } from '@/src/host';
 import { PageDriver } from '@/src/page';
@@ -51,7 +51,9 @@ export default defineBackground(() => {
     tabs: chromeTabsPort(),
     host,
     // C-07: the host holds the key; the panel picks the models, one per role (R-11).
-    createModel: (model) => createChatModel({ model, fetch: hostFetch, baseURL: DEFAULT_BASE_URL }),
+    // `source` (from the picked ModelInfo, threaded via Config) chooses the base
+    // URL/credential; createChatModel defaults it to OpenRouter when absent.
+    createModel: (model, source) => createChatModel({ model, source, fetch: hostFetch }),
     makeDebuggerTier: (onDetach) => new DebuggerInputTier(createChromeDebuggerApi(), { onDetach }),
     runUserscript: async (scriptId, tabId) => {
       const script = await getUserscript(scriptId);

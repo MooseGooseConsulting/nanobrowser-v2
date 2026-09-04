@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { ModelInfo, Readiness } from '@/src/messaging';
-import type { InputFidelity, ObserveMode } from '@/src/storage';
+import type { InputFidelity, ModelSource, ObserveMode } from '@/src/storage';
 import { Badge } from '../components/Badge';
 import { Button } from '../components/Button';
 import { Field, Section } from '../components/Card';
@@ -10,7 +10,7 @@ import { RadioGroup } from '../components/RadioGroup';
 import { Toggle } from '../components/Toggle';
 import { MAX_STEPS, PLANNING_INTERVAL } from '../state/gate';
 import { findModel } from '../state/models';
-import { useFreeModelsOnly } from '../state/modelFilter';
+import { useFreeModelsOnly, useModelSourceFilter, type SourceFilter } from '../state/modelFilter';
 import { isWaiting, type AreaStatus } from '../state/status';
 import { useConfig } from '../state/useConfig';
 import { ReadinessRow } from './ReadinessRow';
@@ -20,6 +20,12 @@ const OBSERVE_OPTIONS = [
   { value: 'pixels' as const, label: 'Pixels', title: 'Navigate from a screenshot — closer to what a person sees, at a higher token cost.' },
   { value: 'both' as const, label: 'Both', title: 'Send both the DOM snapshot and a screenshot, for the hardest pages.' },
 ] satisfies ReadonlyArray<{ value: ObserveMode; label: string; title: string }>;
+
+const SOURCE_OPTIONS = [
+  { value: 'all' as const, label: 'All' },
+  { value: 'openrouter' as const, label: 'OpenRouter' },
+  { value: 'kilo' as const, label: 'Kilo' },
+] satisfies ReadonlyArray<{ value: SourceFilter; label: string }>;
 
 export function SetupSection({
   models,
@@ -40,6 +46,7 @@ export function SetupSection({
 }) {
   const { config, update, reset } = useConfig();
   const [freeOnly, setFreeOnly] = useFreeModelsOnly();
+  const [sourceFilter, setSourceFilter] = useModelSourceFilter();
   const escalated: boolean = config.inputFidelity === 'escalated';
   const observeExplainer = OBSERVE_OPTIONS.find((option) => option.value === config.observe)?.title;
 
@@ -48,14 +55,18 @@ export function SetupSection({
   // that role is free again.
   const [paidWarning, setPaidWarning] = useState<{ role: 'Leader' | 'Follower'; model: ModelInfo } | null>(null);
 
-  const pick = (role: 'Leader' | 'Follower', field: 'leaderModel' | 'followerModel') => (id: string) => {
-    update({ [field]: id } as Partial<typeof config>);
-    const model = findModel(models, id);
-    setPaidWarning(model && !model.free ? { role, model } : null);
-  };
+  const pick =
+    (role: 'Leader' | 'Follower', modelField: 'leaderModel' | 'followerModel', sourceField: 'leaderModelSource' | 'followerModelSource') =>
+    (id: string, source: ModelSource) => {
+      // Absent (rather than an explicit 'openrouter') keeps a config written before Kilo
+      // existed byte-for-byte reproducible, and keeps the common case's patch small.
+      update({ [modelField]: id, [sourceField]: source === 'openrouter' ? undefined : source } as Partial<typeof config>);
+      const model = findModel(models, id, source);
+      setPaidWarning(model && !model.free ? { role, model } : null);
+    };
 
-  const leaderModel = findModel(models, config.leaderModel);
-  const followerModel = findModel(models, config.followerModel);
+  const leaderModel = findModel(models, config.leaderModel, config.leaderModelSource);
+  const followerModel = findModel(models, config.followerModel, config.followerModelSource);
 
   return (
     <div className="space-y-4">
@@ -74,6 +85,13 @@ export function SetupSection({
               />
               free only
             </span>
+            <RadioGroup
+              name="model-source"
+              aria-label="Model source"
+              value={sourceFilter}
+              options={SOURCE_OPTIONS}
+              onChange={setSourceFilter}
+            />
             <Button variant="ghost" onClick={onRefreshModels}>
               reload
             </Button>
@@ -105,8 +123,10 @@ export function SetupSection({
               label="Leader model"
               models={models}
               freeOnly={freeOnly}
+              sourceFilter={sourceFilter}
               value={config.leaderModel}
-              onChange={pick('Leader', 'leaderModel')}
+              source={config.leaderModelSource}
+              onChange={pick('Leader', 'leaderModel', 'leaderModelSource')}
             />
           </Field>
           <Field label="Follower" htmlFor="follower-model" hint="Acts, and signals when to hand control back.">
@@ -115,8 +135,10 @@ export function SetupSection({
               label="Follower model"
               models={models}
               freeOnly={freeOnly}
+              sourceFilter={sourceFilter}
               value={config.followerModel}
-              onChange={pick('Follower', 'followerModel')}
+              source={config.followerModelSource}
+              onChange={pick('Follower', 'followerModel', 'followerModelSource')}
             />
           </Field>
         </div>

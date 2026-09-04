@@ -5,7 +5,7 @@
  * Wire: `Envelope<T>` from ./port carries `{ type, id, payload }`. The `type`
  * values used are the string keys of `PanelToWorker` / `WorkerToPanel`.
  */
-import type { Config, ObserveMode, InputFidelity } from '@/src/storage';
+import type { Config, ModelSource, ObserveMode, InputFidelity } from '@/src/storage';
 
 export type RunId = string;
 
@@ -51,7 +51,12 @@ export type RunEvent =
   | { kind: 'run.resumed'; at: number }
   | { kind: 'run.ended'; status: 'done' | 'aborted' | 'blocked' | 'max-steps' | 'error'; message: string; steps: number; at: number };
 
-/** Model entry as shown in the panel selectors (R-11). */
+/**
+ * Model entry as shown in the panel selectors (R-11). `source` is optional so
+ * every existing test/fixture literal that predates Kilo keeps typechecking;
+ * treat an absent `source` as `'openrouter'` (see `src/ui/state/models.ts`'s
+ * `sourceOf`) rather than requiring every call site to be rewritten.
+ */
 export interface ModelInfo {
   id: string;
   name: string;
@@ -59,6 +64,14 @@ export interface ModelInfo {
   vision: boolean;
   tools: boolean;
   contextLength: number;
+  source?: ModelSource;
+  /**
+   * Kilo-specific: whether picking this model trains on the user's prompts. This is
+   * exactly the signal that produced a confusing OpenRouter 404 for a paid model
+   * whose only endpoint trains on inputs (docs/research), so it is carried through
+   * rather than dropped, even though only Kilo's catalog reports it today.
+   */
+  mayTrainOnYourPrompts?: boolean;
 }
 
 export interface Readiness {

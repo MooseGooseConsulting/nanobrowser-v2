@@ -83,11 +83,28 @@ itself never appears in the response.
 
 ```json
 { "type": "models.list", "id": "m1" }
-{ "type": "models.list.result", "id": "m1", "status": 200, "body": { "data": [ … ] } }
+{
+  "type": "models.list.result", "id": "m1", "status": 200,
+  "body": {
+    "sources": {
+      "openrouter": { "status": 200, "body": { "data": [ … ] } },
+      "kilo": { "status": 200, "body": { "data": [ … ] } }
+    },
+    "errors": { "kilo": "upstream status 500" }
+  }
+}
 ```
 
-Passthrough of `GET /api/v1/models`. That endpoint is a public catalog, so **no Authorization
-header is sent**. The side panel populates its model pickers from this; the host never picks or
+Both catalogs — `GET /api/v1/models` on OpenRouter and `GET /models` on the Kilo AI Gateway
+(`https://api.kilo.ai/api/gateway/models`) — are fetched **in parallel** (`LlmProxy.modelsAll`
+in `host/src/llm.ts`) and merged under `body.sources`. OpenRouter's catalog is public, so **no
+Authorization header is sent** for it; Kilo's is attached with the Kilo key when one is loaded
+(unconfirmed whether Kilo requires it, so this is "attach if we have it", not "assume public").
+A source that fails (network error, or a non-200 status) does not fail the whole call: the
+surviving source's entry still appears under `sources`, and `errors` names which source failed
+and why. `errors` is only present when at least one source failed; outer `status` is `200` when
+at least one source succeeded, `502` only if both failed. The side panel populates its model
+pickers from this, tagging each entry's `source` (`src/host/native.ts`); the host never picks or
 defaults a model (C-07).
 
 ### `llm.request` → `llm.chunk`\* → `llm.end` | `llm.error`
@@ -103,9 +120,13 @@ defaults a model (C-07).
 }
 ```
 
-- `url` is a path under `https://openrouter.ai/api/v1/`. An absolute URL is accepted only if it
-  is on the OpenRouter origin; anything else is rejected with `bad_request` rather than silently
-  rewritten.
+- `url` is a path under `https://openrouter.ai/api/v1/` **or** `https://api.kilo.ai/api/gateway/`
+  — a relative path (no scheme) defaults to OpenRouter, unchanged from before Kilo existed. An
+  absolute URL is accepted only if it is on one of these two known origins; anything else is
+  rejected with `bad_request` rather than silently rewritten or proxied. Which of the two
+  credentials gets attached is decided **by this URL's origin alone** (`resolveUrl` in
+  `host/src/llm.ts`), never by anything the client asserts about itself — a request aimed at
+  Kilo's origin can never come back with the OpenRouter key attached, or vice versa.
 - `method` defaults to `POST` when a `body` is present, `GET` otherwise.
 - `headers` must not carry credentials. `authorization`, `host`, `content-length`, `connection`,
   `http-referer` and `x-title` are stripped from whatever the extension sends; the host then sets
@@ -335,16 +356,23 @@ chunks then `llm.end`. A request with no matching cassette fails loudly with
 
 ## Secrets
 
-`OPENROUTER_API_KEY` is fetched once at startup with
-`doppler secrets get OPENROUTER_API_KEY --plain -p ai-automation -c dev`
-(project/config overridable via `NANOBROWSER_DOPPLER_PROJECT` / `NANOBROWSER_DOPPLER_CONFIG`).
-It lives in a process-local variable only: never written to disk, never logged, never echoed,
-and never sent to the extension. Rotation means restarting the host, which happens once per
-`connectNative` session anyway.
+`OPENROUTER_API_KEY` and `KILO_CODE_API_KEY` are each fetched once at startup, in parallel, with
+`doppler secrets get <NAME> --plain -p ai-automation -c dev`
+(project/config overridable via `NANOBROWSER_DOPPLER_PROJECT` / `NANOBROWSER_DOPPLER_CONFIG` —
+one project/config pair covers both secrets, matching where the user's Doppler already keeps
+them). Either one being absent is independent of the other: neither crashes the host, and each
+source's readiness is tracked separately (`SecretStore.status('openrouter' | 'kilo')` in
+`host/src/secrets.ts`). Both live in process-local variables only: never written to disk, never
+logged, never echoed, and never sent to the extension. Rotation means restarting the host, which
+happens once per `connectNative` session anyway.
 
 `SecretProvider` in `host/src/secrets.ts` is the single seam — C-06 names OpenBao and the OS
 keychain as successors, and swapping the backend must not touch this protocol or the extension.
 Tests use `FakeSecretProvider` and never reach a real store.
+
+The wire-level `key.status` message (above) still validates OpenRouter specifically, with a live
+`GET /key` — Kilo has no documented equivalent validation endpoint, so its readiness is
+presence-only (`SecretStore.status('kilo')`), not a round trip.
 
 ## Environment
 

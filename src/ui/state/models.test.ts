@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ModelInfo } from '@/src/messaging';
-import { filterFree, findModel, formatContext, isPinned, matchesQuery, rankModels } from './models';
+import { filterFree, filterSource, findModel, formatContext, isPinned, matchesQuery, rankModels, sourceOf } from './models';
 
 function model(id: string, over: Partial<ModelInfo> = {}): ModelInfo {
   return {
@@ -85,5 +85,48 @@ describe('filterFree', () => {
 
   it('passes every model through when off', () => {
     expect(filterFree(CATALOG, false)).toEqual(CATALOG);
+  });
+});
+
+describe('sourceOf', () => {
+  it('defaults an unlabelled model (predates Kilo) to openrouter', () => {
+    expect(sourceOf(model('x/y'))).toBe('openrouter');
+  });
+
+  it('reports an explicit source unchanged', () => {
+    expect(sourceOf(model('x/y', { source: 'kilo' }))).toBe('kilo');
+  });
+});
+
+describe('findModel with a duplicate id across sources', () => {
+  const DUPES: ModelInfo[] = [
+    model('meta/muse-spark-1.3-contributor', { source: 'openrouter' }),
+    model('meta/muse-spark-1.3-contributor', { source: 'kilo', mayTrainOnYourPrompts: false }),
+  ];
+
+  it('disambiguates by source when one is given', () => {
+    expect(findModel(DUPES, 'meta/muse-spark-1.3-contributor', 'kilo')?.mayTrainOnYourPrompts).toBe(false);
+    expect(findModel(DUPES, 'meta/muse-spark-1.3-contributor', 'openrouter')?.mayTrainOnYourPrompts).toBeUndefined();
+  });
+
+  it('falls back to the first match by id alone when no source is given', () => {
+    expect(findModel(DUPES, 'meta/muse-spark-1.3-contributor')).toBe(DUPES[0]);
+  });
+});
+
+describe('filterSource', () => {
+  const MIXED: ModelInfo[] = [
+    model('a/one', { source: 'openrouter' }),
+    model('b/two', { source: 'kilo' }),
+    model('c/three'), // no source recorded -- counts as openrouter
+  ];
+
+  it('passes every model through for "all"', () => {
+    expect(filterSource(MIXED, 'all')).toEqual(MIXED);
+  });
+
+  it('keeps only the named source, treating an absent source as openrouter', () => {
+    expect(filterSource(MIXED, 'kilo').map((m) => m.id)).toEqual(['b/two']);
+    expect(filterSource(MIXED, 'openrouter').map((m) => m.id)).toEqual(['a/one', 'c/three']);
   });
 });

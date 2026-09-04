@@ -111,6 +111,43 @@ describe('createHostFetch', () => {
     expect(client.sent).toHaveLength(0);
   });
 
+  it('allows the Kilo AI Gateway prefix alongside OpenRouter', async () => {
+    const client = new FakeLlmClient();
+    const hostFetch = createHostFetch(client);
+    const resPromise = hostFetch('https://api.kilo.ai/api/gateway/chat/completions', {
+      method: 'POST',
+      body: JSON.stringify({ model: 'meta/muse-spark-1.3-contributor', messages: [] }),
+    });
+    const id = client.lastId;
+    client.end(id, 200, {});
+    await resPromise;
+    expect(client.sent[0]?.url).toBe('https://api.kilo.ai/api/gateway/chat/completions');
+  });
+
+  it('still refuses an arbitrary host that merely resembles a known prefix', async () => {
+    const client = new FakeLlmClient();
+    const hostFetch = createHostFetch(client);
+    await expect(hostFetch('https://api.kilo.ai.evil.example.com/chat/completions')).rejects.toThrow();
+    await expect(hostFetch('https://not-openrouter.ai/api/v1/chat/completions')).rejects.toThrow();
+    expect(client.sent).toHaveLength(0);
+  });
+
+  it('never injects the OpenRouter-shaped provider block into a Kilo request', async () => {
+    const client = new FakeLlmClient();
+    const hostFetch = createHostFetch(client);
+    const resPromise = hostFetch('https://api.kilo.ai/api/gateway/chat/completions', {
+      method: 'POST',
+      body: JSON.stringify({ model: 'meta/muse-spark-1.3-contributor', messages: [{ role: 'user', content: 'hi' }] }),
+    });
+    const id = client.lastId;
+    client.end(id, 200, {});
+    await resPromise;
+    expect(client.sent[0]?.body).toEqual({
+      model: 'meta/muse-spark-1.3-contributor',
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+  });
+
   it('injects provider.data_collection:"deny" when absent, never touching model', async () => {
     const client = new FakeLlmClient();
     const hostFetch = createHostFetch(client);

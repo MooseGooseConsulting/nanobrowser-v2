@@ -19,6 +19,9 @@
 import type { ErrorCode, LlmStreamHandlers } from './native';
 
 const OPENROUTER_PREFIX = 'https://openrouter.ai/api/v1/';
+const KILO_PREFIX = 'https://api.kilo.ai/api/gateway/';
+/** The only two model sources this proxy will forward to (docs/host-protocol.md). */
+const ALLOWED_PREFIXES = [OPENROUTER_PREFIX, KILO_PREFIX];
 
 /** Minimal surface `createHostFetch` needs from `HostClient`. */
 export interface LlmClient {
@@ -55,8 +58,12 @@ function withDataCollectionDeny(parsed: unknown): unknown {
   return { ...obj, provider: { data_collection: 'deny' } };
 }
 
-/** Parses a request body as JSON and injects the privacy default; falls back to the raw text if it isn't JSON. */
-function parseBody(text: string | undefined): unknown {
+/**
+ * Parses a request body as JSON and injects the OpenRouter privacy default; falls
+ * back to the raw text if it isn't JSON. `provider` is an OpenRouter-shaped field
+ * that Kilo does not use, so it is only injected for an OpenRouter-bound request.
+ */
+function parseBody(text: string | undefined, isOpenRouter: boolean): unknown {
   if (text === undefined || text.length === 0) return undefined;
   let parsed: unknown;
   try {
@@ -64,7 +71,7 @@ function parseBody(text: string | undefined): unknown {
   } catch {
     return text;
   }
-  return withDataCollectionDeny(parsed);
+  return isOpenRouter ? withDataCollectionDeny(parsed) : parsed;
 }
 
 function toBodyString(body: BodyInit | null | undefined): string | undefined {
@@ -178,12 +185,13 @@ export function createHostFetch(client: LlmClient): typeof fetch {
   return function hostFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
     const { url, method, headers, signal, bodyText, bodyPromise } = resolve(input, init);
 
-    if (!url.startsWith(OPENROUTER_PREFIX)) {
+    if (!ALLOWED_PREFIXES.some((prefix) => url.startsWith(prefix))) {
       return Promise.reject(new TypeError(`refusing to proxy off-origin url: ${url}`));
     }
+    const isOpenRouter = url.startsWith(OPENROUTER_PREFIX);
 
     const start = (text: string | undefined): Promise<Response> =>
-      startRequest(client, { url, method, headers, body: parseBody(text) }, signal);
+      startRequest(client, { url, method, headers, body: parseBody(text, isOpenRouter) }, signal);
 
     return bodyPromise ? bodyPromise.then(start) : start(bodyText);
   };

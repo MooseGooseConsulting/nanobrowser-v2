@@ -1,6 +1,6 @@
-import { CassetteStore, cassetteKey, normalizePath, type CassetteEntry } from './cassette.ts';
+import { CassetteStore, cassetteKey, normalizePath, normalizeRequest, type CassetteEntry, type KnownOrigin } from './cassette.ts';
 import { log } from './log.ts';
-import { CHUNK_BYTES, OPENROUTER_BASE, type CassetteMode, type LlmRequestMsg, type OutboundMsg } from './protocol.ts';
+import { CHUNK_BYTES, KILO_BASE, OPENROUTER_BASE, type CassetteMode, type LlmRequestMsg, type OutboundMsg } from './protocol.ts';
 import type { SecretStore } from './secrets.ts';
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
@@ -18,13 +18,20 @@ export interface LlmDeps {
 /** Headers the client must not be able to set; the host owns them. */
 const CLIENT_FORBIDDEN = new Set(['authorization', 'host', 'content-length', 'connection', 'http-referer', 'x-title']);
 
-export function resolveUrl(pathOrUrl: string): string {
-  // normalizePath throws OffOriginError on anything not on the OpenRouter origin.
-  const url = new URL(normalizePath(pathOrUrl), OPENROUTER_BASE);
-  if (url.origin !== new URL(OPENROUTER_BASE).origin) {
-    throw new Error(`refusing to proxy off-origin url: ${url.origin}`);
-  }
-  return url.toString();
+const BASE_FOR: Record<KnownOrigin, string> = { openrouter: OPENROUTER_BASE, kilo: KILO_BASE };
+
+/**
+ * Resolves a request target to an absolute URL and the credentialed source it
+ * belongs to (C-06/C-07 security seam: this is what picks the key, so it must
+ * never guess wrong). `normalizeRequest` throws `OffOriginError` for anything
+ * not on a known origin -- a relative path has no origin of its own and
+ * defaults to OpenRouter, preserving every path sent before Kilo existed.
+ */
+export function resolveUrl(pathOrUrl: string): { url: string; source: KnownOrigin } {
+  const { path, origin } = normalizeRequest(pathOrUrl);
+  const source: KnownOrigin = origin ?? 'openrouter';
+  const url = new URL(path, BASE_FOR[source]);
+  return { url: url.toString(), source };
 }
 
 function headersToObject(h: Headers): Record<string, string> {
@@ -52,12 +59,18 @@ export class LlmProxy {
     this.#inflight.clear();
   }
 
-  /** GET /key with the real key: validates readiness without spending a completion (R-11). */
+  /**
+   * GET /key with the real key: validates readiness without spending a completion (R-11).
+   * OpenRouter-specific -- Kilo has no documented equivalent validation endpoint, so its
+   * readiness is presence-only (`SecretStore.status('kilo')`, checked wherever that
+   * matters) rather than a live round trip.
+   */
   async keyStatus(): Promise<{ ready: boolean; reason?: string }> {
     const key = this.deps.secrets.openRouterKey;
     if (!key) return { ready: false, reason: this.deps.secrets.missingReason ?? 'no key loaded' };
     try {
-      const res = await this.deps.fetch(resolveUrl('key'), {
+      const { url } = resolveUrl('key');
+      const res = await this.deps.fetch(url, {
         method: 'GET',
         headers: { authorization: `Bearer ${key}`, ...this.#brandHeaders() },
         signal: AbortSignal.timeout(20_000),
@@ -69,11 +82,15 @@ export class LlmProxy {
     }
   }
 
-  /** GET /models. Public catalog; no Authorization needed or sent. */
-  async models(): Promise<{ status: number; body: unknown }> {
-    const res = await this.deps.fetch(resolveUrl('models'), {
+  /** GET /models for one source. Public catalog; no Authorization sent for OpenRouter. */
+  async models(source: KnownOrigin = 'openrouter'): Promise<{ status: number; body: unknown }> {
+    const url = new URL('models', BASE_FOR[source]).toString();
+    // Kilo's catalog auth requirement is unconfirmed; attach the key when we have one
+    // rather than assume it is public like OpenRouter's documented no-auth /models.
+    const kiloKey = source === 'kilo' ? this.deps.secrets.key('kilo') : null;
+    const res = await this.deps.fetch(url, {
       method: 'GET',
-      headers: this.#brandHeaders(),
+      headers: { ...this.#brandHeaders(), ...(kiloKey ? { authorization: `Bearer ${kiloKey}` } : {}) },
       signal: AbortSignal.timeout(30_000),
     });
     const text = await res.text();
@@ -84,6 +101,39 @@ export class LlmProxy {
       body = text;
     }
     return { status: res.status, body };
+  }
+
+  /**
+   * Fetches both catalogs in parallel and merges them into one `models.list.result`
+   * body. A source that fails (network error or non-200) does not fail the whole
+   * call -- the surviving source's models still come back, and `errors` names which
+   * source failed and why, so the extension can say so rather than silently showing
+   * half a catalog.
+   */
+  async modelsAll(): Promise<{ status: number; body: unknown }> {
+    const sources: KnownOrigin[] = ['openrouter', 'kilo'];
+    const settled = await Promise.allSettled(sources.map((source) => this.models(source)));
+
+    const catalogs: Partial<Record<KnownOrigin, { status: number; body: unknown }>> = {};
+    const errors: Partial<Record<KnownOrigin, string>> = {};
+    settled.forEach((result, i) => {
+      const source = sources[i]!;
+      if (result.status === 'fulfilled') {
+        if (result.value.status === 200) {
+          catalogs[source] = result.value;
+        } else {
+          errors[source] = `upstream status ${result.value.status}`;
+        }
+      } else {
+        errors[source] = (result.reason as Error).message;
+      }
+    });
+
+    const anyOk = Object.keys(catalogs).length > 0;
+    return {
+      status: anyOk ? 200 : 502,
+      body: { sources: catalogs, ...(Object.keys(errors).length > 0 ? { errors } : {}) },
+    };
   }
 
   #brandHeaders(): Record<string, string> {
@@ -114,22 +164,27 @@ export class LlmProxy {
       return;
     }
 
-    const apiKey = this.deps.secrets.openRouterKey;
+    // Which credential to attach is decided by the request's own URL origin (C-06/C-07
+    // security seam), never by anything the client asserts about itself -- so this
+    // resolves before the key lookup, and an unrecognised origin never reaches it.
+    let url: string;
+    let source: KnownOrigin;
+    try {
+      ({ url, source } = resolveUrl(msg.url));
+    } catch (err) {
+      send({ type: 'llm.error', id: msg.id, code: 'bad_request', message: (err as Error).message });
+      return;
+    }
+
+    const apiKey = this.deps.secrets.key(source);
     if (!apiKey) {
+      const reason = this.deps.secrets.status(source).reason;
       send({
         type: 'llm.error',
         id: msg.id,
         code: 'no_key',
-        message: this.deps.secrets.missingReason ?? 'no OpenRouter key loaded',
+        message: reason ?? `no ${source} key loaded`,
       });
-      return;
-    }
-
-    let url: string;
-    try {
-      url = resolveUrl(msg.url);
-    } catch (err) {
-      send({ type: 'llm.error', id: msg.id, code: 'bad_request', message: (err as Error).message });
       return;
     }
 

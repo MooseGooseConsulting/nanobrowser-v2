@@ -78,7 +78,7 @@ describe('ModelSelect', () => {
     await user.click(screen.getByRole('combobox', { name: 'Leader model' }));
     await user.click(screen.getByRole('option', { name: /Claude Opus/ }));
 
-    expect(onChange).toHaveBeenCalledExactlyOnceWith('anthropic/claude-opus');
+    expect(onChange).toHaveBeenCalledExactlyOnceWith('anthropic/claude-opus', 'openrouter');
   });
 
   it('selects with the keyboard', async () => {
@@ -92,7 +92,7 @@ describe('ModelSelect', () => {
     await user.click(input);
     await user.keyboard('{ArrowDown}{Enter}');
 
-    expect(onChange).toHaveBeenCalledExactlyOnceWith('meta/llama-4');
+    expect(onChange).toHaveBeenCalledExactlyOnceWith('meta/llama-4', 'openrouter');
   });
 
   it('keeps Leader and Follower selections independent', async () => {
@@ -126,7 +126,7 @@ describe('ModelSelect', () => {
     await user.click(follower);
     await user.click(screen.getByRole('option', { name: /GPT-5/ }));
 
-    expect(onFollower).toHaveBeenCalledExactlyOnceWith('openai/gpt-5');
+    expect(onFollower).toHaveBeenCalledExactlyOnceWith('openai/gpt-5', 'openrouter');
     expect(onLeader).not.toHaveBeenCalled();
     expect(leader.value).toBe('NVIDIA Nemotron Ultra');
   });
@@ -162,5 +162,72 @@ describe('ModelSelect', () => {
     const input = screen.getByRole('combobox', { name: 'Leader model' }) as HTMLInputElement;
     expect(input.value).toBe('mistral/ghost');
     expect(screen.getByText(/not in the loaded catalog/i)).toBeTruthy();
+  });
+});
+
+describe('ModelSelect: source (item 4/6 -- Kilo addition)', () => {
+  it('shows which source each model came from as a badge', async () => {
+    const user = userEvent.setup();
+    const models: ModelInfo[] = [
+      model('nvidia/nemotron-ultra', { name: 'NVIDIA Nemotron Ultra', source: 'openrouter' }),
+      model('meta/muse-spark-1.3-contributor', { name: 'Muse Spark', source: 'kilo' }),
+    ];
+    render(<ModelSelect id="leader" label="Leader model" models={models} value="" onChange={() => {}} />);
+    await user.click(screen.getByRole('combobox', { name: 'Leader model' }));
+    const listbox = screen.getByRole('listbox', { name: 'Leader model' });
+
+    expect(within(listbox).getByText('openrouter')).toBeTruthy();
+    expect(within(listbox).getByText('kilo')).toBeTruthy();
+  });
+
+  it('keeps the same id from two sources as two distinct, independently selectable options', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const models: ModelInfo[] = [
+      model('meta/muse-spark-1.3-contributor', { name: 'Muse Spark', source: 'openrouter' }),
+      model('meta/muse-spark-1.3-contributor', { name: 'Muse Spark', source: 'kilo', mayTrainOnYourPrompts: false }),
+    ];
+    render(<ModelSelect id="leader" label="Leader model" models={models} value="" onChange={onChange} />);
+    await user.click(screen.getByRole('combobox', { name: 'Leader model' }));
+    const listbox = screen.getByRole('listbox', { name: 'Leader model' });
+    const options = within(listbox).getAllByRole('option');
+    expect(options).toHaveLength(2);
+
+    await user.click(options[1]!);
+    expect(onChange).toHaveBeenCalledExactlyOnceWith('meta/muse-spark-1.3-contributor', 'kilo');
+  });
+
+  it('resolves the closed-state display using both the stored id and its stored source', () => {
+    const models: ModelInfo[] = [
+      model('meta/muse-spark-1.3-contributor', { name: 'Muse Spark (OpenRouter)', source: 'openrouter' }),
+      model('meta/muse-spark-1.3-contributor', { name: 'Muse Spark (Kilo)', source: 'kilo' }),
+    ];
+    render(
+      <ModelSelect
+        id="leader"
+        label="Leader model"
+        models={models}
+        value="meta/muse-spark-1.3-contributor"
+        source="kilo"
+        onChange={() => {}}
+      />,
+    );
+    const input = screen.getByRole('combobox', { name: 'Leader model' }) as HTMLInputElement;
+    expect(input.value).toBe('Muse Spark (Kilo)');
+  });
+
+  it('hides models outside the chosen source filter', async () => {
+    const user = userEvent.setup();
+    const models: ModelInfo[] = [
+      model('a/one', { name: 'One', source: 'openrouter' }),
+      model('b/two', { name: 'Two', source: 'kilo' }),
+    ];
+    render(
+      <ModelSelect id="leader" label="Leader model" models={models} value="" onChange={() => {}} sourceFilter="kilo" />,
+    );
+    await user.click(screen.getByRole('combobox', { name: 'Leader model' }));
+    const listbox = screen.getByRole('listbox', { name: 'Leader model' });
+    expect(within(listbox).queryByRole('option', { name: /One/ })).toBeNull();
+    expect(within(listbox).getByRole('option', { name: /Two/ })).toBeTruthy();
   });
 });

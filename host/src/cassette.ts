@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { cassetteDir } from './paths.ts';
-import { OPENROUTER_BASE } from './protocol.ts';
+import { KILO_BASE, OPENROUTER_BASE } from './protocol.ts';
 import type { CassetteMode, LlmRequestMsg } from './protocol.ts';
 
 /** Recursively key-sorted JSON so an identical request always hashes identically. */
@@ -17,25 +17,60 @@ export function stableStringify(value: unknown): string {
 
 export class OffOriginError extends Error {}
 
-/**
- * The request path under https://openrouter.ai/api/v1/, with no leading or
- * trailing slash. An absolute URL is accepted only if it is on the OpenRouter
- * origin -- anything else throws rather than being silently rewritten, so a
- * client cannot aim the host at another host.
- */
-export function normalizePath(url: string): string {
-  let s = url.trim();
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(s) || s.startsWith('//')) {
-    const abs = new URL(s.startsWith('//') ? `https:${s}` : s);
-    if (abs.origin !== new URL(OPENROUTER_BASE).origin) {
-      throw new OffOriginError(`refusing to proxy off-origin url: ${abs.origin}`);
-    }
-    s = abs.pathname.replace(/^\/api\/v1(?=\/|$)/, '') + abs.search;
-  }
+/** The two model sources the host will proxy to and attach a credential for (docs/host-protocol.md). */
+export type KnownOrigin = 'openrouter' | 'kilo';
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const KNOWN_BASES: Record<KnownOrigin, { origin: string; prefix: string }> = {
+  openrouter: { origin: new URL(OPENROUTER_BASE).origin, prefix: '/api/v1' },
+  kilo: { origin: new URL(KILO_BASE).origin, prefix: '/api/gateway' },
+};
+
+function stripQueryAndSlashes(s: string): string {
   const q = s.indexOf('?');
   const query = q >= 0 ? s.slice(q) : '';
   const path = (q >= 0 ? s.slice(0, q) : s).replace(/^\/+/, '').replace(/\/+$/, '');
   return path + query;
+}
+
+/**
+ * Splits a request target into its path (with no leading/trailing slash and no
+ * known-origin prefix) and which known origin it named, if any. An absolute URL
+ * is accepted only if it is on one of the known origins -- anything else throws
+ * rather than being silently rewritten, so a client cannot aim the host at
+ * another host and have a credential attached to it (C-06/security seam).
+ *
+ * A relative path (no scheme) has no origin of its own -- callers that need one
+ * default it themselves (`resolveUrl` in llm.ts defaults to OpenRouter, for
+ * backward compatibility with paths sent before Kilo existed).
+ */
+export function normalizeRequest(url: string): { path: string; origin: KnownOrigin | null } {
+  const s = url.trim();
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(s) || s.startsWith('//')) {
+    const abs = new URL(s.startsWith('//') ? `https:${s}` : s);
+    const entry = (Object.entries(KNOWN_BASES) as Array<[KnownOrigin, { origin: string; prefix: string }]>).find(
+      ([, v]) => v.origin === abs.origin,
+    );
+    if (!entry) {
+      throw new OffOriginError(`refusing to proxy off-origin url: ${abs.origin}`);
+    }
+    const [origin, { prefix }] = entry;
+    const prefixRe = new RegExp(`^${escapeRegExp(prefix)}(?=/|$)`);
+    const path = abs.pathname.replace(prefixRe, '') + abs.search;
+    return { path: stripQueryAndSlashes(path), origin };
+  }
+  return { path: stripQueryAndSlashes(s), origin: null };
+}
+
+/**
+ * The path alone, origin stripped. Cassette identity (`cassetteKey` below) never
+ * included the origin even before Kilo existed, so this stays origin-agnostic.
+ */
+export function normalizePath(url: string): string {
+  return normalizeRequest(url).path;
 }
 
 /**

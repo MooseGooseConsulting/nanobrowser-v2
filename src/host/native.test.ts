@@ -4,6 +4,7 @@ import {
   HostClient,
   INITIAL_BACKOFF_MS,
   MAX_BACKOFF_MS,
+  mapKiloModel,
   mapOpenRouterModel,
   type HostRequestMsg,
 } from './native';
@@ -49,7 +50,7 @@ describe('correlator', () => {
     const port = ports[0]!;
     const sent = lastSent(port);
     expect(sent.type).toBe('models.list');
-    port.emit({ type: 'models.list.result', id: sent.id, status: 200, body: { data: [] } });
+    port.emit({ type: 'models.list.result', id: sent.id, status: 200, body: { sources: {} } });
     await expect(promise).resolves.toEqual([]);
   });
 
@@ -67,7 +68,7 @@ describe('correlator', () => {
     const modelsPromise = client.listModels();
     const port = ports[0]!;
     const [keyMsg, modelsMsg] = port.sent as Array<HostRequestMsg & { id: string }>;
-    port.emit({ type: 'models.list.result', id: modelsMsg!.id, status: 200, body: { data: [] } });
+    port.emit({ type: 'models.list.result', id: modelsMsg!.id, status: 200, body: { sources: {} } });
     port.emit({ type: 'key.status.result', id: keyMsg!.id, ready: true });
     await expect(keyPromise).resolves.toEqual({ hostConnected: true, keyReady: true });
     await expect(modelsPromise).resolves.toEqual([]);
@@ -129,7 +130,7 @@ describe('listModels mapping', () => {
     },
   ];
 
-  it('maps free/vision/tools/contextLength for each catalog shape', () => {
+  it('maps free/vision/tools/contextLength/source for each catalog shape', () => {
     expect(SAMPLE.map((m) => mapOpenRouterModel(m))).toEqual([
       {
         id: 'nvidia/nemotron-3.5-lightning:free',
@@ -138,6 +139,7 @@ describe('listModels mapping', () => {
         vision: false,
         tools: true,
         contextLength: 1_000_000,
+        source: 'openrouter',
       },
       {
         id: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
@@ -146,6 +148,7 @@ describe('listModels mapping', () => {
         vision: true,
         tools: true,
         contextLength: 256_000,
+        source: 'openrouter',
       },
       {
         id: 'qwen/qwen3-vl-8b-instruct',
@@ -154,6 +157,7 @@ describe('listModels mapping', () => {
         vision: true,
         tools: true,
         contextLength: 131_072,
+        source: 'openrouter',
       },
       {
         id: 'mistralai/mistral-nemo',
@@ -162,6 +166,7 @@ describe('listModels mapping', () => {
         vision: false,
         tools: false,
         contextLength: 131_072,
+        source: 'openrouter',
       },
     ]);
   });
@@ -180,11 +185,17 @@ describe('listModels mapping', () => {
     const { client, ports } = makeClient();
     const promise = client.listModels();
     const sent = lastSent(ports[0]!);
-    ports[0]!.emit({ type: 'models.list.result', id: sent.id, status: 200, body: { data: SAMPLE } });
+    ports[0]!.emit({
+      type: 'models.list.result',
+      id: sent.id,
+      status: 200,
+      body: { sources: { openrouter: { body: { data: SAMPLE } } } },
+    });
     const models = await promise;
     expect(models.map((m) => m.id)).toEqual(SAMPLE.map((m) => m.id));
     expect(models[0]?.free).toBe(true);
     expect(models[3]?.tools).toBe(false);
+    expect(models.every((m) => m.source === 'openrouter')).toBe(true);
   });
 
   it('rejects when the upstream status is not 200', async () => {
@@ -193,6 +204,95 @@ describe('listModels mapping', () => {
     const sent = lastSent(ports[0]!);
     ports[0]!.emit({ type: 'models.list.result', id: sent.id, status: 500, body: {} });
     await expect(promise).rejects.toThrow(/500/);
+  });
+});
+
+describe('Kilo catalog mapping', () => {
+  it('uses isFree rather than pricing/id, and carries mayTrainOnYourPrompts through', () => {
+    const mapped = mapKiloModel({
+      id: 'meta/muse-spark-1.3-contributor',
+      name: 'Muse Spark 1.3 Contributor',
+      context_length: 200_000,
+      pricing: { prompt: '0.000002', completion: '0.000006' },
+      architecture: { input_modalities: ['text'] },
+      supported_parameters: ['tools'],
+      isFree: false,
+      mayTrainOnYourPrompts: false,
+    });
+    expect(mapped).toEqual({
+      id: 'meta/muse-spark-1.3-contributor',
+      name: 'Muse Spark 1.3 Contributor',
+      free: false,
+      vision: false,
+      tools: true,
+      contextLength: 200_000,
+      source: 'kilo',
+      mayTrainOnYourPrompts: false,
+    });
+  });
+
+  it('trusts isFree even when pricing looks paid and the id has no :free suffix', () => {
+    const mapped = mapKiloModel({
+      id: 'stepfun/step-3.7-flash:free',
+      pricing: { prompt: '0', completion: '0' },
+      isFree: true,
+    });
+    expect(mapped?.free).toBe(true);
+  });
+
+  it('falls back to pricing/id when isFree is absent, same as OpenRouter', () => {
+    const mapped = mapKiloModel({ id: 'nvidia/nemotron-3-ultra-550b-a55b:free', pricing: {} });
+    expect(mapped?.free).toBe(true);
+  });
+});
+
+describe('listModels merges both sources, keeping both entries for a duplicate id', () => {
+  it('tags each entry by source and never drops the Kilo-only variant of a shared id', async () => {
+    const { client, ports } = makeClient();
+    const promise = client.listModels();
+    const sent = lastSent(ports[0]!);
+    ports[0]!.emit({
+      type: 'models.list.result',
+      id: sent.id,
+      status: 200,
+      body: {
+        sources: {
+          openrouter: { body: { data: [{ id: 'meta/muse-spark-1.3-contributor', pricing: {} }] } },
+          kilo: {
+            body: {
+              data: [{ id: 'meta/muse-spark-1.3-contributor', isFree: false, mayTrainOnYourPrompts: false }],
+            },
+          },
+        },
+      },
+    });
+    const models = await promise;
+
+    expect(models).toHaveLength(2);
+    expect(models.filter((m) => m.id === 'meta/muse-spark-1.3-contributor')).toHaveLength(2);
+    expect(models.map((m) => m.source).sort()).toEqual(['kilo', 'openrouter']);
+    expect(models.find((m) => m.source === 'kilo')?.mayTrainOnYourPrompts).toBe(false);
+  });
+
+  it('still returns the surviving source’s models when the other failed, and logs which one', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { client, ports } = makeClient();
+    const promise = client.listModels();
+    const sent = lastSent(ports[0]!);
+    ports[0]!.emit({
+      type: 'models.list.result',
+      id: sent.id,
+      status: 200,
+      body: {
+        sources: { openrouter: { body: { data: [{ id: 'x/y', pricing: {} }] } } },
+        errors: { kilo: 'upstream status 500' },
+      },
+    });
+    const models = await promise;
+
+    expect(models.map((m) => m.id)).toEqual(['x/y']);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('kilo'));
+    warn.mockRestore();
   });
 });
 

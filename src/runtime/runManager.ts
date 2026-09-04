@@ -15,7 +15,7 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { BaseCheckpointSaver } from '@langchain/langgraph-checkpoint';
 import { startRun as defaultStartRun, type RunEndedEvent, type RunHandle } from '@/src/agent/run';
 import type { RunEvent, RunId } from '@/src/messaging';
-import type { Config } from '@/src/storage';
+import type { Config, ModelSource } from '@/src/storage';
 import type { InputTier } from '@/src/input';
 import { listUserscripts, matchesAny, seedDefaults } from '@/src/userscripts';
 import {
@@ -81,8 +81,8 @@ export interface RunManagerDeps {
   driver: RuntimeDriver;
   tabs: TabsPort;
   host: RunLogSink;
-  /** Builds a chat model for one model id (R-11: leader and follower separately). */
-  createModel: (model: string) => BaseChatModel;
+  /** Builds a chat model for one model id (R-11: leader and follower separately). `source` routes to the right base URL/credential; absent means OpenRouter. */
+  createModel: (model: string, source?: ModelSource) => BaseChatModel;
   /** Absent means escalation is impossible on this platform; runs stay in-page. */
   makeDebuggerTier?: (onDetach: (reason: string) => void) => InputTier;
   runUserscript: RunUserscript;
@@ -261,8 +261,8 @@ export class RunManager {
     try {
       // C-07: two independent handles, both proxied through the host's fetch.
       models = {
-        leader: this.#deps.createModel(config.leaderModel),
-        follower: this.#deps.createModel(config.followerModel),
+        leader: this.#deps.createModel(config.leaderModel, config.leaderModelSource),
+        follower: this.#deps.createModel(config.followerModel, config.followerModelSource),
       };
     } catch (error) {
       return this.#refuse(runId, `could not build the models: ${describe(error)}`);

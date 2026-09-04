@@ -13,6 +13,7 @@
  * keyed by request id.
  */
 import type { ModelInfo, PanelToWorker, Readiness, RunEvent } from '@/src/messaging';
+import type { ModelSource } from '@/src/storage';
 import { redactEvent, redactText } from './redact';
 
 export const HOST_NAME = 'com.nanobrowser.host';
@@ -283,31 +284,41 @@ export class FakeNativePort implements NativePortApi {
   }
 }
 
-/* ---------------- OpenRouter /models mapping ---------------- */
+/* ---------------- catalog mapping: OpenRouter and Kilo share a shape ---------------- */
 
-interface OpenRouterModelRaw {
+interface CatalogModelRaw {
   id?: unknown;
   name?: unknown;
   context_length?: unknown;
   pricing?: { prompt?: unknown; completion?: unknown };
   architecture?: { input_modalities?: unknown };
   supported_parameters?: unknown;
+  /** Kilo-specific catalog booleans; absent on OpenRouter's shape. */
+  isFree?: unknown;
+  mayTrainOnYourPrompts?: unknown;
 }
 
 /**
- * Maps one entry of OpenRouter's `GET /models` catalog to the panel's `ModelInfo`.
- * `free` when pricing prompt+completion are the string "0" or the id ends `:free`;
- * `vision` when `architecture.input_modalities` includes "image"; `tools` when
- * `supported_parameters` includes "tools"; `contextLength` from `context_length`.
+ * Maps one catalog entry (OpenRouter's `GET /models`, or Kilo's -- both report the
+ * same base fields) to the panel's `ModelInfo`, tagged with which source it came
+ * from. `free` prefers Kilo's explicit `isFree` when present; otherwise (OpenRouter,
+ * which reports no such field) it falls back to pricing prompt+completion being the
+ * string "0", or the id ending `:free`. `vision` when `architecture.input_modalities`
+ * includes "image"; `tools` when `supported_parameters` includes "tools";
+ * `contextLength` from `context_length`. `mayTrainOnYourPrompts` is carried through
+ * when the source reports it (Kilo) -- it is exactly the signal that explains why a
+ * model that 404s on OpenRouter (whose only endpoint trains on inputs, denied by our
+ * `data_collection: deny` default for paid models) can still work on Kilo.
  */
-export function mapOpenRouterModel(raw: unknown): ModelInfo | null {
+function mapCatalogModel(raw: unknown, source: ModelSource): ModelInfo | null {
   if (typeof raw !== 'object' || raw === null) return null;
-  const r = raw as OpenRouterModelRaw;
+  const r = raw as CatalogModelRaw;
   if (typeof r.id !== 'string' || r.id.length === 0) return null;
 
   const pricing = r.pricing ?? {};
   const freeByPricing = pricing.prompt === '0' && pricing.completion === '0';
   const freeById = r.id.endsWith(':free');
+  const free = typeof r.isFree === 'boolean' ? r.isFree : freeByPricing || freeById;
 
   const modalities = r.architecture?.input_modalities;
   const vision = Array.isArray(modalities) && modalities.includes('image');
@@ -318,11 +329,21 @@ export function mapOpenRouterModel(raw: unknown): ModelInfo | null {
   return {
     id: r.id,
     name: typeof r.name === 'string' && r.name.length > 0 ? r.name : r.id,
-    free: freeByPricing || freeById,
+    free,
     vision,
     tools,
     contextLength: typeof r.context_length === 'number' ? r.context_length : 0,
+    source,
+    ...(typeof r.mayTrainOnYourPrompts === 'boolean' ? { mayTrainOnYourPrompts: r.mayTrainOnYourPrompts } : {}),
   };
+}
+
+export function mapOpenRouterModel(raw: unknown): ModelInfo | null {
+  return mapCatalogModel(raw, 'openrouter');
+}
+
+export function mapKiloModel(raw: unknown): ModelInfo | null {
+  return mapCatalogModel(raw, 'kilo');
 }
 
 /* ---------------- HostClient ---------------- */
@@ -400,18 +421,44 @@ export class HostClient {
     }
   }
 
-  /** `GET /models` passthrough, mapped to the panel's `ModelInfo[]`. Throws on failure. */
+  /**
+   * Both catalogs merged (host/src/llm.ts `modelsAll`), mapped to the panel's
+   * `ModelInfo[]` and tagged by source. Throws only when *both* sources failed
+   * (host reports that as a non-200 outer status); a single source failing is a
+   * partial catalog, not a thrown error -- it is logged so the failure is still
+   * visible, per "say which source failed".
+   */
   async listModels(): Promise<ModelInfo[]> {
     const res = await this.#call<ModelsListResult>({ type: 'models.list', id: nextId() });
     if (res.status !== 200) {
       throw new Error(`models.list failed: upstream status ${res.status}`);
     }
-    const body = res.body as { data?: unknown[] } | undefined;
-    const data = Array.isArray(body?.data) ? body.data : [];
+    const body = res.body as {
+      sources?: {
+        openrouter?: { body?: { data?: unknown[] } };
+        kilo?: { body?: { data?: unknown[] } };
+      };
+      errors?: Record<string, string>;
+    };
     const models: ModelInfo[] = [];
-    for (const entry of data) {
-      const mapped = mapOpenRouterModel(entry);
-      if (mapped) models.push(mapped);
+    const openrouterData = body.sources?.openrouter?.body?.data;
+    if (Array.isArray(openrouterData)) {
+      for (const entry of openrouterData) {
+        const mapped = mapOpenRouterModel(entry);
+        if (mapped) models.push(mapped);
+      }
+    }
+    const kiloData = body.sources?.kilo?.body?.data;
+    if (Array.isArray(kiloData)) {
+      for (const entry of kiloData) {
+        const mapped = mapKiloModel(entry);
+        if (mapped) models.push(mapped);
+      }
+    }
+    if (body.errors) {
+      for (const [source, message] of Object.entries(body.errors)) {
+        console.warn(`[nanobrowser] ${source} model catalog fetch failed: ${message}`);
+      }
     }
     return models;
   }

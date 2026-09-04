@@ -50,9 +50,31 @@ export class FakeSecretProvider implements SecretProvider {
   }
 }
 
+/** The two credentialed model sources (docs/host-protocol.md). Add here, not as a third seam. */
+export type SecretSource = 'openrouter' | 'kilo';
+
+const SECRET_ENV_NAMES: Record<SecretSource, string> = {
+  openrouter: 'OPENROUTER_API_KEY',
+  kilo: 'KILO_CODE_API_KEY',
+};
+
+interface SourceState {
+  key: string | null;
+  reason?: string;
+}
+
+function emptyState(): SourceState {
+  return { key: null };
+}
+
+/**
+ * Holds one credential per source. Loading both is independent: a Kilo key being
+ * absent must not stop OpenRouter from working and vice versa (neither missing
+ * secret may crash the host), so `load()` fetches them in parallel and each
+ * source keeps its own present/absent state and its own reason when absent.
+ */
 export class SecretStore {
-  #key: string | null = null;
-  #reason: string | undefined;
+  #state: Record<SecretSource, SourceState> = { openrouter: emptyState(), kilo: emptyState() };
 
   readonly #provider: SecretProvider;
 
@@ -61,22 +83,41 @@ export class SecretStore {
   }
 
   async load(): Promise<void> {
-    const key = await this.#provider.get('OPENROUTER_API_KEY');
-    if (!key) {
-      this.#reason = `OPENROUTER_API_KEY not available from ${this.#provider.name}`;
-      return;
-    }
-    this.#key = key;
-    protectSecret(key);
-    this.#reason = undefined;
+    await Promise.all((Object.keys(SECRET_ENV_NAMES) as SecretSource[]).map((source) => this.#loadSource(source)));
   }
 
-  /** The key itself. Callers must only put it in an outbound Authorization header. */
+  async #loadSource(source: SecretSource): Promise<void> {
+    const envName = SECRET_ENV_NAMES[source];
+    const key = await this.#provider.get(envName);
+    if (!key) {
+      this.#state[source] = { key: null, reason: `${envName} not available from ${this.#provider.name}` };
+      return;
+    }
+    protectSecret(key);
+    this.#state[source] = { key };
+  }
+
+  /** The key for one source. Callers must only put it in an outbound Authorization header. */
+  key(source: SecretSource): string | null {
+    return this.#state[source].key;
+  }
+
+  /** Per-source readiness (R-11 pattern applied to credentials, C-06): loaded or not, and why not. */
+  status(source: SecretSource): { ready: boolean; reason?: string } {
+    const state = this.#state[source];
+    return state.key ? { ready: true } : { ready: false, ...(state.reason ? { reason: state.reason } : {}) };
+  }
+
+  /**
+   * Back-compat single-source accessors from before Kilo existed. `llm.ts`'s wire-level
+   * `key.status` message still validates OpenRouter specifically (a live `GET /key`), so
+   * these keep that call site unchanged.
+   */
   get openRouterKey(): string | null {
-    return this.#key;
+    return this.key('openrouter');
   }
 
   get missingReason(): string | undefined {
-    return this.#reason;
+    return this.#state.openrouter.reason;
   }
 }
