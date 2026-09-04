@@ -361,8 +361,21 @@ describe('createWorker: runs', () => {
     const abort = vi.spyOn(h.runManager, 'abort');
     h.host.abortTrigger?.({ runId: 'run-dev' });
     expect(abort).toHaveBeenCalledWith('run-dev');
+    expect(h.host.logs.at(-1)).toMatchObject({ level: 'info', message: expect.stringContaining('matched active run run-dev') });
     h.scripted.finish();
     await settle();
+  });
+
+  // A live test on real Chrome found the failure mode this covers: a `cancel` for a runId
+  // that is not (or no longer) active silently did nothing, with no way to tell the
+  // difference from the fix actually working. Logging the miss makes that diagnosable.
+  it('logs, rather than silently doing nothing, when a host-pushed run.abort matches no active run', async () => {
+    const h = harness();
+    h.host.abortTrigger?.({ runId: 'not-a-real-run' });
+    expect(h.host.logs.at(-1)).toMatchObject({
+      level: 'warn',
+      message: expect.stringContaining('not-a-real-run'),
+    });
   });
 });
 

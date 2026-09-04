@@ -336,7 +336,15 @@ export function createWorker(deps: WorkerDeps): Worker {
   // Regression: closing the CLI client that started a dev run did not stop it -- nothing
   // told the extension to. `cancel` on the dev socket now pushes this instead.
   const unsubscribeAbort = deps.host.onRunAbort((msg) => {
-    deps.runManager.abort(msg.runId);
+    const matched = deps.runManager.abort(msg.runId);
+    deps.host.appendLog({
+      level: matched ? 'info' : 'warn',
+      source: 'worker',
+      message: matched
+        ? `run.abort matched active run ${msg.runId}`
+        : `run.abort for ${msg.runId} found no matching active run (active: ${deps.runManager.activeRunId ?? 'none'})`,
+      at: now(),
+    });
   });
 
   /**
