@@ -162,6 +162,12 @@ export interface RunStartMsg {
   options?: Record<string, unknown>;
 }
 
+/** Host-pushed cancellation (the dev trigger's `cancel` op). */
+export interface RunAbortMsg {
+  type: 'run.abort';
+  runId: string;
+}
+
 export interface LogAckMsg {
   type: 'log.ack';
   id?: string;
@@ -190,6 +196,7 @@ export type HostResponseMsg =
   | RunLogAckMsg
   | ArtifactSaveResultMsg
   | RunStartMsg
+  | RunAbortMsg
   | LogAckMsg
   | ExtReloadMsg
   | ErrorMsg;
@@ -380,6 +387,7 @@ export class HostClient {
   readonly #pending = new Map<string, Pending>();
   readonly #llmStreams = new Map<string, LlmStreamHandlers>();
   readonly #runStartHandlers = new Set<(msg: RunStartMsg) => void>();
+  readonly #runAbortHandlers = new Set<(msg: RunAbortMsg) => void>();
   readonly #extReloadHandlers = new Set<() => void>();
 
   constructor(portFactory: () => NativePortApi = () => ChromeNativePort.connect()) {
@@ -534,6 +542,13 @@ export class HostClient {
     return () => this.#runStartHandlers.delete(handler);
   }
 
+  /** Registers a handler for host-pushed `run.abort` (the dev trigger's `cancel` op). Returns an unsubscribe. */
+  onRunAbort(handler: (msg: RunAbortMsg) => void): () => void {
+    this.connect();
+    this.#runAbortHandlers.add(handler);
+    return () => this.#runAbortHandlers.delete(handler);
+  }
+
   /** Registers a handler for host-pushed `ext.reload` (the dev loop). Returns an unsubscribe. */
   onExtReload(handler: () => void): () => void {
     this.connect();
@@ -598,6 +613,11 @@ export class HostClient {
 
       case 'run.start': {
         for (const handler of [...this.#runStartHandlers]) handler(msg);
+        return;
+      }
+
+      case 'run.abort': {
+        for (const handler of [...this.#runAbortHandlers]) handler(msg);
         return;
       }
 

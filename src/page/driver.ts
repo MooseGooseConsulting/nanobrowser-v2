@@ -106,10 +106,14 @@ export class PageDriver {
 
   private async ping(tabId: number): Promise<PingResult | null> {
     try {
-      const res = (await this.api.tabs.sendMessage(tabId, { op: 'ping' })) as PingResult | undefined;
+      const res = (await this.withTimeout(this.api.tabs.sendMessage(tabId, { op: 'ping' }), 'ping')) as
+        | PingResult
+        | undefined;
       return res && res.ok ? res : null;
     } catch {
-      // No receiver in the tab: the script is not there (or the tab is gone).
+      // No receiver in the tab (or the tab is gone), or it never answered in time. Either
+      // way `ensureInjected` should treat this the same as "not injected yet" and proceed
+      // to (re)inject rather than hang forever on a tab whose content script is wedged.
       return null;
     }
   }
@@ -127,10 +131,13 @@ export class PageDriver {
       return { ok: true };
     }
     try {
-      await this.api.scripting.executeScript({
-        target: { tabId, allFrames: false },
-        files: [INJECTED_FILE],
-      });
+      await this.withTimeout(
+        this.api.scripting.executeScript({
+          target: { tabId, allFrames: false },
+          files: [INJECTED_FILE],
+        }),
+        'script injection',
+      );
     } catch (err) {
       return { ok: false, error: `injection failed: ${errorOf(err)}` };
     }

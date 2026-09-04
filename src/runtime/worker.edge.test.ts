@@ -43,6 +43,7 @@ function fakeHost(overrides: Partial<HostPort> = {}): HostPort & { runStartHandl
         state.runStartHandler = undefined;
       };
     },
+    onRunAbort: () => () => {},
     appendLog: () => {},
     onExtReload: () => () => {},
     ...overrides,

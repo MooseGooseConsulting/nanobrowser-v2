@@ -408,6 +408,22 @@ describe('onRunStart', () => {
   });
 });
 
+describe('onRunAbort', () => {
+  // Regression: nothing on the extension side ever listened for a host-pushed `run.abort`,
+  // so even once the dev trigger gained a `cancel` op there was no path to actually stop
+  // the run. This is that path's extension-side half.
+  it('invokes registered handlers on a host-pushed run.abort', () => {
+    const { client, ports } = makeClient();
+    const seen: string[] = [];
+    const unsubscribe = client.onRunAbort((msg) => seen.push(msg.runId));
+    ports[0]!.emit({ type: 'run.abort', runId: 'run-1' });
+    expect(seen).toEqual(['run-1']);
+    unsubscribe();
+    ports[0]!.emit({ type: 'run.abort', runId: 'run-2' });
+    expect(seen).toEqual(['run-1']);
+  });
+});
+
 describe('appendRunLog', () => {
   it('redacts and sends without waiting for an ack (fire-and-forget)', () => {
     const { client, ports } = makeClient();

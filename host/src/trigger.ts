@@ -114,6 +114,21 @@ export class TriggerServer {
       return;
     }
 
+    if (req.op === 'cancel') {
+      if (typeof req.runId !== 'string' || req.runId.length === 0) {
+        return write(sock, { op: 'error', message: 'cancel requires a non-empty "runId"' });
+      }
+      if (!this.#deps.extensionConnected()) {
+        write(sock, { op: 'error', message: 'no extension connected to the host' });
+        sock.end();
+        return;
+      }
+      this.#deps.send({ type: 'run.abort', runId: req.runId });
+      write(sock, { op: 'cancelled', runId: req.runId });
+      sock.end();
+      return;
+    }
+
     if (req.op === 'run') {
       if (typeof req.prompt !== 'string' || req.prompt.length === 0) {
         return write(sock, { op: 'error', message: 'run requires a non-empty "prompt"' });
