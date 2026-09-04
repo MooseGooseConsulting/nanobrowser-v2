@@ -72,7 +72,30 @@ describe('composer', () => {
     expect(handlers.onGoToSetup).toHaveBeenCalledOnce();
   });
 
-  it('submits with Ctrl+Enter', async () => {
+  it('submits with plain Enter', async () => {
+    const user = userEvent.setup();
+    const handlers = setup();
+
+    await user.type(screen.getByLabelText('Objective'), 'buy the thing');
+    await user.keyboard('{Enter}');
+
+    expect(handlers.onStart).toHaveBeenCalledExactlyOnceWith('buy the thing');
+  });
+
+  it('inserts a newline on Shift+Enter instead of submitting', async () => {
+    const user = userEvent.setup();
+    const handlers = setup();
+    const textarea = screen.getByLabelText('Objective') as HTMLTextAreaElement;
+
+    await user.type(textarea, 'line one');
+    await user.keyboard('{Shift>}{Enter}{/Shift}');
+    await user.type(textarea, 'line two');
+
+    expect(textarea.value).toBe('line one\nline two');
+    expect(handlers.onStart).not.toHaveBeenCalled();
+  });
+
+  it('still submits with Ctrl+Enter, for anyone with the old habit', async () => {
     const user = userEvent.setup();
     const handlers = setup();
 
@@ -82,14 +105,21 @@ describe('composer', () => {
     expect(handlers.onStart).toHaveBeenCalledExactlyOnceWith('buy the thing');
   });
 
-  it('does not submit Ctrl+Enter while the gate is not open', async () => {
+  it('does not submit plain Enter while the gate is not open', async () => {
     const user = userEvent.setup();
     const handlers = setup({ config: { ...CONFIG, followerModel: '' } });
 
     await user.type(screen.getByLabelText('Objective'), 'buy the thing');
-    await user.keyboard('{Control>}{Enter}{/Control}');
+    await user.keyboard('{Enter}');
 
     expect(handlers.onStart).not.toHaveBeenCalled();
+  });
+
+  it('hides the "change" link once the blocked-reason bar already offers its own Fix in Setup, to avoid a duplicate CTA', () => {
+    setup({ readiness: { hostConnected: false, keyReady: false, reason: 'host offline' } });
+
+    expect(screen.queryByRole('button', { name: 'change' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Fix in Setup' })).toBeTruthy();
   });
 });
 
@@ -214,6 +244,14 @@ describe('status strip', () => {
 });
 
 describe('run log', () => {
+  it('hides the Show/pin/copy toolbar until the log has events, so idle has nothing to filter, pin or copy', () => {
+    setup();
+
+    expect(screen.queryByRole('button', { name: /^Show/ })).toBeNull();
+    expect(screen.queryByRole('switch', { name: 'Pin the log to the bottom' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'copy JSON' })).toBeNull();
+  });
+
   it('renders events in arrival order with one card per kind', () => {
     setup({
       log: logOf([

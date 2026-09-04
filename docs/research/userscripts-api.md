@@ -17,6 +17,15 @@ Research date: 2026-09-03. All claims verified against Chrome docs, Chromium sou
 11. I-03 is valid but only partially escapes the trusted-input problem: a MAIN-world `fetch(url, {credentials:'include'})` reuses the page's own cookie jar and (same-origin) is bound by the page's `connect-src` CSP just like the page's own code — it does not bypass CSRF tokens (same-origin fetch never needed to), but it also doesn't help against SameSite/HttpOnly restrictions since the script still can't read HttpOnly cookies.
 12. Recommendation: use `userScripts.execute()` with `world:'MAIN'` for live exec, an injected-harness pattern (unique run-id, console patch, error/rejection listeners, CustomEvent bridge to an always-present ISOLATED content script) for capture, and treat `chrome.debugger` as out of scope per R-02.
 
+> **Superseded — finding 12 only.** The build runs userscripts in the **`USER_SCRIPT`**
+> world, not `MAIN`, and `scripts/check-invariants.sh` fails the build if `world: "MAIN"`
+> appears anywhere in source. The reason is R-02: a `MAIN`-world script shares JS objects
+> with the page, so the page can see the harness (and the CustomEvent bridge this finding
+> recommends is itself a DOM-observable tell). `USER_SCRIPT` keeps DOM access, is CSP-exempt
+> by design, and is the only world where `messaging: true` works — which removed the need
+> for the bridge entirely. Findings 1–11 above stand as researched; only the recommendation
+> in 12 was overtaken by the implementation. See `src/userscripts/runner.ts`.
+
 ---
 
 ## 1. `chrome.userScripts` API surface & version history

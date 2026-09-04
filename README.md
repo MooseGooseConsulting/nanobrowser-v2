@@ -96,8 +96,16 @@ not built.
 
 ## Models
 
-**Free OpenRouter models only.** The run path refuses a paid Leader or Follower and tells
-you how to override it for a single run. See `src/runtime/modelPolicy.ts`.
+**Free models by default — a working agreement, not a runtime block.** You can select any
+model you like in the panel, paid or free, and nothing in the run path will stop you; the
+panel simply marks a paid choice so the cost is never a surprise
+(`src/ui/sections/SetupSection.tsx`). The rule that agents must not *start* a run on a paid
+model without asking lives in `CLAUDE.md`, where it governs agent behaviour.
+
+An earlier version of this file described a `src/runtime/modelPolicy.ts` that refused paid
+runs outright. That mechanism was built, then deliberately removed: a rule about how an
+agent should behave had been hard-coded into the product, where it could tell the user no
+about their own money. See CLAUDE.md's "Models and money".
 
 Two OpenRouter quirks are handled in `src/agent/models.ts`, both discovered the hard way
 during live runs:
