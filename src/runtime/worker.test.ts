@@ -110,6 +110,7 @@ class FakeHost implements HostPort {
   modelsError: Error | undefined;
   readiness: Readiness = { hostConnected: true, keyReady: true };
   devTrigger: ((msg: DevRunStart) => void) | undefined;
+  abortTrigger: ((msg: { runId: string }) => void) | undefined;
   reloadTrigger: (() => void) | undefined;
   readonly logs: ExtLogEntry[] = [];
 
@@ -128,6 +129,12 @@ class FakeHost implements HostPort {
     this.devTrigger = handler;
     return () => {
       this.devTrigger = undefined;
+    };
+  }
+  onRunAbort(handler: (msg: { runId: string }) => void): () => void {
+    this.abortTrigger = handler;
+    return () => {
+      this.abortTrigger = undefined;
     };
   }
   appendLog(entry: ExtLogEntry): void {
@@ -339,6 +346,21 @@ describe('createWorker: runs', () => {
     await settle();
     expect(pause).toHaveBeenCalledWith('run-1');
     expect(abort).toHaveBeenCalledWith('run-1');
+    h.scripted.finish();
+    await settle();
+  });
+
+  // Regression: killing the CLI client that started a dev-triggered run left it running
+  // forever -- there was no path from the dev socket to `runManager.abort`. `cancel` now
+  // pushes a host `run.abort`, which the worker must forward the same way a panel's does.
+  it('forwards a host-pushed run.abort to the live run, same as a panel-initiated one', async () => {
+    const h = harness();
+    h.host.devTrigger?.({ runId: 'run-dev', prompt: 'go', url: 'https://x.test/' });
+    await settle();
+
+    const abort = vi.spyOn(h.runManager, 'abort');
+    h.host.abortTrigger?.({ runId: 'run-dev' });
+    expect(abort).toHaveBeenCalledWith('run-dev');
     h.scripted.finish();
     await settle();
   });

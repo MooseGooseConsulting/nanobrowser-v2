@@ -379,6 +379,32 @@ describe('createPageTools', () => {
     );
   });
 
+  it('save_file throws when the Downloads write fails and no artifact sink is configured', async () => {
+    const h = harness('in-page');
+    h.driver.ok = false;
+    h.driver.error = 'disk full';
+    await expect(h.tools.saveFile('a.json', '{}', false)).rejects.toThrow('disk full');
+    expect(h.events).not.toContainEqual(expect.objectContaining({ kind: 'file.saved' }));
+  });
+
+  // Regression: previously this only checked `!options.saveArtifact` -- if an artifact
+  // sink *was* configured but its own write also failed, save_file still returned a
+  // success-shaped string and emitted file.saved with a path nothing was ever written to.
+  it('save_file throws, and emits no file.saved, when both the Downloads write and the artifact write fail', async () => {
+    const h = harness('in-page', {
+      runId: 'run-3',
+      saveArtifact: async () => {
+        throw new Error('artifacts dir is read-only');
+      },
+    });
+    h.driver.ok = false;
+    h.driver.error = 'disk full';
+
+    await expect(h.tools.saveFile('a.json', '{}', false)).rejects.toThrow(/disk full/);
+    await expect(h.tools.saveFile('a.json', '{}', false)).rejects.toThrow(/artifacts dir is read-only/);
+    expect(h.events).not.toContainEqual(expect.objectContaining({ kind: 'file.saved' }));
+  });
+
   it('save_file requires content unless fromLastUserscript is set', async () => {
     const h = harness('in-page');
     await expect(h.tools.saveFile('a.json', undefined, false)).rejects.toThrow('no content');

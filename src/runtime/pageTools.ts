@@ -469,16 +469,29 @@ export function createPageTools(options: CreatePageToolsOptions): RuntimePageToo
 
       let artifactNote = '';
       let artifactPath: string | undefined;
+      let artifactOk = false;
+      let artifactError: string | undefined;
       if (options.saveArtifact) {
         try {
           const artifact = await options.saveArtifact(filename, body);
           artifactPath = artifact.path;
+          artifactOk = true;
           artifactNote = `; also saved to the run's artifacts (${artifact.path})`;
         } catch (error) {
-          artifactNote = `; could not save to the run's artifacts: ${error instanceof Error ? error.message : String(error)}`;
+          artifactError = error instanceof Error ? error.message : String(error);
+          artifactNote = `; could not save to the run's artifacts: ${artifactError}`;
         }
       }
-      if (!downloadRes.ok && !options.saveArtifact) throw new Error(downloadRes.error ?? 'save_file failed');
+      // Both save paths have to actually fail before this throws -- the caller must not be
+      // told a file was saved, complete with a file.saved event and a path, when neither
+      // the Downloads write nor a configured artifact write actually landed anywhere.
+      if (!downloadRes.ok && !artifactOk) {
+        const reasons = [
+          downloadRes.error ? `Downloads: ${downloadRes.error}` : undefined,
+          artifactError ? `artifacts: ${artifactError}` : undefined,
+        ].filter((s): s is string => Boolean(s));
+        throw new Error(reasons.length > 0 ? `save_file failed (${reasons.join('; ')})` : 'save_file failed');
+      }
       const downloadNote = downloadRes.ok
         ? ''
         : `; could not save to Downloads/nanobrowser: ${downloadRes.error ?? 'unknown error'}`;

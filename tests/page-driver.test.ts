@@ -379,4 +379,28 @@ describe('a Chrome call that never answers', () => {
     expect(res.ok).toBe(false);
     expect(res.ok === false && res.error).toContain('did not answer');
   });
+
+  // Regression: ensureInjected's own ping/executeScript calls had no timeout at all --
+  // only the data-op round trip and captureVisibleTab did. A tab whose content script
+  // (or a page-installed listener ahead of ours) never answers `{op:'ping'}` wedged
+  // *every* subsequent op forever, one layer earlier than the fix above reaches.
+  it('does not hang forever when the injection-check ping never answers', async () => {
+    const f = fake({ scriptPresent: true });
+    f.api.tabs.sendMessage = (() => new Promise(() => {})) as ChromeApi['tabs']['sendMessage'];
+    const driver = new PageDriver(f.api, { opTimeoutMs: 20 });
+
+    const result = await driver.ensureInjected(1);
+    expect(result.ok).toBe(false);
+    // Falls through to (re)injection once the ping times out, same as a receiver-less tab.
+    expect(f.injections).toHaveLength(1);
+  });
+
+  it('ends in a clean error, not a hang, when no ping ever answers even after injecting', async () => {
+    const f = fake({ scriptPresent: false });
+    f.api.tabs.sendMessage = (() => new Promise(() => {})) as ChromeApi['tabs']['sendMessage'];
+    const driver = new PageDriver(f.api, { opTimeoutMs: 20 });
+
+    const result = await driver.ensureInjected(1);
+    expect(result).toEqual({ ok: false, error: 'injected script did not respond to ping' });
+  });
 });

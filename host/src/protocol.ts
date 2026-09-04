@@ -163,6 +163,16 @@ export interface RunStartMsg {
   options?: Record<string, unknown>;
 }
 
+/**
+ * Host -> extension: stop a run in progress. Without this, closing the CLI client that
+ * started a run (Ctrl+C, a dead terminal, a script that times out) left the run executing
+ * against the user's real browser indefinitely -- nothing told the extension to stop.
+ */
+export interface RunAbortMsg {
+  type: 'run.abort';
+  runId: string;
+}
+
 export interface LogAckMsg {
   type: 'log.ack';
   id?: string;
@@ -203,6 +213,7 @@ export type OutboundMsg =
   | RunLogAckMsg
   | ArtifactSaveResultMsg
   | RunStartMsg
+  | RunAbortMsg
   | LogAckMsg
   | ExtReloadMsg
   | InputResultMsg
@@ -224,6 +235,7 @@ export type CassetteMode = 'off' | 'record' | 'replay';
 
 export type SocketRequest =
   | { op: 'run'; prompt: string; url?: string; runId?: string; options?: Record<string, unknown> }
+  | { op: 'cancel'; runId: string }
   | { op: 'status' }
   | { op: 'reload' };
 
@@ -231,6 +243,7 @@ export type SocketResponse =
   | { op: 'accepted'; runId: string }
   | { op: 'event'; runId: string; event: unknown }
   | { op: 'end'; runId: string }
+  | { op: 'cancelled'; runId: string }
   | {
       op: 'status';
       ok: true;

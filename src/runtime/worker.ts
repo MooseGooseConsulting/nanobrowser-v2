@@ -53,6 +53,8 @@ export interface HostPort {
   listModels(): Promise<ModelInfo[]>;
   appendRunLog(runId: string, event: RunEvent | HostRunEndEvent): void;
   onRunStart(handler: (msg: DevRunStart) => void): () => void;
+  /** Host-pushed cancellation (the dev trigger's `cancel` op) -- see docs/host-protocol.md. */
+  onRunAbort(handler: (msg: { runId: string }) => void): () => void;
   appendLog(entry: ExtLogEntry): void;
   onExtReload(handler: () => void): () => void;
 }
@@ -331,6 +333,12 @@ export function createWorker(deps: WorkerDeps): Worker {
     void devRun(msg);
   });
 
+  // Regression: closing the CLI client that started a dev run did not stop it -- nothing
+  // told the extension to. `cancel` on the dev socket now pushes this instead.
+  const unsubscribeAbort = deps.host.onRunAbort((msg) => {
+    deps.runManager.abort(msg.runId);
+  });
+
   /**
    * The host-pushed self-reload. This tears the service worker down mid-call, so nothing
    * after it runs -- which is also why the host answers its socket client before pushing.
@@ -357,6 +365,7 @@ export function createWorker(deps: WorkerDeps): Worker {
     dispose() {
       unsubscribeRuns();
       unsubscribeHost();
+      unsubscribeAbort();
       unsubscribeReload();
     },
   };

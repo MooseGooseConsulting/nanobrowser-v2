@@ -185,6 +185,36 @@ describe('dev trigger socket', () => {
     b.close();
   });
 
+  describe('cancel', () => {
+    // Regression: a run started via `nb-run` kept executing against the real browser
+    // for minutes after the CLI client that started it was killed -- there was no op
+    // to tell the extension to stop. `cancel` forwards a `run.abort` push instead.
+    it('forwards run.abort for the given runId and acks', async () => {
+      const c = await client();
+      c.send({ op: 'cancel', runId: 'run-a' });
+      expect(await c.next()).toEqual({ op: 'cancelled', runId: 'run-a' });
+      expect(sent).toEqual([{ type: 'run.abort', runId: 'run-a' }]);
+      await c.closed;
+    });
+
+    it('refuses and pushes nothing when no extension is connected', async () => {
+      connected = false;
+      const c = await client();
+      c.send({ op: 'cancel', runId: 'run-a' });
+      expect(await c.next()).toEqual({ op: 'error', message: 'no extension connected to the host' });
+      expect(sent).toEqual([]);
+      await c.closed;
+    });
+
+    it('rejects an empty runId without touching the extension', async () => {
+      const c = await client();
+      c.send({ op: 'cancel', runId: '' });
+      expect(await c.next()).toMatchObject({ op: 'error' });
+      expect(sent).toEqual([]);
+      c.close();
+    });
+  });
+
   it('refuses a run when no extension is connected', async () => {
     connected = false;
     const c = await client();
