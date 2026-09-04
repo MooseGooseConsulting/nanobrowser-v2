@@ -8,10 +8,16 @@ import type { RunEvent } from '@/src/messaging';
 const REDACTED = '[redacted]';
 const SCREENSHOT_OMITTED = '[screenshot omitted]';
 
-/** OpenRouter provisioned-key shape. */
-const OPENROUTER_KEY_RE = /sk-or-[A-Za-z0-9-]+/g;
-/** Any bearer token, provider-agnostic. */
-const BEARER_RE = /Bearer\s+\S+/g;
+/**
+ * OpenRouter provisioned-key shape. Includes `.` so a `sk-or-v1.<hex>.<hex>`
+ * style key is stripped whole rather than partially -- this must stay in sync
+ * with the host's own `KEY_SHAPES` (host/src/log.ts), which already includes
+ * it; a prior drift here left a dotted key half-redacted. Case-insensitive as
+ * belt-and-suspenders against a re-cased echo of the key.
+ */
+const OPENROUTER_KEY_RE = /sk-or-[A-Za-z0-9._-]+/gi;
+/** Any bearer token, provider-agnostic. Case-insensitive: header values are not case-sensitive by convention. */
+const BEARER_RE = /Bearer\s+\S+/gi;
 /** A base64 image data URL, as a screenshot would appear inline in an event. */
 const SCREENSHOT_DATA_URL_RE = /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g;
 

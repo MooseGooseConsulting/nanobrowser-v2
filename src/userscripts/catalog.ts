@@ -29,6 +29,15 @@ export type ValidationResult =
   | { ok: false; errors: string[] };
 
 /**
+ * Ceiling on stored userscript source. `chrome.userScripts.execute()` takes the
+ * whole body inline (docs/research/userscripts-api.md); nothing upstream caps
+ * it, so an unbounded script would be handed whole to the injector and stored
+ * whole in `local:userscripts`. 256 KiB is generous for a hand-written script
+ * and small enough to keep storage and injection bounded.
+ */
+export const MAX_CODE_BYTES = 256 * 1024;
+
+/**
  * Validates and normalises a draft. Names are trimmed, match patterns are checked
  * against the real grammar, and code must be non-empty — a script that cannot be
  * targeted or has nothing to run is never worth storing.
@@ -50,6 +59,9 @@ export function validateUserscript(draft: UserscriptDraft, now: () => number = D
 
   const code = typeof draft?.code === 'string' ? draft.code : '';
   if (code.trim().length === 0) errors.push('code must not be empty');
+  else if (code.length > MAX_CODE_BYTES) {
+    errors.push(`code exceeds the ${MAX_CODE_BYTES}-byte limit (${code.length} bytes)`);
+  }
 
   if (errors.length > 0) return { ok: false, errors };
 

@@ -252,6 +252,10 @@ export function createWorker(deps: WorkerDeps): Worker {
     channel.onClose(() => panels.delete(channel));
 
     channel.onMessage((envelope) => {
+      // Defensive: `Envelope` is a compile-time-only contract (no runtime
+      // schema anywhere on this path — see docs/test-review.md), so a peer
+      // that sends `null`/non-object garbage must not throw here.
+      if (envelope === null || typeof envelope !== 'object') return;
       if (envelope.type === HUB_MESSAGE) {
         const payload = envelope.payload as HubInbound;
         if (payload?.kind === 'ping') channel.send(HUB_MESSAGE, { kind: 'pong', at: now() });

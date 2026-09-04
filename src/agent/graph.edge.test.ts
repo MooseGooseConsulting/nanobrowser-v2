@@ -1,0 +1,176 @@
+/**
+ * Gaps the review found in `graph.test.ts`:
+ *
+ * 1. `decideNext` -- "the single source of truth for what happens after a
+ *    Follower step" -- is a pure, exported function, but was only ever
+ *    exercised incidentally through full-graph `FakeChatModel` runs. This
+ *    file unit-tests its priority order directly, including the tie cases
+ *    (e.g. maxSteps reached *and* SUBGOAL_COMPLETE signalled together) that a
+ *    full-graph harness cannot cleanly force.
+ * 2. The follower node's `!tool` branch (an unknown tool name from the model)
+ *    was never hit by any scripted turn.
+ * 3. The leader node's `currentSubgoal` clamp and its `planTool.invoke`
+ *    failure branch were never exercised.
+ */
+import { describe, expect, it } from 'vitest';
+import { MemorySaver } from '@langchain/langgraph/web';
+import type { RunEvent } from '@/src/messaging/contract';
+import type { Config } from '@/src/storage';
+import { decideNext, type RouteInputs } from './graph';
+import { FakePageTools } from './tools';
+import { FakeChatModel, type FakeCall, type FakeTurn } from './models';
+import { startRun, type RunEndedEvent } from './run';
+
+const baseConfig: Config = {
+  leaderModel: 'fake/leader',
+  followerModel: 'fake/follower',
+  observe: 'dom',
+  planningInterval: 5,
+  maxSteps: 10,
+  inputFidelity: 'in-page',
+};
+
+const baseInputs: RouteInputs = { status: 'running', lastSignal: null, stepCount: 0, stepsSinceReplan: 0 };
+const ctx = { planningInterval: 3, maxSteps: 10 };
+
+describe('decideNext: priority order, tested directly as a pure function', () => {
+  it('done always ends the run, regardless of anything else', () => {
+    expect(decideNext({ ...baseInputs, status: 'done', stepCount: 999 }, ctx).to).toBe('__end__');
+  });
+
+  it('error always ends the run', () => {
+    expect(decideNext({ ...baseInputs, status: 'error' }, ctx).to).toBe('__end__');
+  });
+
+  it('BLOCKED ends the run even if status is still "running"', () => {
+    expect(decideNext({ ...baseInputs, lastSignal: 'BLOCKED' }, ctx).to).toBe('__end__');
+  });
+
+  it('status "blocked" ends the run even with no BLOCKED signal', () => {
+    expect(decideNext({ ...baseInputs, status: 'blocked' }, ctx).to).toBe('__end__');
+  });
+
+  it('maxSteps reached ends the run even when the signal alone would have gone to the leader', () => {
+    // Tie case: SUBGOAL_COMPLETE would normally hand off to the leader, but the
+    // step budget takes priority once it is reached.
+    const decision = decideNext({ ...baseInputs, lastSignal: 'SUBGOAL_COMPLETE', stepCount: 10 }, ctx);
+    expect(decision.to).toBe('__end__');
+    expect(decision.reason).toContain('step budget');
+  });
+
+  it('SUBGOAL_COMPLETE routes to the leader when the step budget is not yet reached', () => {
+    expect(decideNext({ ...baseInputs, lastSignal: 'SUBGOAL_COMPLETE', stepCount: 1 }, ctx).to).toBe('leader');
+  });
+
+  it('RETURN_TO_LEADER routes to the leader', () => {
+    expect(decideNext({ ...baseInputs, lastSignal: 'RETURN_TO_LEADER', stepCount: 1 }, ctx).to).toBe('leader');
+  });
+
+  it('the planning interval routes to the leader once reached, with no signal at all', () => {
+    expect(decideNext({ ...baseInputs, stepsSinceReplan: 3 }, ctx).to).toBe('leader');
+    expect(decideNext({ ...baseInputs, stepsSinceReplan: 2 }, ctx).to).toBe('follower');
+  });
+
+  it('CONTINUE (or no signal) stays on the follower when nothing else fires', () => {
+    expect(decideNext({ ...baseInputs, lastSignal: 'CONTINUE' }, ctx).to).toBe('follower');
+    expect(decideNext(baseInputs, ctx).to).toBe('follower');
+  });
+
+  it('maxSteps=0 ends the run immediately on the very first check', () => {
+    expect(decideNext({ ...baseInputs, stepCount: 0 }, { planningInterval: 3, maxSteps: 0 }).to).toBe('__end__');
+  });
+});
+
+const subgoals = ['open the page', 'read the page'];
+
+function harness(options: {
+  follower: (call: FakeCall) => FakeTurn;
+  leaderRespond?: (call: FakeCall) => FakeTurn;
+}): Promise<{ events: RunEvent[]; ended: RunEndedEvent }> {
+  const events: RunEvent[] = [];
+  const page = new FakePageTools();
+  const leader = new FakeChatModel({
+    label: 'leader',
+    respond:
+      options.leaderRespond ??
+      (() => ({ kind: 'tool', name: 'set_plan', args: { plan: 'do it', subgoals, currentSubgoal: 0 } })),
+  });
+  const follower = new FakeChatModel({ label: 'follower', respond: options.follower });
+
+  const handle = startRun({
+    prompt: 'find the widget',
+    config: baseConfig,
+    tools: page,
+    models: { leader, follower },
+    onEvent: (event) => events.push(event),
+    checkpointer: new MemorySaver(),
+    runId: `test-${Math.random().toString(36).slice(2)}`,
+  });
+
+  return handle.done.then((ended) => ({ events, ended }));
+}
+
+function pick<K extends RunEvent['kind']>(events: RunEvent[], kind: K): Extract<RunEvent, { kind: K }>[] {
+  return events.filter((e): e is Extract<RunEvent, { kind: K }> => e.kind === kind);
+}
+
+describe('follower node: an unrecognised tool name from the model', () => {
+  it('reports a failed tool.result rather than crashing the run', async () => {
+    const { events, ended } = await harness({
+      follower: () => ({ kind: 'tool', name: 'not_a_real_tool', args: { signal: 'BLOCKED' } }),
+    });
+
+    const results = pick(events, 'tool.result').filter((r) => r.role === 'follower');
+    expect(results).toHaveLength(1);
+    expect(results[0]?.result.ok).toBe(false);
+    expect(results[0]?.result.summary).toContain('no such tool');
+    // The run must still end cleanly (BLOCKED signal), not hang or throw.
+    expect(ended.status).toBe('blocked');
+  });
+});
+
+describe('leader node: currentSubgoal clamp and a failing planTool.invoke', () => {
+  it('clamps an out-of-range currentSubgoal into the actual subgoal list', async () => {
+    const { events } = await harness({
+      follower: () => ({ kind: 'tool', name: 'done', args: { summary: 'ok', signal: 'SUBGOAL_COMPLETE' } }),
+      leaderRespond: () => ({
+        kind: 'tool',
+        name: 'set_plan',
+        args: { plan: 'do it', subgoals: ['only-one'], currentSubgoal: 99 },
+      }),
+    });
+
+    const plans = pick(events, 'leader.plan');
+    expect(plans[0]?.subgoals).toEqual(['only-one']);
+    const handoff = pick(events, 'handoff').find((h) => h.from === 'leader');
+    expect(handoff?.reason).toContain('subgoal 0'); // clamped to the only valid index
+  });
+
+  it('clamps a negative currentSubgoal to 0', async () => {
+    const { events } = await harness({
+      follower: () => ({ kind: 'tool', name: 'done', args: { summary: 'ok', signal: 'SUBGOAL_COMPLETE' } }),
+      leaderRespond: () => ({
+        kind: 'tool',
+        name: 'set_plan',
+        args: { plan: 'do it', subgoals: ['a', 'b'], currentSubgoal: -5 },
+      }),
+    });
+
+    const handoff = pick(events, 'handoff').find((h) => h.from === 'leader');
+    expect(handoff?.reason).toContain('subgoal 0');
+  });
+
+  it('reports a failed leader tool.result when planTool.invoke rejects the args, without crashing the run', async () => {
+    const { events, ended } = await harness({
+      follower: () => ({ kind: 'tool', name: 'done', args: { summary: 'ok' } }),
+      // subgoals: [] violates planTool's schema (.min(1)) so planTool.invoke throws.
+      leaderRespond: () => ({ kind: 'tool', name: 'set_plan', args: { plan: 'do it', subgoals: [] } }),
+    });
+
+    const leaderResults = pick(events, 'tool.result').filter((r) => r.role === 'leader');
+    expect(leaderResults).toHaveLength(1);
+    expect(leaderResults[0]?.result.ok).toBe(false);
+    // The run still proceeds to the follower and completes rather than hanging.
+    expect(ended.status).toBe('done');
+  });
+});

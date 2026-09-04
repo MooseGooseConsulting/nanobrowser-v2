@@ -65,6 +65,15 @@ export function toRunEvents(result: UserscriptRunResult, now: () => number = Dat
  */
 export class DebugSession {
   private readonly results = new Map<string, UserscriptRunResult>();
+  /**
+   * The sequence number of the most recently *started* `rerun()` per script id.
+   * A `rerun()` only commits its result if it is still the latest one issued
+   * for that script when it resolves -- otherwise an overlapping call that
+   * happened to resolve later would clobber a fresher result with a stale one
+   * (or, worse, attribute a stale result to whatever `select()` made current in
+   * the meantime). See `rerun()`.
+   */
+  private readonly runSeq = new Map<string, number>();
   private readonly run: RunUserscript;
   private readonly now: () => number;
   private current: Userscript;
@@ -107,13 +116,24 @@ export class DebugSession {
    * Re-runs the script, optionally with edited code. The edit is *not* persisted to
    * the catalog — the panel saves explicitly — so a bad edit never becomes the
    * stored script. The new result replaces the previous one for this script id.
+   *
+   * Concurrency: the script this call runs against, and the sequence number it
+   * commits under, are both captured *before* the `await` -- so a `select()`
+   * that changes `current` mid-flight cannot make this call's result land under
+   * the wrong script id, and an earlier, slower-resolving `rerun()` cannot
+   * overwrite a later one's already-stored result once a newer call has been
+   * issued for the same script.
    */
   async rerun(code?: string): Promise<UserscriptRunResult> {
     if (code !== undefined) this.draft = code;
 
+    const script = this.current;
+    const seq = (this.runSeq.get(script.id) ?? 0) + 1;
+    this.runSeq.set(script.id, seq);
+
     const result = await this.run({
       tabId: this.options.tabId,
-      script: this.current,
+      script,
       code: this.draft,
       url: this.options.url,
       api: this.options.api,
@@ -122,7 +142,7 @@ export class DebugSession {
       now: this.options.now,
     });
 
-    this.results.set(this.current.id, result);
+    if (this.runSeq.get(script.id) === seq) this.results.set(script.id, result);
     return result;
   }
 }
