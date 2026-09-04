@@ -295,3 +295,58 @@ describe('role isolation', () => {
     expect(follower.boundTools).not.toContain('set_plan');
   });
 });
+
+describe('tool results reaching the model (R-06)', () => {
+  /**
+   * Regression: `summarize()` exists to keep the *run log* short (R-06). The graph
+   * was passing that same 240-char summary into the ToolMessage the model reads,
+   * so `extract_text` could never return more than 240 characters however large a
+   * `maxChars` the model asked for -- and its own "[truncated at N of M]" marker,
+   * which sits at the end of the string, was cut off with it.
+   */
+  it('gives the model the full tool result, not the 240-char log summary', async () => {
+    const long = `ROW-${'x'.repeat(4000)}-END`;
+    const page = new FakePageTools();
+    page.extractText = async () => long;
+
+    let turn = 0;
+    const events: RunEvent[] = [];
+    const leader = new FakeChatModel({
+      label: 'leader',
+      respond: () => ({
+        kind: 'tool',
+        name: 'set_plan',
+        args: { plan: 'read it', subgoals: ['read the page'], currentSubgoal: 0 },
+      }),
+    });
+    const follower = new FakeChatModel({
+      label: 'follower',
+      respond: (): FakeTurn =>
+        turn++ === 0
+          ? { kind: 'tool', name: 'extract_text', args: { maxChars: 20000, signal: 'CONTINUE' } }
+          : { kind: 'tool', name: 'done', args: { summary: 'read it' } },
+    });
+
+    const handle = startRun({
+      prompt: 'read the page',
+      config: baseConfig,
+      tools: page,
+      models: { leader, follower },
+      onEvent: (event) => events.push(event),
+      checkpointer: new MemorySaver(),
+      runId: `test-${Math.random().toString(36).slice(2)}`,
+    });
+    await handle.done;
+
+    const toolMessages = follower.calls.flatMap((call) =>
+      call.messages.filter((m) => m.type === 'tool') as ToolMessage[],
+    );
+    const extract = toolMessages.find((m) => m.name === 'extract_text');
+    expect(extract).toBeDefined();
+    expect(extract?.content).toBe(long);
+
+    // The run log still gets the short form, so the panel is not flooded.
+    const logged = pick(events, 'tool.result').find((e) => e.result.name === 'extract_text');
+    expect(logged?.result.summary.length).toBeLessThanOrEqual(240);
+  });
+});
