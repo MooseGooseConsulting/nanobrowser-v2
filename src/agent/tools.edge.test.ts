@@ -120,6 +120,16 @@ describe('createPageToolset: schema validation rejects bad model output', () => 
     await byName.get('extract_text')!.invoke({ maxChars: 60_000 });
   });
 
+  it('save_file accepts a JSON array, which is what an extracted list actually is', async () => {
+    // Regression: content was string-or-object, so every live save of a listing
+    // array failed with "Received tool input did not match expected schema -> at content".
+    const { byName } = createPageToolset(new FakePageTools());
+    const rows = [{ title: 'DDR5 32GB', price: '$99.00' }, { title: 'DDR5 16GB', price: '$49.00' }];
+
+    const result = await byName.get('save_file')!.invoke({ filename: 'rows.json', content: rows });
+    expect(String(result)).toContain('rows.json');
+  });
+
   it('save_file requires a well-formed filename', async () => {
     const { byName } = toolset();
     await expect(byName.get('save_file')!.invoke({ filename: '', content: 'x' })).rejects.toThrow();

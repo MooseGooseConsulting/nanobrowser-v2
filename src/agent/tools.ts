@@ -287,9 +287,12 @@ export function createPageToolset(page: PageTools): PageToolset {
             .string()
             .describe('Basename only, ending .json, .txt or .csv, e.g. "ddr5-current.json".'),
           content: z
-            .union([z.string(), z.record(z.string(), z.unknown())])
+            // An array has to be here in its own right: the natural thing to save is a
+            // list of extracted rows, and a bare `z.record` rejects one. A live run
+            // failed every save with "Invalid input -> at content" for exactly that.
+            .union([z.string(), z.array(z.unknown()), z.record(z.string(), z.unknown())])
             .optional()
-            .describe('The data to save. An object is written as 2-space-indented JSON.'),
+            .describe('The data to save: text, or a JSON array or object, written as 2-space-indented JSON.'),
           fromLastUserscript: z
             .boolean()
             .optional()
