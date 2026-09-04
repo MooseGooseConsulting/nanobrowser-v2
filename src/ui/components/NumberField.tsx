@@ -1,8 +1,15 @@
+import { useEffect, useState } from 'react';
 import { cn } from '../lib/cn';
 
 /**
  * Integer input with inline validation. Out-of-range values are shown but never
  * committed, so `planningInterval` / `maxSteps` (R-04) cannot be persisted invalid.
+ *
+ * The draft is local state rather than the `value` prop because those two things are
+ * genuinely different: what is typed, and what has been accepted. Committing straight
+ * from the input meant clearing the field wrote `NaN` (an empty `<input type=number>`
+ * reports `valueAsNumber: NaN`) through to `chrome.storage`, which contradicted the
+ * promise above -- the field could not show an invalid value without also persisting it.
  */
 export function NumberField({
   id,
@@ -21,7 +28,15 @@ export function NumberField({
   invalidMessage?: string;
   className?: string;
 }) {
-  const invalid = !Number.isInteger(value) || value < min || value > max;
+  const [draft, setDraft] = useState(() => (Number.isFinite(value) ? String(value) : ''));
+
+  // A committed change from elsewhere (config load, Reset) wins over a stale draft.
+  useEffect(() => {
+    setDraft(Number.isFinite(value) ? String(value) : '');
+  }, [value]);
+
+  const parsed = draft.trim() === '' ? Number.NaN : Number(draft);
+  const invalid = !isValidInt(parsed, min, max);
   const message = invalid ? (invalidMessage ?? `Enter a whole number from ${min} to ${max}.`) : undefined;
 
   return (
@@ -33,10 +48,15 @@ export function NumberField({
         min={min}
         max={max}
         step={1}
-        value={Number.isFinite(value) ? value : ''}
+        value={draft}
         aria-invalid={invalid}
         aria-describedby={message ? `${id}-error` : undefined}
-        onChange={(event) => onChange(event.target.valueAsNumber)}
+        onChange={(event) => {
+          const next = event.target.value;
+          setDraft(next);
+          const asNumber = next.trim() === '' ? Number.NaN : Number(next);
+          if (isValidInt(asNumber, min, max)) onChange(asNumber);
+        }}
         className={cn(
           'w-full rounded-md border bg-paper px-2 py-1.5 text-sm text-ink tabular-nums',
           'outline-none focus-visible:ring-2 focus-visible:ring-accent',
