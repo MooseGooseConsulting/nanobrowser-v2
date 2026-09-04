@@ -148,6 +148,34 @@ export function summarize(value: unknown, max = 240): string {
 }
 
 /**
+ * Ceiling on what one tool result may add to the model's context.
+ *
+ * Deliberately equal to the largest amount any tool will produce (`extract_text`'s
+ * `maxChars` maximum, and `run_userscript`'s own result cap), so this is a backstop
+ * and never the binding constraint. A graph-level cap tighter than a tool's own
+ * advertised limit is a second, hidden truncation: `extract_text` documents up to
+ * 60000 characters and appends its "call again with startChar N" hint at the *end*
+ * of the string, so anything that trims below the tool's limit also removes the
+ * instruction telling the model how to recover.
+ */
+export const MAX_TOOL_RESULT_CHARS = 60_000;
+
+/**
+ * The text of a tool result as the *model* sees it.
+ *
+ * Separate from {@link summarize}, which exists for the run log. The graph used to
+ * put the 240-character log summary into the ToolMessage as well, so no tool could
+ * return more than 240 characters to the model however much it had been asked for.
+ * When this does have to cut, it says so on its own line at the end, with the real
+ * length, rather than trailing off in an ellipsis the model cannot act on.
+ */
+export function toolResultText(value: unknown, max = MAX_TOOL_RESULT_CHARS): string {
+  const text = typeof value === 'string' ? value : JSON.stringify(value) ?? String(value);
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}\n[tool result truncated at ${max} of ${text.length} characters]`;
+}
+
+/**
  * Builds the Follower toolset over a {@link PageTools} implementation.
  */
 export function createPageToolset(page: PageTools): PageToolset {

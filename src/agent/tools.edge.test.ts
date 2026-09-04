@@ -18,6 +18,8 @@ import {
   FollowerSignalSchema,
   planTool,
   summarize,
+  toolResultText,
+  MAX_TOOL_RESULT_CHARS,
   TERMINAL_TOOLS,
   TOOL_NAMES,
 } from './tools';
@@ -275,5 +277,31 @@ describe('summarize', () => {
 
   it('falls back to String() for a value JSON.stringify cannot render', () => {
     expect(summarize(undefined)).toBe('undefined');
+  });
+});
+
+describe('toolResultText', () => {
+  it('passes a result far longer than the log summary through untouched', () => {
+    const long = 'y'.repeat(10_000);
+    expect(toolResultText(long)).toBe(long);
+    // The whole point: what the log keeps and what the model reads are different sizes.
+    expect(summarize(long).length).toBeLessThan(long.length);
+  });
+
+  it('says how much it cut, on its own line, so the model can ask for the rest', () => {
+    const long = 'z'.repeat(MAX_TOOL_RESULT_CHARS + 500);
+    const out = toolResultText(long);
+    expect(out.startsWith('z'.repeat(MAX_TOOL_RESULT_CHARS))).toBe(true);
+    expect(out).toContain(`[tool result truncated at ${MAX_TOOL_RESULT_CHARS} of ${long.length} characters]`);
+  });
+
+  it('leaves a result exactly at the ceiling alone', () => {
+    const exact = 'q'.repeat(MAX_TOOL_RESULT_CHARS);
+    expect(toolResultText(exact)).toBe(exact);
+  });
+
+  it('stringifies a non-string result', () => {
+    expect(toolResultText({ a: 1 })).toBe('{"a":1}');
+    expect(toolResultText(undefined)).toBe('undefined');
   });
 });

@@ -37,7 +37,7 @@ import {
 } from '@langchain/core/messages';
 import type { FollowerSignal, Role, RunEvent } from '@/src/messaging/contract';
 import { AgentContextSchema, AgentState, type AgentContext, type RunStatus } from './state';
-import { FollowerSignalSchema, TERMINAL_TOOLS, planTool, summarize } from './tools';
+import { FollowerSignalSchema, TERMINAL_TOOLS, planTool, summarize, toolResultText } from './tools';
 
 /**
  * How many past Follower turns (a human observation plus the model's reply) are
@@ -230,19 +230,19 @@ const leader: GraphNode<typeof AgentState, AgentContext> = async (state, config)
     let result: string;
     const args = call.args as { plan: string; subgoals: string[]; currentSubgoal?: number };
     try {
-      result = summarize(await planTool.invoke(args, config));
+      result = toolResultText(await planTool.invoke(args, config));
       plan = args.plan ?? plan;
       subgoals = Array.isArray(args.subgoals) && args.subgoals.length ? args.subgoals : subgoals;
       const picked = typeof args.currentSubgoal === 'number' ? args.currentSubgoal : 0;
       currentSubgoal = Math.min(Math.max(picked, 0), Math.max(subgoals.length - 1, 0));
     } catch (error) {
       ok = false;
-      result = summarize(error instanceof Error ? error.message : String(error));
+      result = toolResultText(error instanceof Error ? error.message : String(error));
     }
     emit(config, {
       kind: 'tool.result',
       role: 'leader',
-      result: { callId, name: call.name, ok, summary: result, durationMs: now() - started },
+      result: { callId, name: call.name, ok, summary: summarize(result), durationMs: now() - started },
       at: now(),
     });
     messages.push(new ToolMessage({ tool_call_id: callId, name: call.name, content: result }));
@@ -364,17 +364,17 @@ const follower: GraphNode<typeof AgentState, AgentContext> = async (state, confi
       result = `no such tool: ${call.name}`;
     } else {
       try {
-        result = summarize(await tool.invoke(rawArgs, config));
+        result = toolResultText(await tool.invoke(rawArgs, config));
       } catch (error) {
         ok = false;
-        result = summarize(error instanceof Error ? error.message : String(error));
+        result = toolResultText(error instanceof Error ? error.message : String(error));
       }
     }
 
     emit(config, {
       kind: 'tool.result',
       role,
-      result: { callId, name: call.name, ok, summary: result, durationMs: now() - started },
+      result: { callId, name: call.name, ok, summary: summarize(result), durationMs: now() - started },
       at: now(),
     });
     messages.push(new ToolMessage({ tool_call_id: callId, name: call.name, content: result }));
