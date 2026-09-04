@@ -28,7 +28,6 @@ import {
   type WorkerToPanelMessage,
 } from '@/src/messaging';
 import type { Config, InputFidelity, ObserveMode } from '@/src/storage';
-import { allowPaidFromOptions, checkModelPolicy } from './modelPolicy';
 import type { ExtLogEntry } from './errorLog';
 import { handleUserscriptMessage as defaultHandleUserscript } from '@/src/userscripts';
 import type { HostRunEndEvent, StartOptions, StartResult } from './runManager';
@@ -202,18 +201,6 @@ export function createWorker(deps: WorkerDeps): Worker {
     switch (message.type) {
       case 'run.start': {
         const { prompt, config } = message.payload;
-        // The same free-models-only rule the dev socket gets. A stale paid model can
-        // sit in the panel's stored config from before the rule existed, and the run
-        // must not reach OpenRouter on the user's credit because of it.
-        const policy = checkModelPolicy(config);
-        if (!policy.ok) {
-          const runId: RunId = crypto.randomUUID();
-          broadcast('run.event', {
-            runId,
-            event: { kind: 'run.ended', status: 'error', message: policy.reason, steps: 0, at: now() },
-          });
-          return;
-        }
         await deps.runManager.start({ prompt, config });
         return;
       }
@@ -306,15 +293,6 @@ export function createWorker(deps: WorkerDeps): Worker {
       config = applyRunOptions(await deps.getConfig(), msg.options);
     } catch (error) {
       end('error', `could not read the stored config: ${describe(error)}`, 0);
-      return;
-    }
-
-    // Free models only unless the caller says otherwise in words. A dev run comes
-    // straight off the socket with `--option leaderModel=...`, so the panel's own
-    // free-only filter is not in the path here.
-    const policy = checkModelPolicy(config, { allowPaid: allowPaidFromOptions(msg.options) });
-    if (!policy.ok) {
-      end('error', policy.reason, 0);
       return;
     }
 
