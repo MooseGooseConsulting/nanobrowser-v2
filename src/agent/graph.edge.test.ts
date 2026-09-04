@@ -14,9 +14,10 @@
  */
 import { describe, expect, it } from 'vitest';
 import { MemorySaver } from '@langchain/langgraph/web';
+import { HumanMessage } from '@langchain/core/messages';
 import type { RunEvent } from '@/src/messaging/contract';
 import type { Config } from '@/src/storage';
-import { decideNext, type RouteInputs } from './graph';
+import { decideNext, trimFollowerHistory, FOLLOWER_HISTORY_TURNS, type RouteInputs } from './graph';
 import { FakePageTools } from './tools';
 import { FakeChatModel, type FakeCall, type FakeTurn } from './models';
 import { startRun, type RunEndedEvent } from './run';
@@ -188,5 +189,31 @@ describe('a follower that never calls a tool', () => {
     const signals = pick(events, 'follower.signal');
     expect(signals.at(-1)?.note).toContain('no tool call');
     expect(signals.at(-1)?.note).toContain('reliably calls tools');
+  });
+});
+
+describe('follower history is bounded', () => {
+  // Regression: every turn carries a full page observation (~17k tokens on a
+  // 60-listing eBay page). Unbounded, a live run reached 285,351 tokens against a
+  // 262,144-token model and died with a 400 before it could save anything.
+  const msg = (i: number) => new HumanMessage(`turn ${i}`);
+
+  it('keeps only the most recent turns', () => {
+    const history = Array.from({ length: 40 }, (_, i) => msg(i));
+    const kept = trimFollowerHistory(history);
+
+    expect(kept).toHaveLength(FOLLOWER_HISTORY_TURNS * 2);
+    expect(kept.at(-1)).toBe(history.at(-1));
+    expect(kept).not.toContain(history[0]);
+  });
+
+  it('leaves a short history untouched, so early steps lose nothing', () => {
+    const history = [msg(0), msg(1)];
+    expect(trimFollowerHistory(history)).toEqual(history);
+  });
+
+  it('never returns an empty history, whatever it is asked for', () => {
+    const history = Array.from({ length: 10 }, (_, i) => msg(i));
+    expect(trimFollowerHistory(history, 0).length).toBeGreaterThan(0);
   });
 });

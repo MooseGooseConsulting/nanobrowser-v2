@@ -39,6 +39,32 @@ import type { FollowerSignal, Role, RunEvent } from '@/src/messaging/contract';
 import { AgentContextSchema, AgentState, type AgentContext, type RunStatus } from './state';
 import { FollowerSignalSchema, TERMINAL_TOOLS, planTool, summarize } from './tools';
 
+/**
+ * How many past Follower turns (a human observation plus the model's reply) are
+ * resent with each step.
+ *
+ * Every turn carries a full page observation, and on a 60-listing eBay page that
+ * is ~17k tokens before any tool result. Unbounded, the history reached 285,351
+ * tokens against a 262,144-token model and the run died with a 400. Older
+ * observations are stale snapshots of a page that has since changed, so they are
+ * not merely expensive, they are wrong to resend.
+ */
+export const FOLLOWER_HISTORY_TURNS = 3;
+
+/**
+ * Keeps the most recent turns of Follower history.
+ *
+ * Trims by message rather than by token because the reducer stores whole
+ * messages and a turn is always one human plus one AI message.
+ */
+export function trimFollowerHistory(
+  messages: BaseMessage[],
+  turns: number = FOLLOWER_HISTORY_TURNS,
+): BaseMessage[] {
+  const keep = Math.max(turns, 1) * 2;
+  return messages.length <= keep ? messages : messages.slice(-keep);
+}
+
 /** Consecutive tool-call-less Follower turns before a run is called stalled. */
 export const MAX_IDLE_FOLLOWER_TURNS = 4;
 
@@ -299,7 +325,7 @@ const follower: GraphNode<typeof AgentState, AgentContext> = async (state, confi
   const human = new HumanMessage({ content: blocks });
   const bound = ctx.followerModel.bindTools?.(ctx.toolset.all) ?? ctx.followerModel;
   const response = (await bound.invoke(
-    [new SystemMessage(FOLLOWER_SYSTEM), ...state.followerMessages, human],
+    [new SystemMessage(FOLLOWER_SYSTEM), ...trimFollowerHistory(state.followerMessages), human],
     config,
   )) as AIMessage;
 
