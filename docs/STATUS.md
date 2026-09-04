@@ -8,9 +8,9 @@ Status is **done** (built and proved by a test), **partial** (built, but somethi
 item asks for is missing — the note says what), or **open** (not built).
 
 Test names below are the `it(...)` text in the named file. `pnpm test` runs everything
-under `tests/`, `src/` and `entrypoints/` (68 files, 1446 tests) and then
+under `tests/`, `src/` and `entrypoints/` (69 files, 1480 tests) and then
 `scripts/check-invariants.sh`. The native host has its own suite under `host/` with its
-own vitest config (10 files, 138 tests); it is **not** part of the root `pnpm test` run.
+own vitest config (10 files, 142 tests); it is **not** part of the root `pnpm test` run.
 
 ## Requirements
 
@@ -62,7 +62,7 @@ own vitest config (10 files, 138 tests); it is **not** part of the root `pnpm te
 
 | Item | Status | Implementing file(s) | Proving test(s) | Notes |
 | --- | --- | --- | --- | --- |
-| **A-01** Tests cover the requirements above | partial | all `*.test.ts(x)` under `src/`, `tests/`, plus `host/test/` | `pnpm test`: 68 files, 1446 tests, then 4 stealth invariants; `host` `pnpm test`: 10 files, 138 tests | Every R and C item has at least one named proving test. The gaps are the two partial investigations (I-01 measurement, I-02 site evidence) and the fact that nothing has ever run against a real browser or a real model. |
+| **A-01** Tests cover the requirements above | partial | all `*.test.ts(x)` under `src/`, `tests/`, plus `host/test/` | `pnpm test`: 69 files, 1480 tests, then 4 stealth invariants; `host` `pnpm test`: 10 files, 142 tests | Every R and C item has at least one named proving test. The gaps are the two partial investigations (I-01 measurement, I-02 site evidence), R-02 never having been measured against a real bot-detection product, and R-09/R-10 never having executed live at all — the "Allow User Scripts" toggle has been off for every run to date, so `run_userscript` has only ever returned `blocked` on real Chrome. |
 | **Live e2e** (real Chrome, real host, Hyperagent) | done | `host/bin/nb-run`, `src/runtime/worker.ts` (dev trigger), `entrypoints/background.ts` | Terminal output pasted under "Live e2e evidence" below; host run log `~/.local/share/nanobrowser/runs/run-mtm338dy-a0e8242e.jsonl` | Ran 2026-09-03 in the user's real Chrome 152 (default profile, logged in) against hyperagent.com with `observe=dom`, `inputFidelity=in-page`. Read-only task completed in one Follower step from a 1443-token snapshot. Models for this run were paid (`deepseek/deepseek-v3.2` Leader, `z-ai/glm-5.3-flash` Follower) because the loaded build still sent `data_collection:"deny"`, which excludes every `:free` endpoint (first attempt, `run-mtm2coon-54484f60`, ended `error 404 No endpoints found matching your data policy`); fixed in `src/agent/models.ts` (`dataCollectionFor`), free-model rerun done (see Run 3 below). |
 
 ## Deviations and assumptions
