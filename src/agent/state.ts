@@ -59,6 +59,15 @@ export const AgentState = new StateSchema({
   /** Follower action steps since the last Leader turn. Reset by the Leader (R-04). */
   stepsSinceReplan: z.number().int().min(0).default(0),
   /** The Follower's most recent self-classification (R-03). */
+  /**
+   * Consecutive Follower turns that produced no tool call at all.
+   *
+   * A model that answers in prose instead of calling a tool hands control back,
+   * the Leader replans, and nothing changes -- a live run on the free Nemotron
+   * pair burned 18 steps this way without touching the page once. Counted so the
+   * graph can stop and say so rather than spending the whole step budget.
+   */
+  idleFollowerTurns: z.number().int().min(0).default(0),
   lastSignal: FollowerSignalSchema.nullable().default(null),
   status: RunStatusSchema.default('running'),
 });

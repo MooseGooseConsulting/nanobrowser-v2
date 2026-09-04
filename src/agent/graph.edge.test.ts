@@ -174,3 +174,19 @@ describe('leader node: currentSubgoal clamp and a failing planTool.invoke', () =
     expect(ended.status).toBe('done');
   });
 });
+
+describe('a follower that never calls a tool', () => {
+  // Regression: the free Nemotron pair answered in prose every turn, so the Leader
+  // replanned and nothing happened, 18 steps deep, until the step budget ran out.
+  it('stops the run and names the cause instead of burning every step', async () => {
+    const { events, ended } = await harness({
+      follower: () => ({ kind: 'text', text: 'I think I should look at the page.' }),
+    });
+
+    expect(ended.status).toBe('error');
+    expect(ended.steps).toBeLessThan(10);
+    const signals = pick(events, 'follower.signal');
+    expect(signals.at(-1)?.note).toContain('no tool call');
+    expect(signals.at(-1)?.note).toContain('reliably calls tools');
+  });
+});

@@ -39,6 +39,9 @@ import type { FollowerSignal, Role, RunEvent } from '@/src/messaging/contract';
 import { AgentContextSchema, AgentState, type AgentContext, type RunStatus } from './state';
 import { FollowerSignalSchema, TERMINAL_TOOLS, planTool, summarize } from './tools';
 
+/** Consecutive tool-call-less Follower turns before a run is called stalled. */
+export const MAX_IDLE_FOLLOWER_TURNS = 4;
+
 export const LEADER_SYSTEM = [
   'You are the Leader of a two-role browser agent. You do not touch the page.',
   'You decompose the objective into a short ordered list of concrete subgoals and hand one at a time to the Follower.',
@@ -368,6 +371,18 @@ const follower: GraphNode<typeof AgentState, AgentContext> = async (state, confi
   }
 
   if (status === 'running' && signal === 'BLOCKED') status = 'blocked';
+
+  // A Follower that answers in prose never touches the page, so the Leader replans
+  // and the same nothing happens again. Live: the free Nemotron pair spent 18 steps
+  // in that loop. Stop while the reason is still legible instead of at maxSteps.
+  const idleFollowerTurns = call ? 0 : state.idleFollowerTurns + 1;
+  if (status === 'running' && idleFollowerTurns >= MAX_IDLE_FOLLOWER_TURNS) {
+    status = 'error';
+    note =
+      `the follower returned no tool call ${idleFollowerTurns} turns running; ` +
+      'it is answering in prose instead of acting. Try a model that reliably calls tools.';
+  }
+
   if (status === 'running' && stepN >= ctx.maxSteps) status = 'max-steps';
 
   emit(config, { kind: 'follower.signal', signal, note, at: now() });
@@ -389,6 +404,7 @@ const follower: GraphNode<typeof AgentState, AgentContext> = async (state, confi
     followerMessages: messages,
     stepCount: stepN,
     stepsSinceReplan,
+    idleFollowerTurns,
     lastSignal: signal,
     status,
   };
