@@ -122,6 +122,9 @@ export function RunLog({ events, emptyMessage }: { events: RunEvent[]; emptyMess
   }, [events, hidden, stepsHidden]);
 
   const totalVisible = visibleFlat.length;
+  // Show/pin/copy are all about a log that exists — before the first event they'd be
+  // three controls with nothing to filter, pin or copy, so they wait until there is.
+  const hasEvents = events.length > 0;
 
   useEffect(() => {
     if (!pinned) return;
@@ -145,18 +148,20 @@ export function RunLog({ events, emptyMessage }: { events: RunEvent[]; emptyMess
   return (
     <RunStartContext.Provider value={runStart}>
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="flex flex-wrap items-center gap-1.5 border-b border-line pb-1.5">
-          <ShowMenu hidden={hidden} onToggle={toggleFilter} />
-          <span className="ml-auto flex items-center gap-1.5">
-            <label htmlFor="runlog-pin" className="text-[11px] text-muted">
-              pinned
-            </label>
-            <Toggle id="runlog-pin" label="Pin the log to the bottom" checked={pinned} onChange={setPinned} />
-            <Button variant="ghost" onClick={copy} disabled={events.length === 0}>
-              {copied ? 'copied' : 'copy JSON'}
-            </Button>
-          </span>
-        </div>
+        {hasEvents ? (
+          <div className="flex flex-wrap items-center gap-1.5 border-b border-line pb-1.5">
+            <ShowMenu hidden={hidden} onToggle={toggleFilter} />
+            <span className="ml-auto flex items-center gap-1.5">
+              <label htmlFor="runlog-pin" className="text-[11px] text-muted">
+                pinned
+              </label>
+              <Toggle id="runlog-pin" label="Pin the log to the bottom" checked={pinned} onChange={setPinned} />
+              <Button variant="ghost" onClick={copy}>
+                {copied ? 'copied' : 'copy JSON'}
+              </Button>
+            </span>
+          </div>
+        ) : null}
 
         <div className="min-h-0 flex-1 overflow-y-auto pt-2">
           {totalVisible === 0 ? (

@@ -76,9 +76,9 @@ export function RunSection({
   const subgoal = currentSubgoal(log.events);
   const stateLabel = aborting ? STATE_LABEL.aborting : phase === 'paused' ? STATE_LABEL.paused : STATE_LABEL.running;
 
-  const showPause = active && !aborting && phase === 'running';
-  const showResume = active && !aborting && phase === 'paused';
-  const showAbort = active && !aborting;
+  // Pause and Resume are never both applicable at once, so they are one control whose
+  // label/handler track phase rather than two buttons toggled by visibility.
+  const showTransport = active && !aborting;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2.5">
@@ -93,10 +93,12 @@ export function RunSection({
           placeholder="What should the agent do on this tab?"
           onChange={(event) => setPrompt(event.target.value)}
           onKeyDown={(event) => {
-            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-              event.preventDefault();
-              submit();
-            }
+            // Plain Enter sends, Shift+Enter inserts a newline — the convention every
+            // chat UI uses. Ctrl/Cmd+Enter still works too: it's harmless and some
+            // users have the habit from before this changed.
+            if (event.key !== 'Enter' || event.shiftKey) return;
+            event.preventDefault();
+            submit();
           }}
           className="w-full resize-y rounded-md border border-line bg-paper px-2.5 py-2 text-sm text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent"
         />
@@ -105,7 +107,9 @@ export function RunSection({
           <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
             <Badge tone="leader">{leaderName || 'no leader model'}</Badge>
             <Badge tone="follower">{followerName || 'no follower model'}</Badge>
-            {onGoToSetup ? (
+            {/* Hidden once the blocked-reason bar is showing its own "Fix in Setup" —
+               same destination, so both at once would be a literal duplicate CTA. */}
+            {onGoToSetup && gate.ok ? (
               <button
                 type="button"
                 onClick={onGoToSetup}
@@ -115,7 +119,12 @@ export function RunSection({
               </button>
             ) : null}
           </p>
-          <Button variant="primary" disabled={!canStart} onClick={submit} title="Ctrl/Cmd+Enter also submits">
+          <Button
+            variant="primary"
+            disabled={!canStart}
+            onClick={submit}
+            title="Enter also submits · Shift+Enter for a new line"
+          >
             {starting && !log.runId ? 'Starting…' : 'Run'}
           </Button>
         </div>
@@ -159,9 +168,12 @@ export function RunSection({
       ) : null}
 
       <div className="flex flex-wrap items-center gap-1.5">
-        {showPause ? <Button onClick={onPause}>Pause</Button> : null}
-        {showResume ? <Button onClick={onResume}>Resume</Button> : null}
-        {showAbort ? (
+        {showTransport ? (
+          <Button onClick={phase === 'paused' ? onResume : onPause}>
+            {phase === 'paused' ? 'Resume' : 'Pause'}
+          </Button>
+        ) : null}
+        {showTransport ? (
           <Button
             variant="danger"
             onClick={() => {
