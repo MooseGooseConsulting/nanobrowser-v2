@@ -59,6 +59,10 @@ class FakePageDriver implements RuntimeDriver {
     this.#record('screenshot', tabId);
     return { ok: true, dataUrl: 'data:image/png;base64,ZmFrZQ==', width: 1024, height: 768 };
   }
+  async extractText(tabId: number, opts?: unknown) {
+    this.#record('extractText', tabId, opts);
+    return { ok: true, text: 'Add to cart', truncated: false };
+  }
   async click(tabId: number, ref: string) {
     return this.#record('click', tabId, ref);
   }
@@ -91,6 +95,10 @@ class FakePageDriver implements RuntimeDriver {
   async download(url: string) {
     this.#record('download', url);
     return { ok: true, downloadId: 7 };
+  }
+  async saveFile(dataUrl: string, filename: string) {
+    this.#record('saveFile', dataUrl, filename);
+    return { ok: true, downloadId: 8 };
   }
 }
 

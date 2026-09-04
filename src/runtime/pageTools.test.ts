@@ -15,6 +15,7 @@ import {
   createPageTools,
   type RuntimeDriver,
   type RuntimePageTools,
+  type SaveArtifact,
 } from './pageTools';
 
 interface Call {
@@ -43,6 +44,10 @@ class FakeDriver implements RuntimeDriver {
   async screenshot(tabId: number) {
     this.#record('screenshot', tabId);
     return { ok: true, dataUrl: 'data:image/png;base64,ZmFrZQ==', width: 800, height: 600, devicePixelRatio: 1, deviceWidth: 800, deviceHeight: 600 };
+  }
+  async extractText(tabId: number, opts?: unknown) {
+    this.#record('extractText', tabId, opts);
+    return { ok: true, text: 'extracted', truncated: false };
   }
   async click(tabId: number, ref: string) {
     return this.#record('click', tabId, ref);
@@ -76,6 +81,10 @@ class FakeDriver implements RuntimeDriver {
   async download(url: string, filename?: string) {
     this.#record('download', url, filename);
     return this.ok ? { ok: true, downloadId: 42 } : { ok: false, error: this.error };
+  }
+  async saveFile(dataUrl: string, filename: string) {
+    this.#record('saveFile', dataUrl, filename);
+    return this.ok ? { ok: true, downloadId: 43 } : { ok: false, error: this.error };
   }
 }
 
@@ -141,7 +150,10 @@ interface Harness {
   userscriptResult: UserscriptRunResult;
 }
 
-function harness(fidelity: InputFidelity, options: { withDebugger?: boolean } = {}): Harness {
+function harness(
+  fidelity: InputFidelity,
+  options: { withDebugger?: boolean; runId?: string; saveArtifact?: SaveArtifact } = {},
+): Harness {
   const driver = new FakeDriver();
   const events: RunEvent[] = [];
   const userscriptRuns: string[] = [];
@@ -178,6 +190,8 @@ function harness(fidelity: InputFidelity, options: { withDebugger?: boolean } = 
       return state.userscriptResult;
     },
     sleep: async () => {},
+    ...(options.runId !== undefined ? { runId: options.runId } : {}),
+    ...(options.saveArtifact ? { saveArtifact: options.saveArtifact } : {}),
   });
 
   return state;
@@ -189,7 +203,7 @@ describe('createPageTools', () => {
     const snap = await h.tools.snapshot();
     expect(snap.text).toContain('[ref=e7]');
     expect(snap.tokens).toBe(9);
-    expect(h.driver.calls[0]).toEqual({ name: 'snapshot', args: [TAB, { interactiveOnly: false, maxNodes: 400 }] });
+    expect(h.driver.calls[0]).toEqual({ name: 'snapshot', args: [TAB, { interactiveOnly: false, maxNodes: 900 }] });
   });
 
   it('surfaces a driver failure as a thrown error, not a silent success', async () => {
@@ -299,6 +313,75 @@ describe('createPageTools', () => {
 
     await h.tools.download('e7');
     expect(h.driver.calls.at(-1)).toEqual({ name: 'click', args: [TAB, 'e7'] });
+  });
+
+  it('extracts readable text through the driver', async () => {
+    const h = harness('in-page');
+    expect(await h.tools.extractText()).toBe('extracted');
+    expect(h.driver.calls.at(-1)).toEqual({ name: 'extractText', args: [TAB, {}] });
+  });
+
+  it('passes maxChars through to the driver', async () => {
+    const h = harness('in-page');
+    await h.tools.extractText(500);
+    expect(h.driver.calls.at(-1)).toEqual({ name: 'extractText', args: [TAB, { maxChars: 500 }] });
+  });
+
+  it('truncates run_userscript\'s own echoed JSON at ~60000 chars but keeps it retrievable in full', async () => {
+    const h = harness('in-page', { saveArtifact: async (filename, content) => ({ path: `/artifacts/${filename}`, bytes: content.length }) });
+    h.userscriptResult = { scriptId: 's1', ok: true, value: { big: 'x'.repeat(70_000) }, console: [], durationMs: 1 };
+    const summary = await h.tools.runUserscript('s1');
+    expect(summary).toContain('[truncated]');
+    expect(summary.length).toBeLessThan(61_000);
+
+    // The full, untruncated value is still what save_file(fromLastUserscript:true) writes.
+    const saved = await h.tools.saveFile('result.json', undefined, true);
+    expect(saved).toContain('result.json');
+    const fullJson = JSON.stringify({ big: 'x'.repeat(70_000) }, null, 2);
+    expect(fullJson.length).toBeGreaterThan(70_000);
+  });
+
+  it('save_file refuses fromLastUserscript when nothing has run yet', async () => {
+    const h = harness('in-page');
+    await expect(h.tools.saveFile('a.json', undefined, true)).rejects.toThrow('no userscript has run yet');
+  });
+
+  it('save_file downloads to the Downloads folder and emits a file.saved event', async () => {
+    const h = harness('in-page', { runId: 'run-1' });
+    const result = await h.tools.saveFile('data.json', '{"a":1}', false);
+    expect(result).toContain('data.json');
+    expect(result).toContain('7 bytes');
+    expect(h.driver.calls.at(-1)?.name).toBe('saveFile');
+    expect(h.events).toContainEqual({
+      kind: 'file.saved',
+      runId: 'run-1',
+      filename: 'data.json',
+      bytes: 7,
+      path: 'nanobrowser/data.json',
+      at: expect.any(Number),
+    });
+  });
+
+  it('save_file also writes to the host artifacts sink when available, and reports its path', async () => {
+    const calls: Array<[string, string]> = [];
+    const h = harness('in-page', {
+      runId: 'run-2',
+      saveArtifact: async (filename, content) => {
+        calls.push([filename, content]);
+        return { path: `/home/user/.local/share/nanobrowser/artifacts/run-2/${filename}`, bytes: content.length };
+      },
+    });
+    const result = await h.tools.saveFile('out.csv', 'a,b\n1,2', false);
+    expect(calls).toEqual([['out.csv', 'a,b\n1,2']]);
+    expect(result).toContain('artifacts/run-2/out.csv');
+    expect(h.events).toContainEqual(
+      expect.objectContaining({ kind: 'file.saved', path: expect.stringContaining('artifacts/run-2/out.csv') }),
+    );
+  });
+
+  it('save_file requires content unless fromLastUserscript is set', async () => {
+    const h = harness('in-page');
+    await expect(h.tools.saveFile('a.json', undefined, false)).rejects.toThrow('no content');
   });
 
   it('emits userscript console lines into the run log (R-07/R-09)', async () => {

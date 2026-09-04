@@ -7,6 +7,7 @@
  * covers the real graph over these page tools.
  */
 import { describe, expect, it, vi } from 'vitest';
+import { fakeBrowser } from 'wxt/testing/fake-browser';
 import type { RunEvent } from '@/src/messaging';
 import type { Config } from '@/src/storage';
 import { FakeChatModel } from '@/src/agent/models';
@@ -29,6 +30,7 @@ function fakeDriver(): RuntimeDriver {
   return {
     snapshot: async () => ({ ok: true, text: '', nodes: 0, truncated: false, approxTokens: 0, url: '', title: '' }),
     screenshot: async () => ({ ok: true, dataUrl: 'data:image/png;base64,x', width: 1, height: 1 }),
+    extractText: async () => ({ ok: true, text: '', truncated: false }),
     click: async () => okResult,
     type: async () => okResult,
     press: async () => okResult,
@@ -39,6 +41,7 @@ function fakeDriver(): RuntimeDriver {
     getBox: async () => ({ ok: true, box: { x: 0, y: 0, width: 10, height: 10, centerX: 5, centerY: 5 } }),
     navigate: async () => okResult,
     download: async () => ({ ok: true, downloadId: 1 }),
+    saveFile: async () => ({ ok: true, downloadId: 2 }),
   };
 }
 
@@ -256,5 +259,61 @@ describe('RunManager.start', () => {
     const { runManager } = manager({ tabs: tabsPort('chrome://settings') });
     await expect(runManager.navigateActiveTab('https://x.test/')).rejects.toThrow('chrome://');
     expect(await runManager.resolveTabId()).toBeUndefined();
+  });
+
+  it('passes the tab-filtered available userscripts through to the run (R-09)', async () => {
+    const scripted = scriptedStart([], endedOk);
+    const listAvailableUserscripts = vi.fn(async (url: string) =>
+      url.includes('ebay.com') ? [{ id: 's1', name: 'ebay-search-extract' }] : [],
+    );
+    const { runManager } = manager({
+      start: scripted.start,
+      tabs: tabsPort('https://www.ebay.com/sch/i.html?_nkw=ddr5'),
+      listAvailableUserscripts,
+    });
+    const result = await runManager.start({ prompt: 'go', config });
+    scripted.finish();
+    await result.done;
+
+    expect(listAvailableUserscripts).toHaveBeenCalledWith('https://www.ebay.com/sch/i.html?_nkw=ddr5');
+    expect(scripted.seen[0]?.availableUserscripts).toEqual([{ id: 's1', name: 'ebay-search-extract' }]);
+  });
+
+  it('surfaces the bundled ebay-search-extract userscript on an eBay search page by default', async () => {
+    fakeBrowser.reset();
+    const scripted = scriptedStart([], endedOk);
+    const { runManager } = manager({
+      start: scripted.start,
+      tabs: tabsPort('https://www.ebay.com/sch/i.html?_nkw=ddr5&_sacat=0&_ipg=60'),
+    });
+    const result = await runManager.start({ prompt: 'go', config });
+    scripted.finish();
+    await result.done;
+
+    expect(scripted.seen[0]?.availableUserscripts).toContainEqual(
+      expect.objectContaining({ name: 'ebay-search-extract' }),
+    );
+  });
+
+  it('wires save_file to the host artifact sink when the host supports it', async () => {
+    const scripted = scriptedStart([], endedOk);
+    const saveArtifact = vi.fn(async (runId: string, filename: string, content: string) => ({
+      path: `/artifacts/${runId}/${filename}`,
+      bytes: content.length,
+    }));
+    const { runManager } = manager({
+      start: scripted.start,
+      host: { appendRunLog: () => {}, saveArtifact },
+      newRunId: () => 'run-save',
+    });
+    await runManager.start({ prompt: 'go', config });
+    scripted.finish();
+
+    const passedTools = scripted.seen[0]?.tools;
+    expect(passedTools).toBeDefined();
+    const result = await passedTools!.saveFile('a.json', '{"a":1}', false);
+    expect(saveArtifact).toHaveBeenCalledWith('run-save', 'a.json', '{"a":1}');
+    expect(result).toContain('a.json');
+    expect(result).toContain('/artifacts/run-save/a.json');
   });
 });

@@ -9,11 +9,14 @@
  */
 import { click, getBox, hover, press, scroll, select, type } from './actions';
 import type { ActionResult, BoxResult, ScrollOptions, TypeOptions } from './actions';
+import { extractText } from './extractText';
+import type { ExtractTextOptions, ExtractTextResult } from './extractText';
 import { snapshot } from './snapshot';
 import type { SnapshotOptions, SnapshotResult } from './snapshot';
 
 export type PageRequest =
   | ({ op: 'snapshot' } & SnapshotOptions)
+  | ({ op: 'extractText' } & ExtractTextOptions)
   | { op: 'click'; ref: string }
   | ({ op: 'type'; ref: string; text: string } & TypeOptions)
   | { op: 'press'; key: string }
@@ -34,7 +37,12 @@ export interface PingResult extends ActionResult {
   height: number;
 }
 
-export type PageResponse = ActionResult | BoxResult | PingResult | (ActionResult & SnapshotResult);
+export type PageResponse =
+  | ActionResult
+  | BoxResult
+  | PingResult
+  | (ActionResult & SnapshotResult)
+  | (ActionResult & ExtractTextResult);
 
 function isRequest(value: unknown): value is PageRequest {
   return typeof value === 'object' && value !== null && typeof (value as { op?: unknown }).op === 'string';
@@ -64,6 +72,10 @@ export function handle(request: unknown): PageResponse {
       case 'snapshot': {
         const { op: _op, ...opts } = request;
         return { ok: true, ...snapshot(opts) };
+      }
+      case 'extractText': {
+        const { op: _op, ...opts } = request;
+        return { ok: true, ...extractText(opts) };
       }
       case 'click':
         return click(request.ref);

@@ -320,3 +320,34 @@ describe('appendRunLog', () => {
     expect(sent.id).toBeUndefined();
   });
 });
+
+describe('saveArtifact', () => {
+  it('round-trips artifact.save and resolves with the path and byte count', async () => {
+    const { client, ports } = makeClient();
+    const promise = client.saveArtifact('run-1', 'result.json', '{"a":1}');
+    const port = ports[0]!;
+    const sent = lastSent(port);
+    expect(sent).toMatchObject({ type: 'artifact.save', runId: 'run-1', filename: 'result.json', content: '{"a":1}' });
+
+    port.emit({
+      type: 'artifact.save.result',
+      id: sent.id,
+      runId: 'run-1',
+      filename: 'result.json',
+      bytes: 7,
+      path: '/home/user/.local/share/nanobrowser/artifacts/run-1/result.json',
+    });
+    await expect(promise).resolves.toEqual({
+      path: '/home/user/.local/share/nanobrowser/artifacts/run-1/result.json',
+      bytes: 7,
+    });
+  });
+
+  it('rejects on a host error reply', async () => {
+    const { client, ports } = makeClient();
+    const promise = client.saveArtifact('run-1', '../evil.json', 'x');
+    const sent = lastSent(ports[0]!);
+    ports[0]!.emit({ type: 'error', id: sent.id, code: 'bad_request', message: 'filename must not contain ".."' });
+    await expect(promise).rejects.toThrow('filename must not contain ".."');
+  });
+});

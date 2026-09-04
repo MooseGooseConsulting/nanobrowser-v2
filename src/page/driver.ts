@@ -13,6 +13,7 @@
  * tier is a separate escalation path that reuses `getBox()`'s viewport coordinates.
  */
 import type { PageRequest, PageResponse, PingResult } from './handler';
+import type { ExtractTextOptions, ExtractTextResult } from './extractText';
 import type { SnapshotOptions, SnapshotResult } from './snapshot';
 import type { ActionResult, BoxResult, ScrollOptions, TypeOptions } from './actions';
 
@@ -42,7 +43,12 @@ export interface ChromeApi {
   };
   /** Absent unless the `downloads` permission is granted. */
   downloads?: {
-    download(options: { url: string; filename?: string; saveAs?: boolean }): Promise<number>;
+    download(options: {
+      url: string;
+      filename?: string;
+      saveAs?: boolean;
+      conflictAction?: 'uniquify' | 'overwrite' | 'prompt';
+    }): Promise<number>;
   };
 }
 
@@ -139,6 +145,10 @@ export class PageDriver {
 
   snapshot(tabId: number, opts: SnapshotOptions = {}): Promise<SnapshotResponse> {
     return this.send<SnapshotResponse>(tabId, { op: 'snapshot', ...opts });
+  }
+
+  extractText(tabId: number, opts: ExtractTextOptions = {}): Promise<ActionResult & Partial<ExtractTextResult>> {
+    return this.send<ActionResult & Partial<ExtractTextResult>>(tabId, { op: 'extractText', ...opts });
   }
 
   click(tabId: number, ref: string): Promise<ActionResult> {
@@ -268,6 +278,32 @@ export class PageDriver {
     }
     try {
       const downloadId = await downloads.download({ url, filename, saveAs: false });
+      return { ok: true, downloadId };
+    } catch (err) {
+      return { ok: false, error: `downloads.download failed: ${errorOf(err)}` };
+    }
+  }
+
+  /**
+   * `save_file`'s Downloads-folder half: a `data:` URL straight to
+   * `nanobrowser/<filename>`, never overwriting an existing file (`conflictAction:
+   * 'uniquify'` renames instead) and never prompting the user (`saveAs: false`).
+   */
+  async saveFile(dataUrl: string, filename: string): Promise<ActionResult & { downloadId?: number }> {
+    const downloads = this.api.downloads;
+    if (!downloads?.download) {
+      return {
+        ok: false,
+        error: 'the "downloads" permission is not granted: chrome.downloads is unavailable.',
+      };
+    }
+    try {
+      const downloadId = await downloads.download({
+        url: dataUrl,
+        filename: `nanobrowser/${filename}`,
+        saveAs: false,
+        conflictAction: 'uniquify',
+      });
       return { ok: true, downloadId };
     } catch (err) {
       return { ok: false, error: `downloads.download failed: ${errorOf(err)}` };

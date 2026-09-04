@@ -16,12 +16,12 @@ describe('handleUserscriptMessage', () => {
     resetWorldConfiguration();
   });
 
-  it('seeds the bundled example the first time the panel lists scripts', async () => {
+  it('seeds every bundled example the first time the panel lists scripts', async () => {
     const reply = await handleUserscriptMessage({ type: 'userscript.list', payload: {} });
 
     expect(reply?.type).toBe('userscript.list');
     const scripts = (reply as { payload: { scripts: Array<{ name: string }> } }).payload.scripts;
-    expect(scripts.map((script) => script.name)).toEqual(['hyperagent-observe']);
+    expect(scripts.map((script) => script.name)).toEqual(['hyperagent-observe', 'ebay-search-extract']);
   });
 
   it('saves a script and replies with the refreshed list', async () => {

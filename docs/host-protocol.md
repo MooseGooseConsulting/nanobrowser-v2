@@ -18,6 +18,7 @@ What it provides:
 | LLM proxy; the extension names the model, the host never substitutes one | C-07 |
 | `key.status` — validated readiness, not assumed readiness | R-11 |
 | Run-log sink (`runs/<runId>.jsonl`) | R-07 |
+| `save_file` artifact sink (`artifacts/<runId>/<filename>`) | O-05 |
 | Dev-only unix-socket run trigger | live testing |
 | Dev-only extension self-reload (`reload` op) | unattended loop |
 | Extension error sink (`ext.log`) | unattended loop |
@@ -164,6 +165,27 @@ Events are also mirrored to any dev-socket subscriber for that run. An event who
 Redaction is the **extension's** job, on the way out: strip provider-key shapes and
 `input[type=password]` values before posting the event, so a secret never reaches disk even if a
 run misbehaves (R-12).
+
+### `artifact.save` → `artifact.save.result`
+
+The Follower tool `save_file`'s native-messaging half (the other half is
+`chrome.downloads.download` straight to the user's Downloads/nanobrowser folder — see
+`src/agent/tools.ts` and `src/runtime/pageTools.ts`).
+
+```json
+{ "type": "artifact.save", "id": "f1", "runId": "run-mgh1-9f3c", "filename": "ddr5-sold.json", "content": "…" }
+{ "type": "artifact.save.result", "id": "f1", "runId": "run-mgh1-9f3c", "filename": "ddr5-sold.json", "bytes": 4821,
+  "path": "/home/user/.local/share/nanobrowser/artifacts/run-mgh1-9f3c/ddr5-sold.json" }
+```
+
+Writes `content` verbatim to
+`~/.local/share/nanobrowser/artifacts/<runId>/<filename>`, creating both directories as
+needed, mode `0600`. The extension already validated `filename` (basename only, an
+allowed extension, no separators, no `..`) before it ever sent this, but the host never
+trusts a client-supplied path: `filename` is re-validated from scratch (`bad_request` on a
+separator or `..`) and `runId` goes through the same `[A-Za-z0-9_-]{1,64}` check
+`runlog.append` uses. `content` over 8 MiB (`MAX_ARTIFACT_BYTES`) is `bad_request` rather
+than written partially.
 
 ### `log.append` → `log.ack`
 

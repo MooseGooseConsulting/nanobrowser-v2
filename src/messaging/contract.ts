@@ -46,6 +46,7 @@ export type RunEvent =
   | { kind: 'observation'; mode: ObserveMode; tokens?: number; hasScreenshot: boolean; at: number }
   | { kind: 'input.fidelity'; fidelity: InputFidelity; attached: boolean; at: number }
   | { kind: 'userscript.output'; scriptId: string; level: 'log' | 'warn' | 'error'; text: string; at: number }
+  | { kind: 'file.saved'; runId: RunId; filename: string; bytes: number; path: string; at: number }
   | { kind: 'run.paused'; at: number }
   | { kind: 'run.resumed'; at: number }
   | { kind: 'run.ended'; status: 'done' | 'aborted' | 'blocked' | 'max-steps' | 'error'; message: string; steps: number; at: number };

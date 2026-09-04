@@ -8,9 +8,9 @@ Status is **done** (built and proved by a test), **partial** (built, but somethi
 item asks for is missing — the note says what), or **open** (not built).
 
 Test names below are the `it(...)` text in the named file. `pnpm test` runs everything
-under `tests/`, `src/` and `entrypoints/` (39 files, 1158 tests) and then
+under `tests/`, `src/` and `entrypoints/` (66 files, 1408 tests) and then
 `scripts/check-invariants.sh`. The native host has its own suite under `host/` with its
-own vitest config; it is **not** part of the root `pnpm test` run.
+own vitest config (8 files, 122 tests); it is **not** part of the root `pnpm test` run.
 
 ## Requirements
 
@@ -110,6 +110,39 @@ recorded here. None of them changed `REQUIREMENTS.md`.
     whose `type` is `run.end`, while every contract event is keyed by `kind`. The worker
     therefore appends one extra host-only `{ type: 'run.end', … }` record when a
     dev-triggered run finishes. No contract variant was added for this.
+11. **O-05 — `save_file` as a Follower tool.** Two independent save paths, both taken on
+    every call so one failing does not lose the other: `chrome.downloads.download` of a
+    `data:` URL to `nanobrowser/<filename>` (`saveAs:false`, `conflictAction:'uniquify'`
+    — `src/page/driver.ts` `PageDriver.saveFile`), and the host's new `artifact.save` op,
+    writing to `~/.local/share/nanobrowser/artifacts/<runId>/<filename>` (`host/src/
+    artifacts.ts`, wired in `host/src/dispatcher.ts`, documented in
+    `docs/host-protocol.md`). The tool (`src/agent/tools.ts` `save_file`) validates the
+    filename client-side (basename only, `.json`/`.txt`/`.csv`, no separators, no `..`,
+    ≤100 chars — `validateSaveFilename`); the host re-validates independently
+    (`assertFilename` in `host/src/artifacts.ts`) rather than trusting the client. A
+    `run.ended`-style run-log event, `file.saved`, is added to the `RunEvent` union
+    (`src/messaging/contract.ts`) and rendered by a new `src/ui/runlog/FileSavedCard.tsx`
+    wired into `LogEntryView.tsx`. Proving tests: `src/agent/tools.edge.test.ts`
+    ("save_file requires a well-formed filename", "save_file JSON.stringifies an object
+    argument with 2-space indent"); `src/runtime/pageTools.test.ts` ("save_file downloads
+    to the Downloads folder and emits a file.saved event", "save_file also writes to the
+    host artifacts sink when available, and reports its path", "save_file refuses
+    fromLastUserscript when nothing has run yet"); `host/test/artifacts.test.ts` and
+    `host/test/dispatcher.test.ts` ("writes the file under <artifactsDir>/<runId>/
+    <filename> and reports its byte count", "rejects a filename that escapes the run
+    directory without writing anything").
+12. **O-05 — `extract_text` as a Follower tool.** Not named in REQUIREMENTS.md; built
+    because a text snapshot's node budget is the wrong tool for a long results list —
+    see the maxNodes finding below. Implemented read-only in the injected ISOLATED-world
+    code (`src/page/extractText.ts`), exposed through the existing handler/driver the
+    same way `snapshot` is (`src/page/handler.ts`, `src/page/driver.ts`
+    `PageDriver.extractText`). Prefers `main`, then `[role=main]`, then `article`, else
+    the whole body; collapses whitespace; renders an anchor with an href and text as
+    `"text (href)"`; `maxChars` (default 20000, hard cap 60000) with a trailing
+    `" [truncated]"` marker. Proving tests: `src/page/extractText.test.ts` (unit
+    behaviour); `tests/page-extract-text-ebay.test.ts` (against the eBay
+    current-offerings fixture: "reads the `<main>` results list rather than the header
+    chrome", "renders the item link as \"text (href)\"", "is whitespace-collapsed").
 
 
 ## Live e2e evidence
@@ -182,3 +215,55 @@ One manual `Load unpacked` was needed once. From then on: `scripts/e2e.sh` (buil
 status → run → assert → extension errors) runs with nobody at the keyboard. `host/bin/nb-logs` shows
 worker/panel errors forwarded to `~/.local/share/nanobrowser/ext.log`; `host/bin/nb-reload` reloads the
 extension from disk on demand.
+
+## Suitability for the eBay DDR5 task
+
+The task: "scrape and save a JSON of the first page of recently sold DDR5 from eBay, and
+of the current offerings for DDR5 from eBay", unattended, on free models.
+
+**Built and proved by a test:**
+
+- **Current offerings** — `ebay-search-extract` (`src/userscripts/examples.ts`) parses
+  eBay's live `.s-card` markup into `{ title, price, priceValue, currency, condition,
+  buyingFormat, bids, shipping, location, seller, sellerFeedback, quantitySold, soldDate,
+  url, itemId }`, skipping "Shop on eBay" placeholders, proved against
+  `tests/fixtures/ebay-ddr5-current.html` (60 real listings + 2 placeholders, hand-written
+  from the live probe) in `src/userscripts/examples.test.ts` — including the two exact
+  card values the probe recorded (card 0 and card 5).
+- **Sold/completed** — the same userscript also handles the legacy `.s-item` markup and a
+  `Sold <date>` caption, proved against `tests/fixtures/ebay-ddr5-sold.html` (4 `.s-card` +
+  3 `.s-item` real listings, mixed on purpose). The live probe found `LH_Sold=1&LH_Complete=1`
+  redirects to `signin.ebay.com` when the user is not signed in — `tests/fixtures/
+  ebay-signin.html` reproduces that wall, and the Follower system prompt (`src/agent/
+  graph.ts`) now says explicitly: "If you land on a sign-in or login page, call blocked;
+  never enter credentials." Whether the *live* sold search actually needs sign-in for this
+  user's account is the one thing only a real run can answer — this build can only refuse
+  correctly, not sidestep it.
+- **Saving the result** — `run_userscript`'s own return is truncated at ~60000 chars, but
+  the full untruncated array is retained and `save_file(fromLastUserscript:true)` writes it
+  losslessly (`src/runtime/pageTools.test.ts`) to both `~/Downloads/nanobrowser/<filename>`
+  and the host's `artifacts/<runId>/<filename>` (item 11 above).
+- **Snapshot capacity** — measured directly against the current-offerings fixture
+  (`tests/page-snapshot-ebay-budget.test.ts`): a full untruncated walk of 60 listings needs
+  553 nodes; the historical default of 400 truncated before the last ~16 titles. Raised to
+  900 (`DEFAULT_MAX_NODES`, `src/page/snapshot.ts`), which now captures every title with
+  headroom for chrome this fixture does not model.
+- **Surfacing the script** — `RunManager` seeds the bundled userscripts and filters them by
+  the run's tab URL (`src/runtime/runManager.ts` `defaultListAvailableUserscripts`), so
+  `ebay-search-extract` reaches the Follower's per-turn prompt automatically on an eBay
+  search page with no panel setup required (`src/runtime/runManager.test.ts`: "surfaces the
+  bundled ebay-search-extract userscript on an eBay search page by default").
+
+**Still needs the live run to confirm:**
+
+- Whether a free Leader/Follower pair actually completes this task end-to-end in the
+  user's real Chrome (planning "go to eBay, search ddr5, run the extractor, save the
+  file" from a one-line objective, choosing tool ids correctly, and stopping cleanly).
+  Nothing here has been run against the real eBay.
+- Whether the live sold-search page really does redirect to sign-in for this user's
+  session (only checked once, per the task's own note), and whether `blocked` is what a
+  small free Follower model actually emits when it happens, rather than trying to log in.
+- The real DOM's exact attribute-span ordering and class names, which could not be
+  fetched live (eBay's 403 challenge page) and are therefore reproduced from the user's
+  own manual probe rather than scraped — a markup change on eBay's side would need a
+  fixture update.

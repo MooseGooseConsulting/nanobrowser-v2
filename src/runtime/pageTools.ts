@@ -26,6 +26,8 @@ import type {
   SnapshotResult as ToolSnapshot,
 } from '@/src/agent/tools';
 import type { ScreenshotResult, SnapshotResponse } from '@/src/page/driver';
+import type { ExtractTextOptions } from '@/src/page/extractText';
+import { DEFAULT_MAX_NODES } from '@/src/page/snapshot';
 import type { SnapshotOptions } from '@/src/page/snapshot';
 import type { ActionResult, ScrollOptions } from '@/src/page/actions';
 import {
@@ -47,6 +49,7 @@ import { toRunEvents } from '@/src/userscripts/debug';
 export interface RuntimeDriver {
   snapshot(tabId: number, opts?: SnapshotOptions): Promise<SnapshotResponse>;
   screenshot(tabId: number): Promise<ScreenshotResult>;
+  extractText(tabId: number, opts?: ExtractTextOptions): Promise<ActionResult & Partial<{ text: string; truncated: boolean }>>;
   click(tabId: number, ref: string): Promise<ActionResult>;
   type(tabId: number, ref: string, text: string): Promise<ActionResult>;
   press(tabId: number, key: string): Promise<ActionResult>;
@@ -58,7 +61,12 @@ export interface RuntimeDriver {
   getBox(tabId: number, ref: string): Promise<{ ok: boolean; error?: string; box?: Box & { centerX: number; centerY: number } }>;
   navigate(tabId: number, url: string): Promise<ActionResult>;
   download(url: string, filename?: string): Promise<ActionResult & { downloadId?: number }>;
+  /** `save_file`'s Downloads-folder half (see `PageDriver.saveFile`). */
+  saveFile(dataUrl: string, filename: string): Promise<ActionResult & { downloadId?: number }>;
 }
+
+/** `save_file`'s native-messaging half: the host's `artifact.save` (docs/host-protocol.md). */
+export type SaveArtifact = (filename: string, content: string) => Promise<{ path: string; bytes: number }>;
 
 /** Runs a userscript by id against a tab (R-09). Wired to the userscripts subsystem. */
 export type RunUserscript = (scriptId: string, tabId: number) => Promise<UserscriptRunResult>;
@@ -284,9 +292,13 @@ export const DEFAULT_SCROLL_AMOUNT = 600;
 /** Enough to reach either end of any realistic page in one call. */
 const SCROLL_TO_END_AMOUNT = 10_000_000;
 
-/** Snapshot node budget per observe mode (R-08). Pixels mode leans on the image. */
+/**
+ * Snapshot node budget per observe mode (R-08). Pixels mode leans on the image.
+ * The dom/both figure tracks `DEFAULT_MAX_NODES` (src/page/snapshot.ts) so the two
+ * defaults never drift apart; see that constant's comment for the measurement.
+ */
 export function snapshotBudget(observe: ObserveMode): number {
-  return observe === 'pixels' ? 200 : 400;
+  return observe === 'pixels' ? 200 : DEFAULT_MAX_NODES;
 }
 
 export interface CreatePageToolsOptions {
@@ -299,7 +311,14 @@ export interface CreatePageToolsOptions {
   maxNodes?: number;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
+  /** Needed for `save_file`'s host half (`artifact.save`'s `runId`). */
+  runId?: string;
+  /** Absent means `save_file` only writes to the Downloads folder, not the host. */
+  saveArtifact?: SaveArtifact;
 }
+
+/** Cap on the JSON echoed in `run_userscript`'s own return string (not what's retained). */
+const RUN_USERSCRIPT_RESULT_MAX_CHARS = 60_000;
 
 /** {@link PageTools} plus `hover`, which the port does not name but the tiers support. */
 export interface RuntimePageTools extends PageTools {
@@ -308,12 +327,27 @@ export interface RuntimePageTools extends PageTools {
 
 const realSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** UTF-8-safe base64, for `save_file`'s `data:` URL. `btoa` alone only handles latin1. */
+function base64Encode(input: string): string {
+  const bytes = new TextEncoder().encode(input);
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
 /** Builds the page port for one run against one tab. */
 export function createPageTools(options: CreatePageToolsOptions): RuntimePageTools {
   const { tabId, driver, input, observe, runUserscript, emit } = options;
   const sleep = options.sleep ?? realSleep;
   const now = options.now ?? Date.now;
   const maxNodes = options.maxNodes ?? snapshotBudget(observe);
+
+  // R-09/save_file: the full, untruncated result of the most recent successful
+  // run_userscript call. Kept in the closure (not echoed through the tool's own
+  // return string, which is capped for the model) so `save_file(fromLastUserscript:
+  // true)` can write it losslessly.
+  let lastUserscriptValue: unknown;
+  let hasLastUserscriptValue = false;
 
   return {
     async snapshot(): Promise<ToolSnapshot> {
@@ -326,6 +360,12 @@ export function createPageTools(options: CreatePageToolsOptions): RuntimePageToo
       const res = await driver.screenshot(tabId);
       if (!res.ok || !res.dataUrl) throw new Error(res.error ?? 'screenshot failed');
       return { dataUrl: res.dataUrl, width: res.width ?? 0, height: res.height ?? 0 };
+    },
+
+    async extractText(maxChars?: number) {
+      const res = await driver.extractText(tabId, maxChars !== undefined ? { maxChars } : {});
+      if (!res.ok || res.text === undefined) throw new Error(res.error ?? 'extract_text failed');
+      return res.text;
     },
 
     async click(ref) {
@@ -397,8 +437,56 @@ export function createPageTools(options: CreatePageToolsOptions): RuntimePageToo
       const result = await runUserscript(scriptId, tabId);
       for (const event of toRunEvents(result, now)) emit(event);
       if (!result.ok) throw new Error(result.error ?? `userscript ${scriptId} failed`);
-      const value = result.value === undefined ? '(no value)' : JSON.stringify(result.value);
+      lastUserscriptValue = result.value;
+      hasLastUserscriptValue = true;
+      const full = result.value === undefined ? '(no value)' : JSON.stringify(result.value);
+      const value =
+        full.length > RUN_USERSCRIPT_RESULT_MAX_CHARS
+          ? `${full.slice(0, RUN_USERSCRIPT_RESULT_MAX_CHARS)} [truncated]`
+          : full;
       return `userscript ${scriptId} ran in ${result.durationMs}ms: ${value}`;
+    },
+
+    async saveFile(filename, content, fromLastUserscript) {
+      let body = content;
+      if (fromLastUserscript) {
+        if (!hasLastUserscriptValue) throw new Error('no userscript has run yet in this session: nothing to save');
+        body = JSON.stringify(lastUserscriptValue, null, 2) ?? String(lastUserscriptValue);
+      }
+      if (body === undefined) throw new Error('save_file has no content to save');
+      const bytes = new TextEncoder().encode(body).length;
+
+      const dataUrl = `data:application/octet-stream;base64,${base64Encode(body)}`;
+      const downloadRes = await driver.saveFile(dataUrl, filename);
+
+      let artifactNote = '';
+      let artifactPath: string | undefined;
+      if (options.saveArtifact) {
+        try {
+          const artifact = await options.saveArtifact(filename, body);
+          artifactPath = artifact.path;
+          artifactNote = `; also saved to the run's artifacts (${artifact.path})`;
+        } catch (error) {
+          artifactNote = `; could not save to the run's artifacts: ${error instanceof Error ? error.message : String(error)}`;
+        }
+      }
+      if (!downloadRes.ok && !options.saveArtifact) throw new Error(downloadRes.error ?? 'save_file failed');
+      const downloadNote = downloadRes.ok
+        ? ''
+        : `; could not save to Downloads/nanobrowser: ${downloadRes.error ?? 'unknown error'}`;
+
+      // R-07: one run-log entry the panel renders as a file-saved card, regardless
+      // of which of the two save mechanisms actually succeeded.
+      emit({
+        kind: 'file.saved',
+        runId: options.runId ?? '',
+        filename,
+        bytes,
+        path: artifactPath ?? `nanobrowser/${filename}`,
+        at: now(),
+      });
+
+      return `saved ${filename} (${bytes} bytes)${downloadNote}${artifactNote}`;
     },
 
     async wait(ms) {

@@ -44,6 +44,8 @@ export interface StartRunOptions {
   runId?: RunId;
   tabId?: number;
   url?: string;
+  /** Stored userscripts whose match pattern fits this tab (R-09). Default none. */
+  availableUserscripts?: Array<{ id: string; name: string }>;
 }
 
 export interface RunHandle {
@@ -89,6 +91,7 @@ export function startRun(options: StartRunOptions): RunHandle {
     runId = crypto.randomUUID(),
     tabId = -1,
     url = '',
+    availableUserscripts = [],
   } = options;
 
   const graph = buildAgentGraph(checkpointer);
@@ -101,6 +104,7 @@ export function startRun(options: StartRunOptions): RunHandle {
     followerModel: models.follower,
     toolset: createPageToolset(tools),
     page: tools,
+    availableUserscripts,
   };
 
   const controller = new AbortController();

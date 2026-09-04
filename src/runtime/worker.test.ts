@@ -47,6 +47,7 @@ function fakeDriver(navigated: string[] = []): RuntimeDriver {
   return {
     snapshot: async () => ({ ok: true, text: '', nodes: 0, truncated: false, approxTokens: 0, url: '', title: '' }),
     screenshot: async () => ({ ok: true, dataUrl: 'data:image/png;base64,x', width: 1, height: 1 }),
+    extractText: async () => ({ ok: true, text: '', truncated: false }),
     click: async () => ok,
     type: async () => ok,
     press: async () => ok,
@@ -60,6 +61,7 @@ function fakeDriver(navigated: string[] = []): RuntimeDriver {
       return ok;
     },
     download: async () => ({ ok: true, downloadId: 1 }),
+    saveFile: async () => ({ ok: true, downloadId: 2 }),
   };
 }
 

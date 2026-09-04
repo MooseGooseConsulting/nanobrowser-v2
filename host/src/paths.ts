@@ -36,3 +36,8 @@ export function socketPath(): string {
 export function cassetteDir(): string {
   return process.env.NANOBROWSER_CASSETTE_DIR || path.resolve(import.meta.dirname, '..', 'cassettes');
 }
+
+/** `save_file`'s host-side output, one subdirectory per run: `<dir>/<runId>/<filename>`. */
+export function artifactsDir(): string {
+  return path.join(dataDir(), 'artifacts');
+}

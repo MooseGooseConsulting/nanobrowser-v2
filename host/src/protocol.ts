@@ -5,6 +5,8 @@
 
 export const HOST_NAME = 'com.nanobrowser.host';
 export const OPENROUTER_BASE = 'https://openrouter.ai/api/v1/';
+/** Kilo AI Gateway: OpenAI-compatible, bearer-authed (docs/host-protocol.md). */
+export const KILO_BASE = 'https://api.kilo.ai/api/gateway/';
 export const CHUNK_BYTES = 64 * 1024; // 64 KiB of raw body per llm.chunk
 
 export const RUN_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
@@ -44,6 +46,15 @@ export interface RunLogAppendMsg {
   event: unknown;
 }
 
+/** `save_file`'s native-messaging half: writes one Follower-produced file to disk. */
+export interface ArtifactSaveMsg {
+  type: 'artifact.save';
+  id: string;
+  runId: string;
+  filename: string;
+  content: string;
+}
+
 export type LogLevel = 'error' | 'warn' | 'info';
 export type LogSource = 'worker' | 'panel';
 
@@ -79,6 +90,7 @@ export type InboundMsg =
   | LlmRequestMsg
   | LlmAbortMsg
   | RunLogAppendMsg
+  | ArtifactSaveMsg
   | LogAppendMsg
   | InputMsg;
 
@@ -133,6 +145,16 @@ export interface RunLogAckMsg {
   ok: true;
 }
 
+/** Answer to `artifact.save`: where the file landed and how big it is. */
+export interface ArtifactSaveResultMsg {
+  type: 'artifact.save.result';
+  id: string;
+  runId: string;
+  filename: string;
+  bytes: number;
+  path: string;
+}
+
 export interface RunStartMsg {
   type: 'run.start';
   runId: string;
@@ -179,6 +201,7 @@ export type OutboundMsg =
   | LlmEndMsg
   | LlmErrorMsg
   | RunLogAckMsg
+  | ArtifactSaveResultMsg
   | RunStartMsg
   | LogAckMsg
   | ExtReloadMsg

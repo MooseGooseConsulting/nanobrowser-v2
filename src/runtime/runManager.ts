@@ -17,6 +17,7 @@ import { startRun as defaultStartRun, type RunEndedEvent, type RunHandle } from 
 import type { RunEvent, RunId } from '@/src/messaging';
 import type { Config } from '@/src/storage';
 import type { InputTier } from '@/src/input';
+import { listUserscripts, matchesAny, seedDefaults } from '@/src/userscripts';
 import {
   EscalatableInput,
   createInPageTier,
@@ -25,6 +26,18 @@ import {
   type RunUserscript,
   type RuntimeDriver,
 } from './pageTools';
+
+/**
+ * Default `listAvailableUserscripts` (R-09): seeds the bundled examples into an
+ * empty catalog, then filters the catalog by the run's tab URL. This is how a
+ * bundled script like `ebay-search-extract` reaches the Follower without the user
+ * ever opening the userscripts panel first.
+ */
+async function defaultListAvailableUserscripts(url: string): Promise<Array<{ id: string; name: string }>> {
+  await seedDefaults();
+  const scripts = await listUserscripts();
+  return scripts.filter((s) => matchesAny(s.matches, url)).map((s) => ({ id: s.id, name: s.name }));
+}
 
 /** The tab a run acts on. */
 export interface TargetTab {
@@ -56,6 +69,12 @@ export interface HostRunEndEvent {
 /** The host's run-log sink. `HostClient` satisfies it. */
 export interface RunLogSink {
   appendRunLog(runId: string, event: RunEvent | HostRunEndEvent): void;
+  /**
+   * `save_file`'s host half (docs/host-protocol.md's `artifact.save`). Optional so
+   * an older or test `RunLogSink` still satisfies this interface; absent means
+   * `save_file` only writes to the Downloads folder, not the host.
+   */
+  saveArtifact?(runId: string, filename: string, content: string): Promise<{ path: string; bytes: number }>;
 }
 
 export interface RunManagerDeps {
@@ -67,6 +86,12 @@ export interface RunManagerDeps {
   /** Absent means escalation is impossible on this platform; runs stay in-page. */
   makeDebuggerTier?: (onDetach: (reason: string) => void) => InputTier;
   runUserscript: RunUserscript;
+  /**
+   * Which stored userscripts apply to the run's tab, by id/name, so the Follower
+   * knows what `run_userscript` id it may call (R-09). Defaults to the real
+   * catalog (seeded with the bundled examples first), filtered by match pattern.
+   */
+  listAvailableUserscripts?: (url: string) => Promise<Array<{ id: string; name: string }>>;
   /** Seam for tests. */
   start?: typeof defaultStartRun;
   checkpointer?: BaseCheckpointSaver;
@@ -213,6 +238,7 @@ export class RunManager {
       ...(this.#deps.now ? { now: this.#deps.now } : {}),
     });
 
+    const host = this.#deps.host;
     const tools = createPageTools({
       tabId: tab.id,
       driver: this.#deps.driver,
@@ -220,7 +246,15 @@ export class RunManager {
       observe: config.observe,
       runUserscript: this.#deps.runUserscript,
       emit,
+      runId,
+      ...(host.saveArtifact ? { saveArtifact: (filename: string, content: string) => host.saveArtifact!(runId, filename, content) } : {}),
       ...(this.#deps.now ? { now: this.#deps.now } : {}),
+    });
+
+    const listAvailable = this.#deps.listAvailableUserscripts ?? defaultListAvailableUserscripts;
+    const availableUserscripts = await listAvailable(tab.url).catch((error: unknown) => {
+      console.warn('[nanobrowser] could not list available userscripts', error);
+      return [];
     });
 
     let models: { leader: BaseChatModel; follower: BaseChatModel };
@@ -250,6 +284,7 @@ export class RunManager {
       runId,
       tabId: tab.id,
       url: tab.url,
+      availableUserscripts,
       ...(this.#deps.checkpointer ? { checkpointer: this.#deps.checkpointer } : {}),
     });
 

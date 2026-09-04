@@ -62,20 +62,25 @@ export interface Harness {
   runEvents: Array<{ runId: string; event: unknown }>;
   runsDir: string;
   cassetteDir: string;
+  artifactsDir: string;
   cassettes: CassetteStore;
   cleanup: () => Promise<void>;
 }
 
 export async function makeHarness(
-  opts: { key?: string | null; cassetteMode?: CassetteMode } = {},
+  opts: { key?: string | null; kiloKey?: string | null; cassetteMode?: CassetteMode } = {},
 ): Promise<Harness> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'nb-host-'));
   const runsDir = path.join(root, 'runs');
   const cassetteDir = path.join(root, 'cassettes');
+  const artifactsDir = path.join(root, 'artifacts');
   const cassettes = new CassetteStore(cassetteDir);
 
   const secrets = new SecretStore(
-    new FakeSecretProvider({ OPENROUTER_API_KEY: opts.key === undefined ? 'fake-key-not-real' : opts.key }),
+    new FakeSecretProvider({
+      OPENROUTER_API_KEY: opts.key === undefined ? 'fake-key-not-real' : opts.key,
+      KILO_CODE_API_KEY: opts.kiloKey === undefined ? null : opts.kiloKey,
+    }),
   );
   await secrets.load();
 
@@ -94,6 +99,7 @@ export async function makeHarness(
     send: (m) => sent.push(m),
     llm,
     runsDir,
+    artifactsDir,
     onRunEvent: (runId, event) => runEvents.push({ runId, event }),
   });
 
@@ -105,6 +111,7 @@ export async function makeHarness(
     runEvents,
     runsDir,
     cassetteDir,
+    artifactsDir,
     cassettes,
     cleanup: () => fs.rm(root, { recursive: true, force: true }),
   };

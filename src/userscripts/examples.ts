@@ -80,5 +80,139 @@ export const HYPERAGENT_OBSERVE: UserscriptSeed = {
   code: HYPERAGENT_OBSERVE_CODE,
 };
 
+/**
+ * Reads an eBay search-results page (current offerings or sold/completed) and
+ * returns every real listing as structured JSON. Purely observational: no DOM
+ * writes, no fetch, no navigation. Handles both the current `.s-card` markup and
+ * the legacy `.s-item` markup eBay still serves to some buckets, and skips the
+ * "Shop on eBay" filler cards both markups carry.
+ */
+const EBAY_SEARCH_EXTRACT_CODE = `// ebay-search-extract — read-only eBay search-results scraper.
+// Extracts title/price/condition/format/shipping/location/seller/feedback/sold-count/
+// sold-date/url/itemId from every real result card on an eBay /sch/ search page.
+// Performs no DOM writes and no network requests of any kind.
+
+const clean = (s) => (s || '').replace(/\\s+/g, ' ').trim();
+
+function parsePrice(raw) {
+  const text = clean(raw);
+  if (!text) return { price: null, priceValue: null, currency: null };
+  const m = text.match(/^([^\\d]*)([\\d,.]+)/);
+  if (!m) return { price: text, priceValue: null, currency: null };
+  const currency = clean(m[1]) || null;
+  const value = parseFloat(m[2].replace(/,/g, ''));
+  return { price: text, priceValue: isNaN(value) ? null : value, currency: currency };
+}
+
+function itemIdFrom(href) {
+  const m = href && href.match(/\\/itm\\/(\\d+)/);
+  return m ? m[1] : null;
+}
+
+// Classifies one leaf attribute-span's text into the running per-card state.
+// "seller" is whatever unclassified span sat immediately before the feedback
+// span, per the live-probe DOM order: price, format, shipping, location,
+// [urgency], [quantity sold], seller, seller feedback.
+function classify(text, state) {
+  if (!text) return;
+  if (/^Buy It Now$/i.test(text)) { state.buyingFormat = 'Buy It Now'; return; }
+  let m = text.match(/^(\\d+)\\s*bids?$/i);
+  if (m) { state.bids = parseInt(m[1], 10); return; }
+  if (/^Free\\s+(delivery|shipping)$/i.test(text) || /^\\+.*\\b(?:delivery|shipping)\\b/i.test(text)) {
+    state.shipping = text;
+    return;
+  }
+  m = text.match(/^Located in (.+)$/);
+  if (m) { state.location = clean(m[1]); return; }
+  m = text.match(/^(\\d+)\\s*sold$/i);
+  if (m) { state.quantitySold = parseInt(m[1], 10); return; }
+  m = text.match(/Sold\\s+([A-Z][a-z]{2}\\s+\\d{1,2},\\s*\\d{4})/);
+  if (m) { state.soldDate = m[1]; return; }
+  if (/%\\s*positive/i.test(text)) {
+    state.sellerFeedback = text;
+    if (state.pendingSeller) state.seller = state.pendingSeller;
+    return;
+  }
+  state.pendingSeller = text;
+}
+
+function newState() {
+  return {
+    buyingFormat: null, bids: null, shipping: null, location: null,
+    seller: null, sellerFeedback: null, quantitySold: null, soldDate: null,
+    pendingSeller: null,
+  };
+}
+
+function extractCard(card) {
+  const isLegacy = card.classList.contains('s-item');
+  const titleEl = isLegacy
+    ? card.querySelector('.s-item__title')
+    : card.querySelector('.s-card__title .su-styled-text.primary.default');
+  const linkEl = isLegacy
+    ? card.querySelector('a.s-item__link[href*="/itm/"]')
+    : card.querySelector('a.s-card__link[href*="/itm/"]');
+  const title = clean(titleEl ? titleEl.textContent : '');
+  if (!title || title === 'Shop on eBay') return null;
+
+  const conditionEl = isLegacy
+    ? card.querySelector('.s-item__subtitle .SECONDARY_INFO, .s-item__subtitle')
+    : card.querySelector('.s-card__subtitle .su-styled-text');
+  const priceEl = isLegacy ? card.querySelector('.s-item__price') : card.querySelector('.s-card__price');
+  const parsedPrice = parsePrice(priceEl ? priceEl.textContent : '');
+
+  const state = newState();
+  if (isLegacy) {
+    const legacySelectors = [
+      '.s-item__caption--signal', '.s-item__bidCount', '.s-item__shipping',
+      '.s-item__location', '.s-item__seller-info-text',
+    ];
+    for (const sel of legacySelectors) {
+      for (const el of card.querySelectorAll(sel)) classify(clean(el.textContent), state);
+    }
+  } else {
+    const attrs = card.querySelectorAll('.su-card-container__attributes .su-styled-text');
+    for (const el of attrs) {
+      if (el.closest('.s-card__price')) continue; // already handled above
+      classify(clean(el.textContent), state);
+    }
+  }
+
+  const href = linkEl ? linkEl.getAttribute('href') : null;
+
+  return {
+    title: title,
+    price: parsedPrice.price,
+    priceValue: parsedPrice.priceValue,
+    currency: parsedPrice.currency,
+    condition: conditionEl ? clean(conditionEl.textContent) : null,
+    buyingFormat: state.buyingFormat,
+    bids: state.bids,
+    shipping: state.shipping,
+    location: state.location,
+    seller: state.seller,
+    sellerFeedback: state.sellerFeedback,
+    quantitySold: state.quantitySold,
+    soldDate: state.soldDate,
+    url: href,
+    itemId: itemIdFrom(href),
+  };
+}
+
+const cards = document.querySelectorAll('li.s-card, li.s-item');
+const results = [];
+for (const card of cards) {
+  const item = extractCard(card);
+  if (item) results.push(item);
+}
+return results;
+`;
+
+export const EBAY_SEARCH_EXTRACT: UserscriptSeed = {
+  name: 'ebay-search-extract',
+  matches: ['*://www.ebay.com/sch/*', '*://ebay.com/sch/*'],
+  code: EBAY_SEARCH_EXTRACT_CODE,
+};
+
 /** Everything `seedDefaults()` installs into an empty catalog. */
-export const BUNDLED_USERSCRIPTS: readonly UserscriptSeed[] = [HYPERAGENT_OBSERVE];
+export const BUNDLED_USERSCRIPTS: readonly UserscriptSeed[] = [HYPERAGENT_OBSERVE, EBAY_SEARCH_EXTRACT];

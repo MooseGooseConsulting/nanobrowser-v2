@@ -40,19 +40,45 @@ describe('key.status', () => {
 });
 
 describe('models.list', () => {
-  it('passes GET /models through with no Authorization header', async () => {
-    h = await makeHarness();
+  it('fetches both catalogs in parallel and merges them under sources, with no Authorization for OpenRouter', async () => {
+    h = await makeHarness({ kiloKey: 'kilo-fake-key' });
+    // Fetches start in the same tick (Promise.allSettled over a .map), so the queue
+    // order matches call order: OpenRouter first, then Kilo.
     h.fetch.enqueueJson(200, { data: [{ id: 'nvidia/nemotron-3.5-lightning:free' }] });
+    h.fetch.enqueueJson(200, { data: [{ id: 'meta/muse-spark-1.3-contributor' }] });
     await h.dispatcher.handle({ type: 'models.list', id: 'm1' });
 
     expect(h.fetch.calls[0]!.url).toBe('https://openrouter.ai/api/v1/models');
     expect(h.fetch.calls[0]!.headers['authorization']).toBeUndefined();
+    expect(h.fetch.calls[1]!.url).toBe('https://api.kilo.ai/api/gateway/models');
+    expect(h.fetch.calls[1]!.headers['authorization']).toBe('Bearer kilo-fake-key');
     expect(h.sent[0]).toEqual({
       type: 'models.list.result',
       id: 'm1',
       status: 200,
-      body: { data: [{ id: 'nvidia/nemotron-3.5-lightning:free' }] },
+      body: {
+        sources: {
+          openrouter: { status: 200, body: { data: [{ id: 'nvidia/nemotron-3.5-lightning:free' }] } },
+          kilo: { status: 200, body: { data: [{ id: 'meta/muse-spark-1.3-contributor' }] } },
+        },
+      },
     });
+  });
+
+  it('still returns the surviving source when the other one fails, and says which failed', async () => {
+    h = await makeHarness();
+    h.fetch.enqueueJson(200, { data: [{ id: 'nvidia/nemotron-3.5-lightning:free' }] });
+    h.fetch.enqueue(() => {
+      throw new Error('kilo unreachable');
+    });
+    await h.dispatcher.handle({ type: 'models.list', id: 'm1' });
+
+    expect(h.sent[0]).toMatchObject({ type: 'models.list.result', id: 'm1', status: 200 });
+    const body = (h.sent[0] as { body: { sources: unknown; errors: Record<string, string> } }).body;
+    expect(body.sources).toEqual({
+      openrouter: { status: 200, body: { data: [{ id: 'nvidia/nemotron-3.5-lightning:free' }] } },
+    });
+    expect(body.errors.kilo).toContain('kilo unreachable');
   });
 });
 
@@ -251,6 +277,43 @@ describe('runlog.append', () => {
     expect(h.sent[0]).toMatchObject({ type: 'error', id: 'a1', code: 'bad_request' });
     await expect(fs.readdir(h.runsDir)).rejects.toThrow();
     expect(h.runEvents).toEqual([]);
+  });
+});
+
+describe('artifact.save', () => {
+  it('writes the file under <artifactsDir>/<runId>/<filename> and reports its byte count', async () => {
+    h = await makeHarness();
+    await h.dispatcher.handle({ type: 'artifact.save', id: 'f1', runId: 'run-1', filename: 'result.json', content: '{"a":1}' });
+
+    const file = path.join(h.artifactsDir, 'run-1', 'result.json');
+    expect(await fs.readFile(file, 'utf8')).toBe('{"a":1}');
+    expect(h.sent[0]).toEqual({
+      type: 'artifact.save.result',
+      id: 'f1',
+      runId: 'run-1',
+      filename: 'result.json',
+      bytes: Buffer.byteLength('{"a":1}', 'utf8'),
+      path: file,
+    });
+  });
+
+  it('rejects a filename that escapes the run directory without writing anything', async () => {
+    h = await makeHarness();
+    await h.dispatcher.handle({ type: 'artifact.save', id: 'f1', runId: 'run-1', filename: '../evil.json', content: 'x' });
+    expect(h.sent[0]).toMatchObject({ type: 'error', id: 'f1', code: 'bad_request' });
+    await expect(fs.readdir(h.artifactsDir)).rejects.toThrow();
+  });
+
+  it('rejects a bad runId', async () => {
+    h = await makeHarness();
+    await h.dispatcher.handle({ type: 'artifact.save', id: 'f1', runId: '../escape', filename: 'a.json', content: 'x' });
+    expect(h.sent[0]).toMatchObject({ type: 'error', id: 'f1', code: 'bad_request' });
+  });
+
+  it('rejects a non-string content field', async () => {
+    h = await makeHarness();
+    await h.dispatcher.handle({ type: 'artifact.save', id: 'f1', runId: 'run-1', filename: 'a.json', content: { not: 'a string' } });
+    expect(h.sent[0]).toMatchObject({ type: 'error', id: 'f1', code: 'bad_request' });
   });
 });
 

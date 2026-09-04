@@ -65,6 +65,17 @@ describe('handle', () => {
     expect(handle({ op: 'select', ref: 'e3', value: 'a' })).toEqual({ ok: true });
     expect(handle({ op: 'scroll', direction: 'down' })).toMatchObject({ ok: true });
     expect(handle({ op: 'getBox', ref: 'e1' })).toMatchObject({ ok: true });
+    expect(handle({ op: 'extractText' })).toMatchObject({ ok: true, truncated: false });
+  });
+
+  it('passes extractText options through', () => {
+    document.body.innerHTML = '<main><p>Some readable text here.</p></main>';
+    const res = handle({ op: 'extractText', maxChars: 5 } satisfies PageRequest) as PageResponse & {
+      text: string;
+      truncated: boolean;
+    };
+    expect(res.text).toBe('Some  [truncated]');
+    expect(res.truncated).toBe(true);
   });
 
   it('passes snapshot options through', () => {

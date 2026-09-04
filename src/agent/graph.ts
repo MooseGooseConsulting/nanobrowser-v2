@@ -44,6 +44,7 @@ export const LEADER_SYSTEM = [
   'You decompose the objective into a short ordered list of concrete subgoals and hand one at a time to the Follower.',
   'You are called again whenever the Follower finishes a subgoal, gets stuck, or after a fixed number of its steps.',
   'When called again, revise the plan against what actually happened. Keep what worked. Do not repeat a subgoal that is already done.',
+  'The Follower can read long lists as plain text, run a stored script, and save a file; it will call blocked rather than sign in anywhere, so never plan a subgoal that requires logging in.',
   'Always answer by calling set_plan exactly once. Never write prose instead.',
 ].join(' ');
 
@@ -51,6 +52,9 @@ export const FOLLOWER_SYSTEM = [
   'You control a web browser to accomplish one subgoal at a time.',
   'Each turn you call exactly ONE tool. Never more than one.',
   'Element refs like "e12" come from the page snapshot you are shown. Never invent a ref.',
+  'For a long list or article, prefer extract_text over reading it out of the snapshot.',
+  'A run_userscript result can be saved with save_file(fromLastUserscript:true) instead of retyping it; saved files land in the user\'s Downloads/nanobrowser folder.',
+  'If you land on a sign-in or login page, call blocked; never enter credentials.',
   'On every tool call also set "signal": CONTINUE while you are still working on the subgoal,',
   'SUBGOAL_COMPLETE the moment the subgoal is achieved, RETURN_TO_LEADER if the plan no longer fits',
   'what you see, BLOCKED if you truly cannot proceed. Add a short "note" saying why.',
@@ -251,6 +255,9 @@ const follower: GraphNode<typeof AgentState, AgentContext> = async (state, confi
 
   // --- observe (R-08) -----------------------------------------------------
   const subgoal = state.subgoals[state.currentSubgoal] ?? state.plan ?? ctx.objective;
+  const scriptLine = ctx.availableUserscripts.length
+    ? `Userscripts available here (run_userscript ids): ${ctx.availableUserscripts.map((s) => `${s.id} (${s.name})`).join(', ')}.`
+    : 'No userscript is registered for this page.';
   const blocks: ContentBlock[] = [
     {
       type: 'text',
@@ -258,6 +265,7 @@ const follower: GraphNode<typeof AgentState, AgentContext> = async (state, confi
         `Objective: ${ctx.objective}`,
         `Current subgoal: ${subgoal}`,
         `Step ${stepN} of at most ${ctx.maxSteps}.`,
+        scriptLine,
       ].join('\n'),
     },
   ];

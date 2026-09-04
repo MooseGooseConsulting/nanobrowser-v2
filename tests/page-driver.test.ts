@@ -10,7 +10,7 @@ interface Fake {
   injections: Array<{ tabId: number; allFrames?: boolean; files: string[] }>;
   updates: Array<{ tabId: number; url: string }>;
   captures: Array<{ windowId: number }>;
-  downloads: Array<{ url: string; filename?: string }>;
+  downloads: Array<{ url: string; filename?: string; saveAs?: boolean; conflictAction?: string }>;
   /** Fire `tabs.onUpdated` at every registered listener. */
   emitUpdated(tabId: number, info: TabUpdateInfo): void;
   updatedListenerCount(): number;
@@ -76,8 +76,13 @@ function fake(options: {
     ...(options.withDownloads
       ? {
           downloads: {
-            async download(opts: { url: string; filename?: string }) {
-              downloads.push({ url: opts.url, filename: opts.filename });
+            async download(opts: { url: string; filename?: string; saveAs?: boolean; conflictAction?: string }) {
+              downloads.push({
+                url: opts.url,
+                filename: opts.filename,
+                saveAs: opts.saveAs,
+                conflictAction: opts.conflictAction,
+              });
               return 99;
             },
           },
@@ -163,6 +168,7 @@ describe('op forwarding', () => {
     const f = fake();
     const driver = new PageDriver(f.api);
     await driver.snapshot(1, { interactiveOnly: true, maxNodes: 50 });
+    await driver.extractText(1, { maxChars: 5000 });
     await driver.click(1, 'e4');
     await driver.type(1, 'e5', 'text', { clear: false });
     await driver.press(1, 'Enter');
@@ -174,6 +180,7 @@ describe('op forwarding', () => {
     expect(f.injections).toHaveLength(1);
     expect(f.sent.filter((m) => m.op !== 'ping')).toEqual([
       { op: 'snapshot', interactiveOnly: true, maxNodes: 50 },
+      { op: 'extractText', maxChars: 5000 },
       { op: 'click', ref: 'e4' },
       { op: 'type', ref: 'e5', text: 'text', clear: false },
       { op: 'press', key: 'Enter' },
@@ -304,7 +311,9 @@ describe('download', () => {
     const f = fake({ withDownloads: true });
     const result = await new PageDriver(f.api).download('https://example.test/f.csv', 'f.csv');
     expect(result).toEqual({ ok: true, downloadId: 99 });
-    expect(f.downloads).toEqual([{ url: 'https://example.test/f.csv', filename: 'f.csv' }]);
+    expect(f.downloads).toEqual([
+      { url: 'https://example.test/f.csv', filename: 'f.csv', saveAs: false, conflictAction: undefined },
+    ]);
   });
 
   it('reports a rejected download', async () => {
@@ -317,5 +326,28 @@ describe('download', () => {
     const result = await new PageDriver(f.api).download('nope');
     expect(result.ok).toBe(false);
     expect(result.error).toContain('Invalid URL');
+  });
+});
+
+describe('saveFile', () => {
+  it('downloads to nanobrowser/<filename>, never prompting, never overwriting', async () => {
+    const f = fake({ withDownloads: true });
+    const result = await new PageDriver(f.api).saveFile('data:application/octet-stream;base64,eyJhIjoxfQ==', 'result.json');
+    expect(result).toEqual({ ok: true, downloadId: 99 });
+    expect(f.downloads).toEqual([
+      {
+        url: 'data:application/octet-stream;base64,eyJhIjoxfQ==',
+        filename: 'nanobrowser/result.json',
+        saveAs: false,
+        conflictAction: 'uniquify',
+      },
+    ]);
+  });
+
+  it('returns a clear error when the downloads permission is absent', async () => {
+    const f = fake({ withDownloads: false });
+    const result = await new PageDriver(f.api).saveFile('data:,x', 'result.json');
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('"downloads" permission is not granted');
   });
 });

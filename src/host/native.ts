@@ -55,6 +55,15 @@ export interface RunLogAppendMsg {
   event: unknown;
 }
 
+/** `save_file`'s native-messaging half (docs/host-protocol.md). */
+export interface ArtifactSaveMsg {
+  type: 'artifact.save';
+  id: string;
+  runId: string;
+  filename: string;
+  content: string;
+}
+
 /** One extension-side diagnostic line. Same shape as the panel's `log.append` payload. */
 export type ExtLogEntry = PanelToWorker['log.append'];
 
@@ -69,6 +78,7 @@ export type HostRequestMsg =
   | LlmRequestMsg
   | LlmAbortMsg
   | RunLogAppendMsg
+  | ArtifactSaveMsg
   | LogAppendMsg;
 
 /* ---------------- wire: host -> extension ---------------- */
@@ -133,6 +143,16 @@ export interface RunLogAckMsg {
   ok: true;
 }
 
+/** Answer to `artifact.save`: where the file landed and how big it is. */
+export interface ArtifactSaveResultMsg {
+  type: 'artifact.save.result';
+  id: string;
+  runId: string;
+  filename: string;
+  bytes: number;
+  path: string;
+}
+
 export interface RunStartMsg {
   type: 'run.start';
   runId: string;
@@ -167,6 +187,7 @@ export type HostResponseMsg =
   | LlmEndMsg
   | LlmErrorMsg
   | RunLogAckMsg
+  | ArtifactSaveResultMsg
   | RunStartMsg
   | LogAckMsg
   | ExtReloadMsg
@@ -401,6 +422,12 @@ export class HostClient {
     this.#port?.postMessage({ type: 'runlog.append', runId, event: redactEvent(event) });
   }
 
+  /** `save_file`'s host half: writes `content` to `artifacts/<runId>/<filename>`. Throws on failure. */
+  async saveArtifact(runId: string, filename: string, content: string): Promise<{ path: string; bytes: number }> {
+    const res = await this.#call<ArtifactSaveResultMsg>({ type: 'artifact.save', id: nextId(), runId, filename, content });
+    return { path: res.path, bytes: res.bytes };
+  }
+
   /**
    * Fire-and-forget diagnostic to the host's ext.log. Redacted here as well as in the
    * host: R-12 makes stripping secrets the extension's job on the way out.
@@ -483,7 +510,8 @@ export class HostClient {
 
       case 'key.status.result':
       case 'models.list.result':
-      case 'runlog.ack': {
+      case 'runlog.ack':
+      case 'artifact.save.result': {
         const pending = msg.id ? this.#pending.get(msg.id) : undefined;
         if (pending && msg.id) {
           this.#pending.delete(msg.id);

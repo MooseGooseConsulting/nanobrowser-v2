@@ -1,4 +1,5 @@
 import type { LogEntry } from '../state/runlog';
+import { FileSavedCard } from './FileSavedCard';
 import { HandoffCard } from './HandoffCard';
 import { PlanCard } from './PlanCard';
 import { ToolCallCard } from './ToolCallCard';
@@ -39,6 +40,8 @@ export function LogEntryView({ entry }: { entry: LogEntry }) {
       return <InputFidelityEvent event={event} />;
     case 'userscript.output':
       return <UserscriptOutputEvent event={event} />;
+    case 'file.saved':
+      return <FileSavedCard event={event} />;
     case 'run.paused':
       return <RunPausedEvent event={event} />;
     case 'run.resumed':

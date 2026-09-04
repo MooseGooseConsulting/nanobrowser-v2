@@ -49,6 +49,7 @@ export type ScrollTarget = 'up' | 'down' | 'top' | 'bottom' | (string & {});
 export interface PageTools {
   snapshot(): Promise<SnapshotResult>;
   screenshot(): Promise<ScreenshotResult>;
+  extractText(maxChars?: number): Promise<string>;
   click(ref: string): Promise<string>;
   type(ref: string, text: string): Promise<string>;
   press(key: string): Promise<string>;
@@ -57,6 +58,13 @@ export interface PageTools {
   navigate(url: string): Promise<string>;
   download(target: string): Promise<string>;
   runUserscript(scriptId: string): Promise<string>;
+  /**
+   * Saves `content` (or, when `fromLastUserscript` is true, the full untruncated
+   * result of the most recent `run_userscript` call) as a file. `content` has
+   * already been normalised to a string by {@link createPageToolset} (an object arg
+   * is JSON.stringify'd there); the runtime implementation owns where it lands.
+   */
+  saveFile(filename: string, content: string | undefined, fromLastUserscript: boolean): Promise<string>;
   wait(ms: number): Promise<string>;
   done(summary: string): Promise<string>;
   blocked(reason: string): Promise<string>;
@@ -84,10 +92,27 @@ const refField = z
   .string()
   .describe('The element ref exactly as it appears in the page snapshot, e.g. "e12".');
 
+/**
+ * `save_file`'s filename contract, enforced here so a bad filename never reaches
+ * either save mechanism (chrome.downloads and the host's artifact.save): basename
+ * only, an allowed extension, no path separator, no "..", no leading dot, not too
+ * long. Returns the problem, or `undefined` when the filename is fine.
+ */
+export function validateSaveFilename(filename: string): string | undefined {
+  if (typeof filename !== 'string' || filename.length === 0) return 'filename must be a non-empty string';
+  if (filename.length > 100) return 'filename must be at most 100 characters';
+  if (filename.includes('/') || filename.includes('\\')) return 'filename must not contain a path separator';
+  if (filename.includes('..')) return 'filename must not contain ".."';
+  if (filename.startsWith('.')) return 'filename must not start with a dot';
+  if (!/\.(json|txt|csv)$/i.test(filename)) return 'filename must end in .json, .txt, or .csv';
+  return undefined;
+}
+
 /** Tool names the Follower may call. Kept as a const tuple so the graph can switch on it. */
 export const TOOL_NAMES = [
   'snapshot',
   'screenshot',
+  'extract_text',
   'click',
   'type',
   'press',
@@ -96,6 +121,7 @@ export const TOOL_NAMES = [
   'navigate',
   'download',
   'run_userscript',
+  'save_file',
   'wait',
   'done',
   'blocked',
@@ -151,6 +177,23 @@ export function createPageToolset(page: PageTools): PageToolset {
         schema: z.object({ ...controlEnvelope }),
       },
     ),
+    tool(async ({ maxChars }) => page.extractText(maxChars), {
+      name: 'extract_text',
+      description:
+        'Read the page as plain readable text instead of a structured snapshot. Use this for ' +
+        'long lists or articles where you only need to read, not act on refs. Links become ' +
+        '"text (href)".',
+      schema: z.object({
+        maxChars: z
+          .number()
+          .int()
+          .min(1)
+          .max(60_000)
+          .optional()
+          .describe('Character cap on the returned text. Default 20000, max 60000.'),
+        ...controlEnvelope,
+      }),
+    }),
     tool(async ({ ref }) => page.click(ref), {
       name: 'click',
       description: 'Click one element. Give the ref from the snapshot, nothing else.',
@@ -222,6 +265,39 @@ export function createPageToolset(page: PageTools): PageToolset {
         ...controlEnvelope,
       }),
     }),
+    tool(
+      async ({ filename, content, fromLastUserscript }) => {
+        const problem = validateSaveFilename(filename);
+        if (problem) throw new Error(problem);
+        if (!fromLastUserscript && content === undefined) {
+          throw new Error('content is required unless fromLastUserscript is true');
+        }
+        const body =
+          content === undefined ? undefined : typeof content === 'string' ? content : JSON.stringify(content, null, 2);
+        return page.saveFile(filename, body, fromLastUserscript ?? false);
+      },
+      {
+        name: 'save_file',
+        description:
+          'Save data to a file in the user\'s Downloads/nanobrowser folder. Give it a filename ' +
+          'ending .json, .txt or .csv and either content, or fromLastUserscript:true to save the ' +
+          'full result of the most recent run_userscript call losslessly.',
+        schema: z.object({
+          filename: z
+            .string()
+            .describe('Basename only, ending .json, .txt or .csv, e.g. "ddr5-current.json".'),
+          content: z
+            .union([z.string(), z.record(z.string(), z.unknown())])
+            .optional()
+            .describe('The data to save. An object is written as 2-space-indented JSON.'),
+          fromLastUserscript: z
+            .boolean()
+            .optional()
+            .describe('Save the full result of the last run_userscript call verbatim, ignoring content.'),
+          ...controlEnvelope,
+        }),
+      },
+    ),
     tool(async ({ ms }) => page.wait(ms), {
       name: 'wait',
       description:
@@ -345,6 +421,11 @@ export class FakePageTools implements PageTools {
     return item;
   }
 
+  async extractText(maxChars?: number): Promise<string> {
+    this.#record('extractText', maxChars);
+    return 'extracted text';
+  }
+
   async click(ref: string): Promise<string> {
     this.#record('click', ref);
     return `clicked ${ref}`;
@@ -383,6 +464,11 @@ export class FakePageTools implements PageTools {
   async runUserscript(scriptId: string): Promise<string> {
     this.#record('runUserscript', scriptId);
     return `ran userscript ${scriptId}`;
+  }
+
+  async saveFile(filename: string, content: string | undefined, fromLastUserscript: boolean): Promise<string> {
+    this.#record('saveFile', filename, content, fromLastUserscript);
+    return `saved ${filename}`;
   }
 
   async wait(ms: number): Promise<string> {

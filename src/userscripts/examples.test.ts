@@ -1,9 +1,16 @@
 // @vitest-environment jsdom
 // @vitest-environment-options { "url": "https://hyperagent.com/threads" }
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { HYPERAGENT_OBSERVE } from './examples';
+import { EBAY_SEARCH_EXTRACT, HYPERAGENT_OBSERVE } from './examples';
 import { resetWorldConfiguration, runUserscript } from './runner';
 import { vmUserScriptsApi } from './testing';
+
+const CURRENT_FIXTURE = resolve(process.cwd(), 'tests/fixtures/ebay-ddr5-current.html');
+const SOLD_FIXTURE = resolve(process.cwd(), 'tests/fixtures/ebay-ddr5-sold.html');
+const CURRENT_URL = 'https://www.ebay.com/sch/i.html?_nkw=ddr5&_sacat=0&_ipg=60';
+const SOLD_URL = 'https://www.ebay.com/sch/i.html?_nkw=ddr5&LH_Sold=1&LH_Complete=1';
 
 /** A thread list shaped like the page the example observes. */
 const THREAD_LIST = `
@@ -101,5 +108,225 @@ describe('bundled hyperagent-observe example', () => {
 
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/not in this script's allow-list/);
+  });
+});
+
+const ebaySearchExtract = {
+  id: 'ebay-search-extract',
+  name: EBAY_SEARCH_EXTRACT.name,
+  matches: [...EBAY_SEARCH_EXTRACT.matches],
+  code: EBAY_SEARCH_EXTRACT.code,
+  updatedAt: 0,
+};
+
+interface EbayResult {
+  title: string;
+  price: string | null;
+  priceValue: number | null;
+  currency: string | null;
+  condition: string | null;
+  buyingFormat: string | null;
+  bids: number | null;
+  shipping: string | null;
+  location: string | null;
+  seller: string | null;
+  sellerFeedback: string | null;
+  quantitySold: number | null;
+  soldDate: string | null;
+  url: string | null;
+  itemId: string | null;
+}
+
+async function runEbayExtract(url: string): Promise<EbayResult[]> {
+  const result = await runUserscript({
+    tabId: 1,
+    script: ebaySearchExtract,
+    url,
+    api: vmUserScriptsApi(),
+  });
+  expect(result.ok).toBe(true);
+  expect(result.error).toBeUndefined();
+  return result.value as EbayResult[];
+}
+
+function byItemId(results: EbayResult[], itemId: string): EbayResult {
+  const found = results.find((r) => r.itemId === itemId);
+  if (!found) throw new Error(`no result with itemId ${itemId}`);
+  return found;
+}
+
+describe('bundled ebay-search-extract example: current offerings (.s-card)', () => {
+  beforeEach(() => {
+    resetWorldConfiguration();
+    document.body.innerHTML = readFileSync(CURRENT_FIXTURE, 'utf8');
+  });
+
+  it('extracts all 60 real listings, skipping the two "Shop on eBay" placeholders', async () => {
+    const results = await runEbayExtract(CURRENT_URL);
+    expect(results).toHaveLength(60);
+    expect(results.some((r) => r.title === 'Shop on eBay')).toBe(false);
+  });
+
+  it('matches the first live-probe example exactly (card 0)', async () => {
+    const results = await runEbayExtract(CURRENT_URL);
+    expect(byItemId(results, '158192070642')).toEqual({
+      title: 'Corsair Vengeance 16GB DDR5 5200 Desktop Memory',
+      price: '$250.00',
+      priceValue: 250,
+      currency: '$',
+      condition: 'Brand New',
+      buyingFormat: 'Buy It Now',
+      bids: null,
+      shipping: 'Free delivery',
+      location: 'United States',
+      seller: 'wojiapanpan_4',
+      sellerFeedback: '100% positive (1.3K)',
+      quantitySold: 36,
+      soldDate: null,
+      url: 'https://www.ebay.com/itm/158192070642?_trkparms=pageci%3A0',
+      itemId: '158192070642',
+    });
+  });
+
+  it('matches the second live-probe example exactly (card 5)', async () => {
+    const results = await runEbayExtract(CURRENT_URL);
+    expect(byItemId(results, '158192070647')).toEqual({
+      title: 'SK hynix 96GB (2x48GB) DDR5 5200 Desktop Memory',
+      price: '$399.99',
+      priceValue: 399.99,
+      currency: '$',
+      condition: 'Brand New',
+      buyingFormat: 'Buy It Now',
+      bids: null,
+      shipping: '+$14.07 delivery',
+      location: 'United States',
+      seller: 'components4you',
+      sellerFeedback: '100% positive (71)',
+      quantitySold: null,
+      soldDate: null,
+      url: 'https://www.ebay.com/itm/158192070647?_trkparms=pageci%3A5',
+      itemId: '158192070647',
+    });
+  });
+
+  it('reads bids instead of Buy It Now, and quantitySold/seller/feedback together', async () => {
+    const results = await runEbayExtract(CURRENT_URL);
+    expect(byItemId(results, '158192070662')).toMatchObject({
+      buyingFormat: null,
+      bids: 11,
+      shipping: '+$5.45 delivery',
+      location: 'United States',
+      quantitySold: 60,
+      seller: 'memory-outlet',
+      sellerFeedback: '95% positive (252)',
+    });
+  });
+
+  it('reports null for absent fields rather than guessing', async () => {
+    const results = await runEbayExtract(CURRENT_URL);
+    // Card 27: no location, no seller, no feedback, no sold count on this card.
+    expect(byItemId(results, '158192070669')).toMatchObject({
+      location: null,
+      seller: null,
+      sellerFeedback: null,
+      quantitySold: null,
+      soldDate: null,
+    });
+  });
+
+  it('writes nothing to the page and logs nothing', async () => {
+    const before = document.body.innerHTML;
+    const result = await runUserscript({ tabId: 1, script: ebaySearchExtract, url: CURRENT_URL, api: vmUserScriptsApi() });
+    expect(document.body.innerHTML).toBe(before);
+    expect(result.console).toEqual([]);
+  });
+
+  it('is allow-listed to eBay search pages only', async () => {
+    const result = await runUserscript({
+      tabId: 1,
+      script: ebaySearchExtract,
+      url: 'https://example.com/sch/i.html?_nkw=ddr5',
+      api: vmUserScriptsApi(),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/not in this script's allow-list/);
+  });
+});
+
+describe('bundled ebay-search-extract example: sold/completed (.s-card and legacy .s-item)', () => {
+  beforeEach(() => {
+    resetWorldConfiguration();
+    document.body.innerHTML = readFileSync(SOLD_FIXTURE, 'utf8');
+  });
+
+  it('extracts every real listing from both markups, skipping both "Shop on eBay" placeholders', async () => {
+    const results = await runEbayExtract(SOLD_URL);
+    expect(results).toHaveLength(7);
+    expect(results.some((r) => r.title === 'Shop on eBay')).toBe(false);
+  });
+
+  it('parses a sold .s-card with bids and a sold date', async () => {
+    const results = await runEbayExtract(SOLD_URL);
+    expect(byItemId(results, '226534891201')).toMatchObject({
+      title: 'Corsair Vengeance 32GB (2x16GB) DDR5 6000 CL30 Desktop Memory',
+      condition: 'Pre-Owned',
+      price: '$104.99',
+      priceValue: 104.99,
+      currency: '$',
+      shipping: '+$5.45 shipping',
+      bids: 3,
+      soldDate: 'Aug 30, 2026',
+    });
+  });
+
+  it('parses a "US $" currency prefix', async () => {
+    const results = await runEbayExtract(SOLD_URL);
+    expect(byItemId(results, '145998877665')).toMatchObject({
+      price: 'US $62.00',
+      priceValue: 62,
+      currency: 'US $',
+      soldDate: 'Aug 27, 2026',
+    });
+  });
+
+  it('takes the lower bound of a price range as priceValue, keeping the full string as price', async () => {
+    const results = await runEbayExtract(SOLD_URL);
+    expect(byItemId(results, '335544332211')).toMatchObject({
+      price: '$38.50 to $74.00',
+      priceValue: 38.5,
+      currency: '$',
+    });
+  });
+
+  it('parses a legacy .s-item card: title, condition, shipping and sold date', async () => {
+    const results = await runEbayExtract(SOLD_URL);
+    expect(byItemId(results, '186655443322')).toMatchObject({
+      title: 'Crucial Pro 96GB (2x48GB) DDR5-5600 UDIMM Desktop RAM',
+      condition: 'Brand New',
+      price: '$248.00',
+      priceValue: 248,
+      currency: '$',
+      shipping: 'Free shipping',
+      soldDate: 'Aug 24, 2026',
+    });
+  });
+
+  it('parses legacy bids, a "+C $" shipping prefix and a "£" price', async () => {
+    const results = await runEbayExtract(SOLD_URL);
+    expect(byItemId(results, '204411223344')).toMatchObject({
+      price: 'C $41.25',
+      priceValue: 41.25,
+      currency: 'C $',
+      bids: 5,
+      shipping: '+C $9.50 shipping',
+      soldDate: 'Aug 22, 2026',
+    });
+    expect(byItemId(results, '256677889900')).toMatchObject({
+      price: '£188.00',
+      priceValue: 188,
+      currency: '£',
+      condition: 'Parts Only',
+      soldDate: 'Aug 21, 2026',
+    });
   });
 });

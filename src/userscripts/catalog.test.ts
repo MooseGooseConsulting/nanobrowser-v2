@@ -87,10 +87,10 @@ describe('userscript catalog', () => {
   });
 
   describe('seedDefaults', () => {
-    it('installs the bundled hyperagent example into an empty catalog', async () => {
+    it('installs every bundled example into an empty catalog', async () => {
       const seeded = await seedDefaults(() => 99);
 
-      expect(seeded).toHaveLength(1);
+      expect(seeded).toHaveLength(2);
       expect(seeded[0]!).toMatchObject({
         name: 'hyperagent-observe',
         matches: ['*://hyperagent.com/*', '*://www.hyperagent.com/*'],
@@ -98,6 +98,7 @@ describe('userscript catalog', () => {
       });
       expect(seeded[0]!.code).toBe(HYPERAGENT_OBSERVE.code);
       expect(seeded[0]!.id).not.toBe('');
+      expect(seeded[1]!.name).toBe('ebay-search-extract');
       await expect(listUserscripts()).resolves.toEqual(seeded);
     });
 
@@ -113,7 +114,7 @@ describe('userscript catalog', () => {
       const second = await seedDefaults();
 
       expect(second).toEqual(first);
-      await expect(listUserscripts()).resolves.toHaveLength(1);
+      await expect(listUserscripts()).resolves.toHaveLength(2);
     });
 
     it('seeds a script the runner will accept for hyperagent.com', async () => {

@@ -22,8 +22,23 @@ import {
   headingLevel,
 } from './accname';
 
+/**
+ * Default `maxNodes` (also `pageTools.ts`'s `snapshotBudget()` for `dom`/`both`).
+ *
+ * Was 400. Measured against `tests/fixtures/ebay-ddr5-current.html` (60 real eBay
+ * listings + 2 "Shop on eBay" placeholders, hand-written from a live probe — see the
+ * fixture's own comment): a full untruncated walk of that page takes exactly 553
+ * nodes (`tests/page-snapshot-ebay-budget.test.ts`), because every emitted node —
+ * structural (`listitem`, `list`, ...) as well as interactive — gets its own line
+ * and its own ref. At 400 the walk truncated before the last ~16 of the 60 listings
+ * ever appeared. Raised to 900: comfortably above the 553 measured here, with
+ * headroom for the real page's filter sidebar and "related searches" chrome that
+ * this fixture does not model.
+ */
+export const DEFAULT_MAX_NODES = 900;
+
 export interface SnapshotOptions {
-  /** Hard cap on emitted nodes. Sets `truncated` when hit. Default 400. */
+  /** Hard cap on emitted nodes. Sets `truncated` when hit. Default {@link DEFAULT_MAX_NODES}. */
   maxNodes?: number;
   /** Emit only actionable elements (plus iframes); drop landmarks and free text. Default false. */
   interactiveOnly?: boolean;
@@ -122,7 +137,8 @@ function styleOf(el: Element): CSSStyleDeclaration | null {
   }
 }
 
-function isHidden(el: Element, opts: Required<Pick<SnapshotOptions, 'skipOffscreen'>>): boolean {
+/** Shared with `extract_text` (src/page/extractText.ts): the same "don't read this" test. */
+export function isHidden(el: Element, opts: Required<Pick<SnapshotOptions, 'skipOffscreen'>>): boolean {
   if (el.getAttribute('aria-hidden') === 'true') return true;
   if (el.hasAttribute('hidden')) return true;
   const name = el.localName.toLowerCase();
@@ -392,7 +408,7 @@ function walk(node: Node, depth: number, state: WalkState): void {
  */
 export function snapshot(opts: SnapshotOptions = {}): SnapshotResult {
   const doc = opts.root ?? (globalThis as unknown as { document: Document }).document;
-  const maxNodes = opts.maxNodes ?? 400;
+  const maxNodes = opts.maxNodes ?? DEFAULT_MAX_NODES;
   const state: WalkState = {
     lines: [],
     maxNodes,

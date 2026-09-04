@@ -83,6 +83,9 @@ export const AgentContextSchema = z.object({
   followerModel: z.custom<BaseChatModel>(),
   toolset: z.custom<PageToolset>(),
   page: z.custom<PageTools>(),
+  /** Stored userscripts whose match pattern fits the run's tab (R-09), so the
+   *  Follower knows what id(s) `run_userscript` may take. */
+  availableUserscripts: z.array(z.object({ id: z.string(), name: z.string() })).default(() => []),
 });
 
 export type AgentContext = z.infer<typeof AgentContextSchema>;

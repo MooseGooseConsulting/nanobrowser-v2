@@ -1,8 +1,10 @@
+import { ArtifactError, saveArtifact } from './artifacts.ts';
 import { appendExtLog, ExtLogError, mirrorToHostLog, toEntry } from './extlog.ts';
 import { getInjector, type InputInjector } from './input/index.ts';
 import type { LlmProxy } from './llm.ts';
 import { log } from './log.ts';
 import type {
+  ArtifactSaveMsg,
   ErrorCode,
   InboundMsg,
   InputMsg,
@@ -19,6 +21,8 @@ export interface DispatcherDeps {
   runsDir: string;
   /** Where extension-forwarded diagnostics land. Defaults to ~/.local/share/nanobrowser/ext.log. */
   extLogPath?: string;
+  /** Base directory for `artifact.save`. Defaults to ~/.local/share/nanobrowser/artifacts. */
+  artifactsDir?: string;
   /** Mirrors run-log events to dev unix-socket subscribers. */
   onRunEvent?: (runId: string, event: unknown) => void;
   injector?: () => InputInjector;
@@ -58,7 +62,9 @@ export class Dispatcher {
 
       case 'models.list': {
         try {
-          const { status, body } = await this.#deps.llm.models();
+          // Both catalogs (OpenRouter + Kilo), fetched in parallel and merged; one
+          // source failing does not fail this call (host/src/llm.ts modelsAll()).
+          const { status, body } = await this.#deps.llm.modelsAll();
           return this.#deps.send({ type: 'models.list.result', id: msg.id, status, body });
         } catch (err) {
           return this.#fail(msg.id, 'upstream', (err as Error).message);
@@ -91,6 +97,30 @@ export class Dispatcher {
         }
         this.#deps.onRunEvent?.(m.runId, m.event);
         return this.#deps.send({ type: 'runlog.ack', ...(m.id ? { id: m.id } : {}), runId: m.runId, ok: true });
+      }
+
+      case 'artifact.save': {
+        const m = msg as ArtifactSaveMsg;
+        if (typeof m.runId !== 'string' || typeof m.filename !== 'string' || typeof m.content !== 'string') {
+          return this.#fail(m.id, 'bad_request', 'artifact.save requires string runId, filename and content');
+        }
+        let result: { path: string; bytes: number };
+        try {
+          result = await saveArtifact(m.runId, m.filename, m.content, this.#deps.artifactsDir);
+        } catch (err) {
+          if (err instanceof ArtifactError || err instanceof RunLogError) {
+            return this.#fail(m.id, 'bad_request', (err as Error).message);
+          }
+          return this.#fail(m.id, 'io', (err as Error).message);
+        }
+        return this.#deps.send({
+          type: 'artifact.save.result',
+          id: m.id,
+          runId: m.runId,
+          filename: m.filename,
+          bytes: result.bytes,
+          path: result.path,
+        });
       }
 
       case 'log.append': {
