@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createChatModel, dataCollectionFor, DEFAULT_BASE_URL, KILO_BASE_URL } from './models';
+import { createChatModel, dataCollectionFor, DEFAULT_BASE_URL, KILO_BASE_URL , hardenEmptyChoices } from './models';
 
 describe('data collection policy per model', () => {
   it('allows training only for OpenRouter :free endpoints, denies for everything else', () => {
@@ -42,7 +42,11 @@ describe('routing a run to the model\'s own source', () => {
     expect(model.modelKwargs).not.toHaveProperty('provider');
   });
 
-  it('does not wrap a Kilo request with hardenOpenRouterFetch (no evidence Kilo needs it)', async () => {
+  it('wraps a Kilo request too, because Kilo returns choice-less 200s as well', async () => {
+    // This test used to assert the opposite, on the reasoning that Kilo had shown no such
+    // quirk. A live eBay run on the free Nemotron pair via Kilo then failed with
+    // "Cannot read properties of undefined (reading 'message')" -- LangChain reading
+    // generations[0][0] after exactly this reply. Evidence beats the earlier assumption.
     let calls = 0;
     const plainFetch: typeof fetch = async () => {
       calls += 1;
@@ -53,10 +57,8 @@ describe('routing a run to the model\'s own source', () => {
     };
     const model = createChatModel({ model: 'x/y', fetch: plainFetch, source: 'kilo' });
     const wrapped = (model as unknown as { clientConfig: { fetch: typeof fetch } }).clientConfig.fetch;
-    // hardenOpenRouterFetch would rewrite this reply to 502 (no `choices`); the plain
-    // fetch used for Kilo passes it through untouched at status 200.
     const res = await wrapped('https://api.kilo.ai/api/gateway/chat/completions');
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(502);
     expect(calls).toBe(1);
   });
 });
@@ -87,5 +89,30 @@ describe('hardenOpenRouterFetch', () => {
     const res = await f('https://openrouter.ai/api/v1/models');
     expect(res.status).toBe(404);
     expect(await res.text()).toBe('nope');
+  });
+});
+
+describe('empty-choices hardening applies to both gateways', () => {
+  // Regression: the guard was OpenRouter-only, and a live eBay run on the free Nemotron
+  // pair via Kilo died with "Cannot read properties of undefined (reading 'message')" --
+  // LangChain dereferencing generations[0][0] after a 200 that carried no `choices`.
+  const emptyTwoHundred = async () =>
+    new Response(JSON.stringify({ id: 'x', object: 'chat.completion' }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+
+  it('rewrites a choice-less 200 into a retryable status for Kilo too', async () => {
+    const hardened = hardenEmptyChoices(emptyTwoHundred as unknown as typeof globalThis.fetch);
+    const res = await hardened('https://api.kilo.ai/api/gateway/chat/completions');
+    expect(res.status).toBe(502);
+    expect(await res.text()).toContain('no choices');
+  });
+
+  it('is wired into the model for both sources', () => {
+    for (const source of ['openrouter', 'kilo'] as const) {
+      const model = createChatModel({ model: 'x/y:free', fetch: globalThis.fetch, source });
+      expect(model).toBeDefined();
+    }
   });
 });

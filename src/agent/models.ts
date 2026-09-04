@@ -65,7 +65,7 @@ export interface CreateChatModelOptions {
  * applies this only to the OpenRouter source and leaves Kilo's `fetch` untouched
  * rather than assume the same failure mode without evidence for it.
  */
-export function hardenOpenRouterFetch(fetch: typeof globalThis.fetch): typeof globalThis.fetch {
+export function hardenEmptyChoices(fetch: typeof globalThis.fetch): typeof globalThis.fetch {
   return async (input, init) => {
     const res = await fetch(input, init);
     if (res.status !== 200) return res;
@@ -114,7 +114,12 @@ export function createChatModel(options: CreateChatModelOptions): ChatOpenAI {
     temperature,
     apiKey: PROXY_MANAGED_KEY,
     maxRetries: 4,
-    configuration: { baseURL, fetch: isOpenRouter ? hardenOpenRouterFetch(fetch) : fetch },
+    // Applied to BOTH gateways. It was OpenRouter-only on the reasoning that Kilo had
+    // shown no such quirk; then the free Nemotron pair on Kilo failed a live eBay run with
+    // "Cannot read properties of undefined (reading 'message')", which is LangChain
+    // dereferencing `generations[0][0]` after a 200 with no `choices`. The check is
+    // provider-agnostic, so there is no reason to leave either gateway unguarded.
+    configuration: { baseURL, fetch: hardenEmptyChoices(fetch) },
     // `provider.data_collection` is an OpenRouter-specific field; Kilo does not use it,
     // and sending it there breaks models whose Kilo endpoint would otherwise work
     // (live evidence: meta/muse-spark-1.3-contributor 404s on OpenRouter under `deny`
@@ -231,3 +236,6 @@ export class FakeChatModel extends BaseChatModel {
     return { generations: [{ text, message }] };
   }
 }
+
+/** @deprecated Use {@link hardenEmptyChoices}; the quirk is not OpenRouter's alone. */
+export const hardenOpenRouterFetch = hardenEmptyChoices;
