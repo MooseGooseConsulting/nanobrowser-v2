@@ -4,6 +4,13 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  shell-quote: '>=1.8.5'
+  adm-zip: '>=0.6.0'
+  tmp: '>=0.2.6'
+  ajv@>=7.0.0 <8.18.0: '>=8.18.0'
+  uuid@<11.1.1: '>=11.1.1'
+
 importers:
 
   .:
@@ -75,9 +82,6 @@ importers:
       vitest:
         specifier: 4.1.11
         version: 4.1.11(@types/node@26.4.1)(jsdom@30.0.1)(vite@8.2.2(@types/node@26.4.1)(jiti@2.7.0))
-      web-ext:
-        specifier: 9.2.0
-        version: 9.2.0(jiti@2.7.0)
       wxt:
         specifier: 0.21.4
         version: 0.21.4(eslint@9.39.0(jiti@2.7.0))(rolldown@1.2.7)(typescript@5.9.3)(vite@8.2.2(@types/node@26.4.1)(jiti@2.7.0))(web-ext@9.2.0(jiti@2.7.0))
@@ -710,9 +714,9 @@ packages:
       safe-compare:
         optional: true
 
-  adm-zip@0.5.18:
-    resolution: {integrity: sha512-ufJnssQGbxzLNS1Ho9bCtX4rQKCCvoVuDLHoJyc3F9dOGDB4BkWs2Ci0kv53lqocAEQ/Cbi+I2XCsNYGqVYqng==}
-    engines: {node: '>=12.0'}
+  adm-zip@0.6.0:
+    resolution: {integrity: sha512-XleryMhbuksdKtofnWZ9Sk+4CUTbms4Mb/EU32SZwToAyZ5RgVos/ki8n+yr0LWHOGKuakbXTuuYNHLQjhddgg==}
+    engines: {node: '>=14.0'}
 
   agent-base@7.1.4:
     resolution: {integrity: sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==}
@@ -721,8 +725,8 @@ packages:
   ajv@6.15.0:
     resolution: {integrity: sha512-fgFx7Hfoq60ytK2c7DhnF8jIvzYgOMxfugjLOSMHjLIPgenqa7S7oaagATUq99mV6IYvN2tRmC0wnTYX6iPbMw==}
 
-  ajv@8.17.1:
-    resolution: {integrity: sha512-B/gBuNg5SiMTrPkC+A2+cW0RszwxYmn6VYxB/inlBStS5nx6xHIt/ehKRhIMhqusl7a8LjQoZnjCs5vhwxOQ1g==}
+  ajv@8.20.0:
+    resolution: {integrity: sha512-Thbli+OlOj+iMPYFBVBfJ3OmCAnaSyNn4M1vz9T6Gka5Jt9ba/HIR56joy65tY6kx/FCF5VXNB819Y7/GUrBGA==}
 
   ansi-align@3.0.1:
     resolution: {integrity: sha512-IOfwwBF5iczOjp/WeY4YxyjqAFMQoZufdQWDd19SEExbVLNXqvpzSJ/M7Za4/sCPmQ0+GRquoA7bGcINcxew6w==}
@@ -2106,8 +2110,9 @@ packages:
     resolution: {integrity: sha512-7++dFhtcx3353uBaq8DDR4NuxBetBzC7ZQOhmTQInHEd6bSrXdiEyzCvG07Z44UYdLShWUyXt5M/yhz8ekcb1A==}
     engines: {node: '>=8'}
 
-  shell-quote@1.7.3:
-    resolution: {integrity: sha512-Vpfqwm4EnqGdlsBFNmHhxhElJYrdfcxPThu+ryKS5J8L/fhAwLazFZtq+S+TWZ9ANj2piSQLGj6NQg+lKPmxrw==}
+  shell-quote@1.10.0:
+    resolution: {integrity: sha512-w1aiOKwKuRgtwAReIIj89puqg+I7GvX4IbLrvmhXbzQsj1+Zwi4VO3+fa6ZF91TWSjIxoEkKnMeHcLEODK5ZXA==}
+    engines: {node: '>= 0.4'}
 
   shellwords@0.1.1:
     resolution: {integrity: sha512-vFwSUfQvqybiICwZY5+DAWIPLKsWO31Q91JSKl3UYv+K5c2QRPzn0qzec6QPu1Qc9eHYItiP3NdJqNVqetYAww==}
@@ -2253,8 +2258,8 @@ packages:
     resolution: {integrity: sha512-aBiNayCfTQxuIJBm06M+xR14cYaYlDlSXZbgsnKzKNxDKUVq7KFwTjwBSsb7m9Y5xO8WfPnBc63WaYFMTGlvqw==}
     hasBin: true
 
-  tmp@0.2.5:
-    resolution: {integrity: sha512-voyz6MApa1rQGUxT3E+BK7/ROe8itEx7vD8/HEvt4xwXucvQ5G5oeEiHkmHZJuBO21RpOf+YYm9MOivj709jow==}
+  tmp@0.2.7:
+    resolution: {integrity: sha512-e0votIpp4Uo2AJYSzVHV6xCcawuiez3DzqDAbrTc3YxBkplN6e+dM13ZeIcZnDg/QpSuU2zfZ3rzwY8ukEnaXw==}
     engines: {node: '>=14.14'}
 
   tough-cookie@6.0.2:
@@ -2365,9 +2370,8 @@ packages:
   util-deprecate@1.0.2:
     resolution: {integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==}
 
-  uuid@8.3.2:
-    resolution: {integrity: sha512-+NYs2QeMWy+GWFOEm9xnn6HCDp0l7QBD7ml8zLUmJ+93Q5NF0NocErnwkTkXVFNiX3/fpC6afS8Dhb/gz7R7eg==}
-    deprecated: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
+  uuid@14.0.2:
+    resolution: {integrity: sha512-xZe/16rV4aa+HGSOCiY2YeLT1OybRLrrkL/Rqaq7p7GMVXjFh+6wN4oMYgjFmnSnhY8t6Xpdl2l9qmnHYuMHwQ==}
     hasBin: true
 
   vite@8.2.2:
@@ -2688,9 +2692,11 @@ snapshots:
 
   '@csstools/css-tokenizer@4.0.0': {}
 
-  '@devicefarmer/adbkit-logcat@2.1.3': {}
+  '@devicefarmer/adbkit-logcat@2.1.3':
+    optional: true
 
-  '@devicefarmer/adbkit-monkey@1.2.1': {}
+  '@devicefarmer/adbkit-monkey@1.2.1':
+    optional: true
 
   '@devicefarmer/adbkit@3.3.8':
     dependencies:
@@ -2703,13 +2709,16 @@ snapshots:
       split: 1.0.1
     transitivePeerDependencies:
       - supports-color
+    optional: true
 
   '@eslint-community/eslint-utils@4.10.1(eslint@9.39.0(jiti@2.7.0))':
     dependencies:
       eslint: 9.39.0(jiti@2.7.0)
       eslint-visitor-keys: 3.4.3
+    optional: true
 
-  '@eslint-community/regexpp@4.12.2': {}
+  '@eslint-community/regexpp@4.12.2':
+    optional: true
 
   '@eslint/config-array@0.21.2':
     dependencies:
@@ -2718,14 +2727,17 @@ snapshots:
       minimatch: 3.1.5
     transitivePeerDependencies:
       - supports-color
+    optional: true
 
   '@eslint/config-helpers@0.4.2':
     dependencies:
       '@eslint/core': 0.17.0
+    optional: true
 
   '@eslint/core@0.17.0':
     dependencies:
       '@types/json-schema': 7.0.15
+    optional: true
 
   '@eslint/eslintrc@3.3.7':
     dependencies:
@@ -2740,37 +2752,48 @@ snapshots:
       strip-json-comments: 3.1.1
     transitivePeerDependencies:
       - supports-color
+    optional: true
 
-  '@eslint/js@9.39.0': {}
+  '@eslint/js@9.39.0':
+    optional: true
 
-  '@eslint/object-schema@2.1.7': {}
+  '@eslint/object-schema@2.1.7':
+    optional: true
 
   '@eslint/plugin-kit@0.4.1':
     dependencies:
       '@eslint/core': 0.17.0
       levn: 0.4.1
+    optional: true
 
   '@exodus/bytes@1.15.1': {}
 
-  '@fluent/syntax@0.19.0': {}
+  '@fluent/syntax@0.19.0':
+    optional: true
 
-  '@fregante/relaxed-json@2.0.0': {}
+  '@fregante/relaxed-json@2.0.0':
+    optional: true
 
   '@humanfs/core@0.19.2':
     dependencies:
       '@humanfs/types': 0.15.0
+    optional: true
 
   '@humanfs/node@0.16.8':
     dependencies:
       '@humanfs/core': 0.19.2
       '@humanfs/types': 0.15.0
       '@humanwhocodes/retry': 0.4.3
+    optional: true
 
-  '@humanfs/types@0.15.0': {}
+  '@humanfs/types@0.15.0':
+    optional: true
 
-  '@humanwhocodes/module-importer@1.0.1': {}
+  '@humanwhocodes/module-importer@1.0.1':
+    optional: true
 
-  '@humanwhocodes/retry@0.4.3': {}
+  '@humanwhocodes/retry@0.4.3':
+    optional: true
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
@@ -2873,23 +2896,28 @@ snapshots:
 
   '@langchain/protocol@0.0.19': {}
 
-  '@mdn/browser-compat-data@7.1.22': {}
+  '@mdn/browser-compat-data@7.1.22':
+    optional: true
 
   '@oxc-project/types@0.148.0': {}
 
-  '@pinojs/redact@0.4.0': {}
+  '@pinojs/redact@0.4.0':
+    optional: true
 
-  '@pnpm/config.env-replace@1.1.0': {}
+  '@pnpm/config.env-replace@1.1.0':
+    optional: true
 
   '@pnpm/network.ca-file@1.0.2':
     dependencies:
       graceful-fs: 4.2.10
+    optional: true
 
   '@pnpm/npm-conf@3.0.3':
     dependencies:
       '@pnpm/config.env-replace': 1.1.0
       '@pnpm/network.ca-file': 1.0.2
       config-chain: 1.1.13
+    optional: true
 
   '@rolldown/binding-android-arm-eabi@1.2.7':
     optional: true
@@ -3061,11 +3089,13 @@ snapshots:
 
   '@types/json-schema@7.0.15': {}
 
-  '@types/minimatch@3.0.5': {}
+  '@types/minimatch@3.0.5':
+    optional: true
 
   '@types/node@26.4.1':
     dependencies:
       undici-types: 8.3.0
+    optional: true
 
   '@types/react-dom@19.2.4(@types/react@19.2.14)':
     dependencies:
@@ -3078,6 +3108,7 @@ snapshots:
   '@types/yauzl@2.10.3':
     dependencies:
       '@types/node': 26.4.1
+    optional: true
 
   '@vitejs/plugin-react@6.1.1(vite@8.2.2(@types/node@26.4.1)(jiti@2.7.0))':
     dependencies:
@@ -3159,6 +3190,7 @@ snapshots:
   acorn-jsx@5.3.2(acorn@8.18.0):
     dependencies:
       acorn: 8.18.0
+    optional: true
 
   acorn@8.18.0: {}
 
@@ -3169,7 +3201,7 @@ snapshots:
       '@mdn/browser-compat-data': 7.1.22
       addons-moz-compare: 1.3.0
       addons-scanner-utils: 9.14.0
-      ajv: 8.17.1
+      ajv: 8.20.0
       chalk: 4.1.2
       cheerio: 1.1.2
       columnify: 1.6.0
@@ -3196,8 +3228,10 @@ snapshots:
       - node-fetch
       - safe-compare
       - supports-color
+    optional: true
 
-  addons-moz-compare@1.3.0: {}
+  addons-moz-compare@1.3.0:
+    optional: true
 
   addons-scanner-utils@9.14.0:
     dependencies:
@@ -3207,10 +3241,13 @@ snapshots:
       strip-bom-stream: 4.0.0
       upath: 2.0.1
       yauzl: 2.10.0
+    optional: true
 
-  adm-zip@0.5.18: {}
+  adm-zip@0.6.0:
+    optional: true
 
-  agent-base@7.1.4: {}
+  agent-base@7.1.4:
+    optional: true
 
   ajv@6.15.0:
     dependencies:
@@ -3218,21 +3255,25 @@ snapshots:
       fast-json-stable-stringify: 2.1.0
       json-schema-traverse: 0.4.1
       uri-js: 4.4.1
+    optional: true
 
-  ajv@8.17.1:
+  ajv@8.20.0:
     dependencies:
       fast-deep-equal: 3.1.3
       fast-uri: 3.1.7
       json-schema-traverse: 1.0.0
       require-from-string: 2.0.2
+    optional: true
 
   ansi-align@3.0.1:
     dependencies:
       string-width: 4.2.3
+    optional: true
 
   ansi-regex@5.0.1: {}
 
-  ansi-regex@6.3.0: {}
+  ansi-regex@6.3.0:
+    optional: true
 
   ansi-styles@4.3.0:
     dependencies:
@@ -3240,30 +3281,38 @@ snapshots:
 
   ansi-styles@5.2.0: {}
 
-  ansi-styles@6.2.3: {}
+  ansi-styles@6.2.3:
+    optional: true
 
-  argparse@2.0.1: {}
+  argparse@2.0.1:
+    optional: true
 
   aria-query@5.3.0:
     dependencies:
       dequal: 2.0.3
 
-  array-differ@4.0.0: {}
+  array-differ@4.0.0:
+    optional: true
 
-  array-union@3.0.1: {}
+  array-union@3.0.1:
+    optional: true
 
   assertion-error@2.0.1: {}
 
-  async@3.2.6: {}
+  async@3.2.6:
+    optional: true
 
-  atomic-sleep@1.0.0: {}
+  atomic-sleep@1.0.0:
+    optional: true
 
   atomically@2.1.1:
     dependencies:
       stubborn-fs: 2.0.0
       when-exit: 2.1.5
+    optional: true
 
-  balanced-match@1.0.2: {}
+  balanced-match@1.0.2:
+    optional: true
 
   base64-js@1.5.1: {}
 
@@ -3271,9 +3320,11 @@ snapshots:
     dependencies:
       require-from-string: 2.0.2
 
-  bluebird@3.7.2: {}
+  bluebird@3.7.2:
+    optional: true
 
-  boolbase@1.0.0: {}
+  boolbase@1.0.0:
+    optional: true
 
   boolbase@2.0.0: {}
 
@@ -3287,19 +3338,24 @@ snapshots:
       type-fest: 4.41.0
       widest-line: 5.0.0
       wrap-ansi: 9.0.2
+    optional: true
 
   brace-expansion@1.1.18:
     dependencies:
       balanced-match: 1.0.2
       concat-map: 0.0.1
+    optional: true
 
-  buffer-crc32@0.2.13: {}
+  buffer-crc32@0.2.13:
+    optional: true
 
-  buffer-from@1.1.2: {}
+  buffer-from@1.1.2:
+    optional: true
 
   bundle-name@4.1.0:
     dependencies:
       run-applescript: 7.1.0
+    optional: true
 
   c12@3.3.4(magicast@0.5.4):
     dependencies:
@@ -3320,9 +3376,11 @@ snapshots:
 
   cac@7.0.0: {}
 
-  callsites@3.1.0: {}
+  callsites@3.1.0:
+    optional: true
 
-  camelcase@8.0.0: {}
+  camelcase@8.0.0:
+    optional: true
 
   chai@6.2.2: {}
 
@@ -3330,8 +3388,10 @@ snapshots:
     dependencies:
       ansi-styles: 4.3.0
       supports-color: 7.2.0
+    optional: true
 
-  chalk@5.6.2: {}
+  chalk@5.6.2:
+    optional: true
 
   cheerio-select@2.1.0:
     dependencies:
@@ -3341,6 +3401,7 @@ snapshots:
       domelementtype: 2.3.0
       domhandler: 5.0.3
       domutils: 3.2.2
+    optional: true
 
   cheerio@1.1.2:
     dependencies:
@@ -3355,6 +3416,7 @@ snapshots:
       parse5-parser-stream: 7.1.2
       undici: 7.29.0
       whatwg-mimetype: 4.0.0
+    optional: true
 
   chokidar@5.0.0:
     dependencies:
@@ -3368,10 +3430,12 @@ snapshots:
       lighthouse-logger: 2.0.2
     transitivePeerDependencies:
       - supports-color
+    optional: true
 
   citty@0.2.2: {}
 
-  cli-boxes@3.0.0: {}
+  cli-boxes@3.0.0:
+    optional: true
 
   cliui@8.0.1:
     dependencies:
@@ -3379,7 +3443,8 @@ snapshots:
       strip-ansi: 6.0.1
       wrap-ansi: 7.0.0
 
-  clone@1.0.4: {}
+  clone@1.0.4:
+    optional: true
 
   color-convert@2.0.1:
     dependencies:
@@ -3391,16 +3456,21 @@ snapshots:
     dependencies:
       strip-ansi: 6.0.1
       wcwidth: 1.0.1
+    optional: true
 
   commander@2.9.0:
     dependencies:
       graceful-readlink: 1.0.1
+    optional: true
 
-  commander@9.5.0: {}
+  commander@9.5.0:
+    optional: true
 
-  common-tags@1.8.2: {}
+  common-tags@1.8.2:
+    optional: true
 
-  concat-map@0.0.1: {}
+  concat-map@0.0.1:
+    optional: true
 
   concat-stream@1.6.2:
     dependencies:
@@ -3408,6 +3478,7 @@ snapshots:
       inherits: 2.0.4
       readable-stream: 2.3.8
       typedarray: 0.0.6
+    optional: true
 
   confbox@0.1.8: {}
 
@@ -3419,6 +3490,7 @@ snapshots:
     dependencies:
       ini: 1.3.8
       proto-list: 1.2.4
+    optional: true
 
   configstore@7.1.0:
     dependencies:
@@ -3426,18 +3498,21 @@ snapshots:
       dot-prop: 9.0.0
       graceful-fs: 4.2.11
       xdg-basedir: 5.1.0
+    optional: true
 
   consola@3.4.2: {}
 
   convert-source-map@2.0.0: {}
 
-  core-util-is@1.0.3: {}
+  core-util-is@1.0.3:
+    optional: true
 
   cross-spawn@7.0.6:
     dependencies:
       path-key: 3.1.1
       shebang-command: 2.0.0
       which: 2.0.2
+    optional: true
 
   css-select@5.2.2:
     dependencies:
@@ -3446,6 +3521,7 @@ snapshots:
       domhandler: 5.0.3
       domutils: 3.2.2
       nth-check: 2.1.1
+    optional: true
 
   css-select@7.0.0:
     dependencies:
@@ -3460,7 +3536,8 @@ snapshots:
       mdn-data: 2.27.1
       source-map-js: 1.2.1
 
-  css-what@6.2.2: {}
+  css-what@6.2.2:
+    optional: true
 
   css-what@8.0.0: {}
 
@@ -3475,40 +3552,51 @@ snapshots:
     transitivePeerDependencies:
       - '@noble/hashes'
 
-  debounce@1.2.1: {}
+  debounce@1.2.1:
+    optional: true
 
   debug@4.3.7:
     dependencies:
       ms: 2.1.3
+    optional: true
 
   debug@4.4.3:
     dependencies:
       ms: 2.1.3
+    optional: true
 
-  decamelize@6.0.1: {}
+  decamelize@6.0.1:
+    optional: true
 
   decimal.js@10.6.0: {}
 
-  deep-extend@0.6.0: {}
+  deep-extend@0.6.0:
+    optional: true
 
-  deep-is@0.1.4: {}
+  deep-is@0.1.4:
+    optional: true
 
-  deepmerge@4.3.1: {}
+  deepmerge@4.3.1:
+    optional: true
 
-  default-browser-id@5.0.1: {}
+  default-browser-id@5.0.1:
+    optional: true
 
   default-browser@5.5.1:
     dependencies:
       bundle-name: 4.1.0
       default-browser-id: 5.0.1
+    optional: true
 
   defaults@1.0.4:
     dependencies:
       clone: 1.0.4
+    optional: true
 
   define-lazy-prop@2.0.0: {}
 
-  define-lazy-prop@3.0.0: {}
+  define-lazy-prop@3.0.0:
+    optional: true
 
   defu@6.1.7: {}
 
@@ -3559,6 +3647,7 @@ snapshots:
   dot-prop@9.0.0:
     dependencies:
       type-fest: 4.41.0
+    optional: true
 
   dotenv-expand@13.0.0:
     dependencies:
@@ -3566,7 +3655,8 @@ snapshots:
 
   dotenv@17.4.2: {}
 
-  emoji-regex@10.6.0: {}
+  emoji-regex@10.6.0:
+    optional: true
 
   emoji-regex@8.0.0: {}
 
@@ -3574,6 +3664,7 @@ snapshots:
     dependencies:
       iconv-lite: 0.6.3
       whatwg-encoding: 3.1.1
+    optional: true
 
   enhanced-resolve@5.24.5:
     dependencies:
@@ -3582,7 +3673,8 @@ snapshots:
 
   entities@4.5.0: {}
 
-  entities@6.0.1: {}
+  entities@6.0.1:
+    optional: true
 
   entities@7.0.1: {}
 
@@ -3590,30 +3682,38 @@ snapshots:
 
   es-module-lexer@2.3.2: {}
 
-  es6-error@4.1.1: {}
+  es6-error@4.1.1:
+    optional: true
 
   escalade@3.2.0: {}
 
-  escape-goat@4.0.0: {}
+  escape-goat@4.0.0:
+    optional: true
 
-  escape-string-regexp@4.0.0: {}
+  escape-string-regexp@4.0.0:
+    optional: true
 
   escape-string-regexp@5.0.0: {}
 
   eslint-plugin-no-unsanitized@4.1.4(eslint@9.39.0(jiti@2.7.0)):
     dependencies:
       eslint: 9.39.0(jiti@2.7.0)
+    optional: true
 
   eslint-scope@8.4.0:
     dependencies:
       esrecurse: 4.3.0
       estraverse: 5.3.0
+    optional: true
 
-  eslint-visitor-keys@3.4.3: {}
+  eslint-visitor-keys@3.4.3:
+    optional: true
 
-  eslint-visitor-keys@4.2.1: {}
+  eslint-visitor-keys@4.2.1:
+    optional: true
 
-  eslint-visitor-keys@5.0.0: {}
+  eslint-visitor-keys@5.0.0:
+    optional: true
 
   eslint@9.39.0(jiti@2.7.0):
     dependencies:
@@ -3655,36 +3755,44 @@ snapshots:
       jiti: 2.7.0
     transitivePeerDependencies:
       - supports-color
+    optional: true
 
   espree@10.4.0:
     dependencies:
       acorn: 8.18.0
       acorn-jsx: 5.3.2(acorn@8.18.0)
       eslint-visitor-keys: 4.2.1
+    optional: true
 
   espree@11.0.0:
     dependencies:
       acorn: 8.18.0
       acorn-jsx: 5.3.2(acorn@8.18.0)
       eslint-visitor-keys: 5.0.0
+    optional: true
 
-  esprima@4.0.1: {}
+  esprima@4.0.1:
+    optional: true
 
   esquery@1.7.0:
     dependencies:
       estraverse: 5.3.0
+    optional: true
 
   esrecurse@4.3.0:
     dependencies:
       estraverse: 5.3.0
+    optional: true
 
-  estraverse@5.3.0: {}
+  estraverse@5.3.0:
+    optional: true
 
   estree-walker@3.0.3:
     dependencies:
       '@types/estree': 1.0.9
 
-  esutils@2.0.3: {}
+  esutils@2.0.3:
+    optional: true
 
   eventemitter3@4.0.7: {}
 
@@ -3696,19 +3804,25 @@ snapshots:
 
   fake-indexeddb@6.2.5: {}
 
-  fast-deep-equal@3.1.3: {}
+  fast-deep-equal@3.1.3:
+    optional: true
 
-  fast-json-patch@3.1.1: {}
+  fast-json-patch@3.1.1:
+    optional: true
 
-  fast-json-stable-stringify@2.1.0: {}
+  fast-json-stable-stringify@2.1.0:
+    optional: true
 
-  fast-levenshtein@2.0.6: {}
+  fast-levenshtein@2.0.6:
+    optional: true
 
-  fast-uri@3.1.7: {}
+  fast-uri@3.1.7:
+    optional: true
 
   fd-slicer@1.1.0:
     dependencies:
       pend: 1.2.0
+    optional: true
 
   fdir@6.5.0(picomatch@4.0.7):
     optionalDependencies:
@@ -3717,6 +3831,7 @@ snapshots:
   file-entry-cache@8.0.0:
     dependencies:
       flat-cache: 4.0.1
+    optional: true
 
   filesize@11.0.23: {}
 
@@ -3724,29 +3839,35 @@ snapshots:
     dependencies:
       locate-path: 6.0.0
       path-exists: 4.0.0
+    optional: true
 
   firefox-profile@4.7.0:
     dependencies:
-      adm-zip: 0.5.18
+      adm-zip: 0.6.0
       fs-extra: 11.4.0
       ini: 4.1.3
       minimist: 1.2.8
       xml2js: 0.6.2
+    optional: true
 
-  first-chunk-stream@3.0.0: {}
+  first-chunk-stream@3.0.0:
+    optional: true
 
   flat-cache@4.0.1:
     dependencies:
       flatted: 3.4.4
       keyv: 4.5.4
+    optional: true
 
-  flatted@3.4.4: {}
+  flatted@3.4.4:
+    optional: true
 
   fs-extra@11.4.0:
     dependencies:
       graceful-fs: 4.2.11
       jsonfile: 6.2.1
       universalify: 2.0.1
+    optional: true
 
   fsevents@2.3.3:
     optional: true
@@ -3754,39 +3875,49 @@ snapshots:
   fx-runner@1.4.0:
     dependencies:
       commander: 2.9.0
-      shell-quote: 1.7.3
+      shell-quote: 1.10.0
       spawn-sync: 1.0.15
       when: 3.7.7
       which: 1.2.4
       winreg: 0.0.12
+    optional: true
 
   get-caller-file@2.0.5: {}
 
-  get-east-asian-width@1.6.0: {}
+  get-east-asian-width@1.6.0:
+    optional: true
 
   giget@3.3.1: {}
 
   glob-parent@6.0.2:
     dependencies:
       is-glob: 4.0.3
+    optional: true
 
-  glob-to-regexp@0.4.1: {}
+  glob-to-regexp@0.4.1:
+    optional: true
 
   global-directory@4.0.1:
     dependencies:
       ini: 4.1.1
+    optional: true
 
-  globals@14.0.0: {}
+  globals@14.0.0:
+    optional: true
 
-  graceful-fs@4.2.10: {}
+  graceful-fs@4.2.10:
+    optional: true
 
   graceful-fs@4.2.11: {}
 
-  graceful-readlink@1.0.1: {}
+  graceful-readlink@1.0.1:
+    optional: true
 
-  growly@1.3.0: {}
+  growly@1.3.0:
+    optional: true
 
-  has-flag@4.0.0: {}
+  has-flag@4.0.0:
+    optional: true
 
   hookable@6.1.1: {}
 
@@ -3811,76 +3942,100 @@ snapshots:
       debug: 4.4.3
     transitivePeerDependencies:
       - supports-color
+    optional: true
 
   iconv-lite@0.6.3:
     dependencies:
       safer-buffer: 2.1.2
+    optional: true
 
   idb@8.0.3: {}
 
-  ignore@5.3.2: {}
+  ignore@5.3.2:
+    optional: true
 
-  image-size@2.0.2: {}
+  image-size@2.0.2:
+    optional: true
 
-  immediate@3.0.6: {}
+  immediate@3.0.6:
+    optional: true
 
   import-fresh@3.3.1:
     dependencies:
       parent-module: 1.0.1
       resolve-from: 4.0.0
+    optional: true
 
-  imurmurhash@0.1.4: {}
+  imurmurhash@0.1.4:
+    optional: true
 
-  index-to-position@1.2.0: {}
+  index-to-position@1.2.0:
+    optional: true
 
-  inherits@2.0.4: {}
+  inherits@2.0.4:
+    optional: true
 
-  ini@1.3.8: {}
+  ini@1.3.8:
+    optional: true
 
-  ini@4.1.1: {}
+  ini@4.1.1:
+    optional: true
 
-  ini@4.1.3: {}
+  ini@4.1.3:
+    optional: true
 
   is-absolute@0.1.7:
     dependencies:
       is-relative: 0.1.3
+    optional: true
 
   is-docker@2.2.1: {}
 
-  is-docker@3.0.0: {}
+  is-docker@3.0.0:
+    optional: true
 
-  is-extglob@2.1.1: {}
+  is-extglob@2.1.1:
+    optional: true
 
   is-fullwidth-code-point@3.0.0: {}
 
   is-glob@4.0.3:
     dependencies:
       is-extglob: 2.1.1
+    optional: true
 
-  is-in-ci@1.0.0: {}
+  is-in-ci@1.0.0:
+    optional: true
 
-  is-in-ssh@1.0.0: {}
+  is-in-ssh@1.0.0:
+    optional: true
 
   is-inside-container@1.0.0:
     dependencies:
       is-docker: 3.0.0
+    optional: true
 
   is-installed-globally@1.0.0:
     dependencies:
       global-directory: 4.0.1
       is-path-inside: 4.0.0
+    optional: true
 
   is-network-error@1.3.2: {}
 
-  is-npm@6.1.0: {}
+  is-npm@6.1.0:
+    optional: true
 
-  is-path-inside@4.0.0: {}
+  is-path-inside@4.0.0:
+    optional: true
 
   is-potential-custom-element-name@1.0.1: {}
 
-  is-relative@0.1.3: {}
+  is-relative@0.1.3:
+    optional: true
 
-  is-utf8@0.2.1: {}
+  is-utf8@0.2.1:
+    optional: true
 
   is-wsl@2.2.0:
     dependencies:
@@ -3889,16 +4044,21 @@ snapshots:
   is-wsl@3.1.1:
     dependencies:
       is-inside-container: 1.0.0
+    optional: true
 
-  isarray@1.0.0: {}
+  isarray@1.0.0:
+    optional: true
 
-  isexe@1.1.2: {}
+  isexe@1.1.2:
+    optional: true
 
-  isexe@2.0.0: {}
+  isexe@2.0.0:
+    optional: true
 
   jiti@2.7.0: {}
 
-  jose@5.9.6: {}
+  jose@5.9.6:
+    optional: true
 
   js-tiktoken@1.0.21:
     dependencies:
@@ -3911,6 +4071,7 @@ snapshots:
   js-yaml@4.3.2:
     dependencies:
       argparse: 2.0.1
+    optional: true
 
   jsdom@30.0.1:
     dependencies:
@@ -3938,17 +4099,22 @@ snapshots:
     transitivePeerDependencies:
       - '@noble/hashes'
 
-  json-buffer@3.0.1: {}
+  json-buffer@3.0.1:
+    optional: true
 
   json-merge-patch@1.0.2:
     dependencies:
       fast-deep-equal: 3.1.3
+    optional: true
 
-  json-schema-traverse@0.4.1: {}
+  json-schema-traverse@0.4.1:
+    optional: true
 
-  json-schema-traverse@1.0.0: {}
+  json-schema-traverse@1.0.0:
+    optional: true
 
-  json-stable-stringify-without-jsonify@1.0.1: {}
+  json-stable-stringify-without-jsonify@1.0.1:
+    optional: true
 
   json5@2.2.3: {}
 
@@ -3957,6 +4123,7 @@ snapshots:
       universalify: 2.0.1
     optionalDependencies:
       graceful-fs: 4.2.11
+    optional: true
 
   jszip@3.10.1:
     dependencies:
@@ -3964,12 +4131,15 @@ snapshots:
       pako: 1.0.11
       readable-stream: 2.3.8
       setimmediate: 1.0.5
+    optional: true
 
   keyv@4.5.4:
     dependencies:
       json-buffer: 3.0.1
+    optional: true
 
-  ky@1.14.3: {}
+  ky@1.14.3:
+    optional: true
 
   langsmith@0.10.1(openai@7.10.0(undici@8.10.1)(zod@4.5.4)):
     dependencies:
@@ -3980,15 +4150,18 @@ snapshots:
   latest-version@9.0.0:
     dependencies:
       package-json: 10.0.1
+    optional: true
 
   levn@0.4.1:
     dependencies:
       prelude-ls: 1.2.1
       type-check: 0.4.0
+    optional: true
 
   lie@3.3.0:
     dependencies:
       immediate: 3.0.6
+    optional: true
 
   lighthouse-logger@2.0.2:
     dependencies:
@@ -3996,6 +4169,7 @@ snapshots:
       marky: 1.3.0
     transitivePeerDependencies:
       - supports-color
+    optional: true
 
   lightningcss-android-arm64@1.32.0:
     optional: true
@@ -4112,6 +4286,7 @@ snapshots:
   locate-path@6.0.0:
     dependencies:
       p-locate: 5.0.0
+    optional: true
 
   lodash.merge@4.6.2: {}
 
@@ -4133,19 +4308,23 @@ snapshots:
       '@babel/types': 7.29.8
       source-map-js: 1.2.1
 
-  make-error@1.3.6: {}
+  make-error@1.3.6:
+    optional: true
 
   many-keys-map@3.0.3: {}
 
-  marky@1.3.0: {}
+  marky@1.3.0:
+    optional: true
 
   mdn-data@2.27.1: {}
 
   minimatch@3.1.5:
     dependencies:
       brace-expansion: 1.1.18
+    optional: true
 
-  minimist@1.2.8: {}
+  minimist@1.2.8:
+    optional: true
 
   mlly@1.8.2:
     dependencies:
@@ -4154,7 +4333,8 @@ snapshots:
       pkg-types: 1.3.1
       ufo: 1.6.4
 
-  ms@2.1.3: {}
+  ms@2.1.3:
+    optional: true
 
   multimatch@6.0.0:
     dependencies:
@@ -4162,14 +4342,17 @@ snapshots:
       array-differ: 4.0.0
       array-union: 3.0.1
       minimatch: 3.1.5
+    optional: true
 
   mustache@4.2.0: {}
 
   nanoid@3.3.18: {}
 
-  natural-compare@1.4.0: {}
+  natural-compare@1.4.0:
+    optional: true
 
-  node-forge@1.4.0: {}
+  node-forge@1.4.0:
+    optional: true
 
   node-notifier@10.0.1:
     dependencies:
@@ -4177,12 +4360,14 @@ snapshots:
       is-wsl: 2.2.0
       semver: 7.8.5
       shellwords: 0.1.1
-      uuid: 8.3.2
+      uuid: 14.0.2
       which: 2.0.2
+    optional: true
 
   nth-check@2.1.1:
     dependencies:
       boolbase: 1.0.0
+    optional: true
 
   nth-check@3.0.1:
     dependencies:
@@ -4198,7 +4383,8 @@ snapshots:
 
   ohash@2.0.12: {}
 
-  on-exit-leak-free@2.1.2: {}
+  on-exit-leak-free@2.1.2:
+    optional: true
 
   open@11.0.0:
     dependencies:
@@ -4208,6 +4394,7 @@ snapshots:
       is-inside-container: 1.0.0
       powershell-utils: 0.1.0
       wsl-utils: 0.3.1
+    optional: true
 
   open@8.4.2:
     dependencies:
@@ -4228,18 +4415,22 @@ snapshots:
       prelude-ls: 1.2.1
       type-check: 0.4.0
       word-wrap: 1.2.5
+    optional: true
 
-  os-shim@0.1.3: {}
+  os-shim@0.1.3:
+    optional: true
 
   p-finally@1.0.0: {}
 
   p-limit@3.1.0:
     dependencies:
       yocto-queue: 0.1.0
+    optional: true
 
   p-locate@5.0.0:
     dependencies:
       p-limit: 3.1.0
+    optional: true
 
   p-queue@6.6.2:
     dependencies:
@@ -4267,43 +4458,53 @@ snapshots:
       registry-auth-token: 5.1.1
       registry-url: 6.0.1
       semver: 7.8.5
+    optional: true
 
-  pako@1.0.11: {}
+  pako@1.0.11:
+    optional: true
 
   parent-module@1.0.1:
     dependencies:
       callsites: 3.1.0
+    optional: true
 
   parse-json@8.3.0:
     dependencies:
       '@babel/code-frame': 7.29.7
       index-to-position: 1.2.0
       type-fest: 4.41.0
+    optional: true
 
   parse5-htmlparser2-tree-adapter@7.1.0:
     dependencies:
       domhandler: 5.0.3
       parse5: 7.3.0
+    optional: true
 
   parse5-parser-stream@7.1.2:
     dependencies:
       parse5: 7.3.0
+    optional: true
 
   parse5@7.3.0:
     dependencies:
       entities: 6.0.1
+    optional: true
 
   parse5@8.0.1:
     dependencies:
       entities: 8.0.0
 
-  path-exists@4.0.0: {}
+  path-exists@4.0.0:
+    optional: true
 
-  path-key@3.1.1: {}
+  path-key@3.1.1:
+    optional: true
 
   pathe@2.0.3: {}
 
-  pend@1.2.0: {}
+  pend@1.2.0:
+    optional: true
 
   perfect-debounce@2.1.0: {}
 
@@ -4316,8 +4517,10 @@ snapshots:
   pino-abstract-transport@2.0.0:
     dependencies:
       split2: 4.2.0
+    optional: true
 
-  pino-std-serializers@7.1.0: {}
+  pino-std-serializers@7.1.0:
+    optional: true
 
   pino@10.1.0:
     dependencies:
@@ -4332,6 +4535,7 @@ snapshots:
       safe-stable-stringify: 2.5.0
       sonic-boom: 4.2.1
       thread-stream: 3.2.0
+    optional: true
 
   pkg-types@1.3.1:
     dependencies:
@@ -4351,9 +4555,11 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
-  powershell-utils@0.1.0: {}
+  powershell-utils@0.1.0:
+    optional: true
 
-  prelude-ls@1.2.1: {}
+  prelude-ls@1.2.1:
+    optional: true
 
   pretty-format@27.5.1:
     dependencies:
@@ -4361,15 +4567,19 @@ snapshots:
       ansi-styles: 5.2.0
       react-is: 17.0.2
 
-  process-nextick-args@2.0.1: {}
+  process-nextick-args@2.0.1:
+    optional: true
 
-  process-warning@5.1.0: {}
+  process-warning@5.1.0:
+    optional: true
 
   promise-toolbox@0.21.0:
     dependencies:
       make-error: 1.3.6
+    optional: true
 
-  proto-list@1.2.4: {}
+  proto-list@1.2.4:
+    optional: true
 
   publish-browser-extension@6.1.1:
     dependencies:
@@ -4382,10 +4592,12 @@ snapshots:
   pupa@3.3.0:
     dependencies:
       escape-goat: 4.0.0
+    optional: true
 
   quansync@0.2.11: {}
 
-  quick-format-unescaped@4.0.4: {}
+  quick-format-unescaped@4.0.4:
+    optional: true
 
   rc9@3.1.0:
     dependencies:
@@ -4398,6 +4610,7 @@ snapshots:
       ini: 1.3.8
       minimist: 1.2.8
       strip-json-comments: 2.0.1
+    optional: true
 
   react-dom@19.2.8(react@19.2.8):
     dependencies:
@@ -4417,24 +4630,29 @@ snapshots:
       safe-buffer: 5.1.2
       string_decoder: 1.1.1
       util-deprecate: 1.0.2
+    optional: true
 
   readdirp@5.1.1: {}
 
-  real-require@0.2.0: {}
+  real-require@0.2.0:
+    optional: true
 
   registry-auth-token@5.1.1:
     dependencies:
       '@pnpm/npm-conf': 3.0.3
+    optional: true
 
   registry-url@6.0.1:
     dependencies:
       rc: 1.2.8
+    optional: true
 
   require-directory@2.1.1: {}
 
   require-from-string@2.0.2: {}
 
-  resolve-from@4.0.0: {}
+  resolve-from@4.0.0:
+    optional: true
 
   rolldown@1.2.7:
     dependencies:
@@ -4457,15 +4675,20 @@ snapshots:
       '@rolldown/binding-win32-arm64-msvc': 1.2.7
       '@rolldown/binding-win32-x64-msvc': 1.2.7
 
-  run-applescript@7.1.0: {}
+  run-applescript@7.1.0:
+    optional: true
 
-  safe-buffer@5.1.2: {}
+  safe-buffer@5.1.2:
+    optional: true
 
-  safe-stable-stringify@2.5.0: {}
+  safe-stable-stringify@2.5.0:
+    optional: true
 
-  safer-buffer@2.1.2: {}
+  safer-buffer@2.1.2:
+    optional: true
 
-  sax@1.6.1: {}
+  sax@1.6.1:
+    optional: true
 
   saxes@6.0.0:
     dependencies:
@@ -4475,27 +4698,35 @@ snapshots:
 
   scule@1.3.0: {}
 
-  semver@7.7.3: {}
+  semver@7.7.3:
+    optional: true
 
-  semver@7.8.5: {}
+  semver@7.8.5:
+    optional: true
 
-  setimmediate@1.0.5: {}
+  setimmediate@1.0.5:
+    optional: true
 
   shebang-command@2.0.0:
     dependencies:
       shebang-regex: 3.0.0
+    optional: true
 
-  shebang-regex@3.0.0: {}
+  shebang-regex@3.0.0:
+    optional: true
 
-  shell-quote@1.7.3: {}
+  shell-quote@1.10.0:
+    optional: true
 
-  shellwords@0.1.1: {}
+  shellwords@0.1.1:
+    optional: true
 
   siginfo@2.0.0: {}
 
   sonic-boom@4.2.1:
     dependencies:
       atomic-sleep: 1.0.0
+    optional: true
 
   source-map-js@1.2.1: {}
 
@@ -4503,8 +4734,10 @@ snapshots:
     dependencies:
       buffer-from: 1.1.2
       source-map: 0.6.1
+    optional: true
 
-  source-map@0.6.1: {}
+  source-map@0.6.1:
+    optional: true
 
   source-map@0.7.6: {}
 
@@ -4512,12 +4745,15 @@ snapshots:
     dependencies:
       concat-stream: 1.6.2
       os-shim: 0.1.3
+    optional: true
 
-  split2@4.2.0: {}
+  split2@4.2.0:
+    optional: true
 
   split@1.0.1:
     dependencies:
       through: 2.3.8
+    optional: true
 
   stackback@0.0.2: {}
 
@@ -4534,10 +4770,12 @@ snapshots:
       emoji-regex: 10.6.0
       get-east-asian-width: 1.6.0
       strip-ansi: 7.2.0
+    optional: true
 
   string_decoder@1.1.1:
     dependencies:
       safe-buffer: 5.1.2
+    optional: true
 
   strip-ansi@6.0.1:
     dependencies:
@@ -4546,23 +4784,30 @@ snapshots:
   strip-ansi@7.2.0:
     dependencies:
       ansi-regex: 6.3.0
+    optional: true
 
   strip-bom-buf@2.0.0:
     dependencies:
       is-utf8: 0.2.1
+    optional: true
 
   strip-bom-stream@4.0.0:
     dependencies:
       first-chunk-stream: 3.0.0
       strip-bom-buf: 2.0.0
+    optional: true
 
-  strip-bom@5.0.0: {}
+  strip-bom@5.0.0:
+    optional: true
 
-  strip-json-comments@2.0.1: {}
+  strip-json-comments@2.0.1:
+    optional: true
 
-  strip-json-comments@3.1.1: {}
+  strip-json-comments@3.1.1:
+    optional: true
 
-  strip-json-comments@5.0.3: {}
+  strip-json-comments@5.0.3:
+    optional: true
 
   strip-literal@4.0.0:
     dependencies:
@@ -4571,14 +4816,17 @@ snapshots:
   stubborn-fs@2.0.0:
     dependencies:
       stubborn-utils: 1.0.2
+    optional: true
 
-  stubborn-utils@1.0.2: {}
+  stubborn-utils@1.0.2:
+    optional: true
 
   superlock@1.3.5: {}
 
   supports-color@7.2.0:
     dependencies:
       has-flag: 4.0.0
+    optional: true
 
   symbol-tree@3.2.4: {}
 
@@ -4591,8 +4839,10 @@ snapshots:
   thread-stream@3.2.0:
     dependencies:
       real-require: 0.2.0
+    optional: true
 
-  through@2.3.8: {}
+  through@2.3.8:
+    optional: true
 
   tiny-open@1.3.0: {}
 
@@ -4613,7 +4863,8 @@ snapshots:
     dependencies:
       tldts-core: 7.4.11
 
-  tmp@0.2.5: {}
+  tmp@0.2.7:
+    optional: true
 
   tough-cookie@6.0.2:
     dependencies:
@@ -4626,10 +4877,13 @@ snapshots:
   type-check@0.4.0:
     dependencies:
       prelude-ls: 1.2.1
+    optional: true
 
-  type-fest@4.41.0: {}
+  type-fest@4.41.0:
+    optional: true
 
-  typedarray@0.0.6: {}
+  typedarray@0.0.6:
+    optional: true
 
   typescript@5.9.3: {}
 
@@ -4637,9 +4891,11 @@ snapshots:
 
   uhyphen@0.2.0: {}
 
-  undici-types@8.3.0: {}
+  undici-types@8.3.0:
+    optional: true
 
-  undici@7.29.0: {}
+  undici@7.29.0:
+    optional: true
 
   undici@8.10.1: {}
 
@@ -4671,7 +4927,8 @@ snapshots:
       - vite
       - webpack
 
-  universalify@2.0.1: {}
+  universalify@2.0.1:
+    optional: true
 
   unplugin-utils@0.3.2:
     dependencies:
@@ -4687,7 +4944,8 @@ snapshots:
       rolldown: 1.2.7
       vite: 8.2.2(@types/node@26.4.1)(jiti@2.7.0)
 
-  upath@2.0.1: {}
+  upath@2.0.1:
+    optional: true
 
   update-notifier@7.3.1:
     dependencies:
@@ -4701,14 +4959,18 @@ snapshots:
       pupa: 3.3.0
       semver: 7.8.5
       xdg-basedir: 5.1.0
+    optional: true
 
   uri-js@4.4.1:
     dependencies:
       punycode: 2.3.1
+    optional: true
 
-  util-deprecate@1.0.2: {}
+  util-deprecate@1.0.2:
+    optional: true
 
-  uuid@8.3.2: {}
+  uuid@14.0.2:
+    optional: true
 
   vite@8.2.2(@types/node@26.4.1)(jiti@2.7.0):
     dependencies:
@@ -4758,10 +5020,12 @@ snapshots:
     dependencies:
       glob-to-regexp: 0.4.1
       graceful-fs: 4.2.11
+    optional: true
 
   wcwidth@1.0.1:
     dependencies:
       defaults: 1.0.4
+    optional: true
 
   web-ext@9.2.0(jiti@2.7.0):
     dependencies:
@@ -4787,7 +5051,7 @@ snapshots:
       source-map-support: 0.5.21
       strip-bom: 5.0.0
       strip-json-comments: 5.0.3
-      tmp: 0.2.5
+      tmp: 0.2.7
       update-notifier: 7.3.1
       watchpack: 2.4.4
       yargs: 17.7.2
@@ -4799,6 +5063,7 @@ snapshots:
       - node-fetch
       - safe-compare
       - supports-color
+    optional: true
 
   webidl-conversions@8.0.1: {}
 
@@ -4807,8 +5072,10 @@ snapshots:
   whatwg-encoding@3.1.1:
     dependencies:
       iconv-lite: 0.6.3
+    optional: true
 
-  whatwg-mimetype@4.0.0: {}
+  whatwg-mimetype@4.0.0:
+    optional: true
 
   whatwg-mimetype@5.0.0: {}
 
@@ -4828,18 +5095,22 @@ snapshots:
     transitivePeerDependencies:
       - '@noble/hashes'
 
-  when-exit@2.1.5: {}
+  when-exit@2.1.5:
+    optional: true
 
-  when@3.7.7: {}
+  when@3.7.7:
+    optional: true
 
   which@1.2.4:
     dependencies:
       is-absolute: 0.1.7
       isexe: 1.1.2
+    optional: true
 
   which@2.0.2:
     dependencies:
       isexe: 2.0.0
+    optional: true
 
   why-is-node-running@2.3.0:
     dependencies:
@@ -4849,10 +5120,13 @@ snapshots:
   widest-line@5.0.0:
     dependencies:
       string-width: 7.2.0
+    optional: true
 
-  winreg@0.0.12: {}
+  winreg@0.0.12:
+    optional: true
 
-  word-wrap@1.2.5: {}
+  word-wrap@1.2.5:
+    optional: true
 
   wrap-ansi@7.0.0:
     dependencies:
@@ -4865,11 +5139,13 @@ snapshots:
       ansi-styles: 6.2.3
       string-width: 7.2.0
       strip-ansi: 7.2.0
+    optional: true
 
   wsl-utils@0.3.1:
     dependencies:
       is-wsl: 3.1.1
       powershell-utils: 0.1.0
+    optional: true
 
   wxt@0.21.4(eslint@9.39.0(jiti@2.7.0))(rolldown@1.2.7)(typescript@5.9.3)(vite@8.2.2(@types/node@26.4.1)(jiti@2.7.0))(web-ext@9.2.0(jiti@2.7.0)):
     dependencies:
@@ -4919,7 +5195,8 @@ snapshots:
       - unloader
       - webpack
 
-  xdg-basedir@5.1.0: {}
+  xdg-basedir@5.1.0:
+    optional: true
 
   xml-name-validator@5.0.0: {}
 
@@ -4927,8 +5204,10 @@ snapshots:
     dependencies:
       sax: 1.6.1
       xmlbuilder: 11.0.1
+    optional: true
 
-  xmlbuilder@11.0.1: {}
+  xmlbuilder@11.0.1:
+    optional: true
 
   xmlchars@2.2.0: {}
 
@@ -4945,6 +5224,7 @@ snapshots:
       string-width: 4.2.3
       y18n: 5.0.8
       yargs-parser: 21.1.1
+    optional: true
 
   yargs@17.7.3:
     dependencies:
@@ -4960,12 +5240,15 @@ snapshots:
     dependencies:
       buffer-crc32: 0.2.13
       fd-slicer: 1.1.0
+    optional: true
 
-  yocto-queue@0.1.0: {}
+  yocto-queue@0.1.0:
+    optional: true
 
   zip-dir@2.0.0:
     dependencies:
       async: 3.2.6
       jszip: 3.10.1
+    optional: true
 
   zod@4.5.4: {}
