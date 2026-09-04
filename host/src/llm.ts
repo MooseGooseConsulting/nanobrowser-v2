@@ -110,6 +110,36 @@ export class LlmProxy {
    * source failed and why, so the extension can say so rather than silently showing
    * half a catalog.
    */
+  /**
+   * Projects a provider catalog down to the fields the extension's mapper reads.
+   *
+   * Chrome caps a host->extension message at 1 MiB. Two full catalogs is 1.17 MB
+   * -- the raw bodies carry a `description` paragraph per model -- so forwarding
+   * them verbatim silently failed with "outbound message is 1167174 bytes".
+   * `src/host/native.ts` only ever reads the keys kept here.
+   */
+  #slimCatalog(body: unknown): unknown {
+    if (typeof body !== 'object' || body === null) return body;
+    const obj = body as { data?: unknown };
+    if (!Array.isArray(obj.data)) return body;
+    const data = obj.data.map((raw) => {
+      if (typeof raw !== 'object' || raw === null) return raw;
+      const m = raw as Record<string, unknown>;
+      const architecture = m.architecture as { input_modalities?: unknown } | undefined;
+      return {
+        id: m.id,
+        name: m.name,
+        context_length: m.context_length,
+        pricing: m.pricing,
+        supported_parameters: m.supported_parameters,
+        ...(architecture ? { architecture: { input_modalities: architecture.input_modalities } } : {}),
+        ...(m.isFree !== undefined ? { isFree: m.isFree } : {}),
+        ...(m.mayTrainOnYourPrompts !== undefined ? { mayTrainOnYourPrompts: m.mayTrainOnYourPrompts } : {}),
+      };
+    });
+    return { ...obj, data };
+  }
+
   async modelsAll(): Promise<{ status: number; body: unknown }> {
     const sources: KnownOrigin[] = ['openrouter', 'kilo'];
     const settled = await Promise.allSettled(sources.map((source) => this.models(source)));
@@ -120,7 +150,7 @@ export class LlmProxy {
       const source = sources[i]!;
       if (result.status === 'fulfilled') {
         if (result.value.status === 200) {
-          catalogs[source] = result.value;
+          catalogs[source] = { status: result.value.status, body: this.#slimCatalog(result.value.body) };
         } else {
           errors[source] = `upstream status ${result.value.status}`;
         }

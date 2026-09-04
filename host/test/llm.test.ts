@@ -77,3 +77,39 @@ describe('llm.request: credential selection by URL origin', () => {
     await h.cleanup();
   });
 });
+
+describe('modelsAll payload size', () => {
+  it("keeps two merged catalogs under Chrome's 1 MiB host->extension cap", async () => {
+    // Regression: forwarding both catalogs verbatim produced a 1167174-byte message
+    // and the host logged "failed to encode outbound message", so the panel's model
+    // list simply never arrived. Each raw entry carries a description paragraph the
+    // extension's mapper never reads.
+    const bulky = (n: number, prefix: string) => ({
+      data: Array.from({ length: n }, (_, i) => ({
+        id: `${prefix}/model-${i}`,
+        name: `Model ${i}`,
+        description: 'x'.repeat(1200),
+        context_length: 128000,
+        pricing: { prompt: '0', completion: '0' },
+        supported_parameters: ['tools'],
+        architecture: { input_modalities: ['text'], tokenizer: 'y'.repeat(200) },
+        isFree: true,
+      })),
+    });
+
+    h = await makeHarness({ key: 'or-secret', kiloKey: 'kilo-secret' });
+    h.fetch.enqueueJson(200, bulky(400, 'or'));
+    h.fetch.enqueueJson(200, bulky(400, 'kilo'));
+
+    await h.dispatcher.handle({ type: 'models.list', id: 'm1' });
+
+    const reply = h.sent.find((m) => m.type === 'models.list.result');
+    expect(reply).toBeDefined();
+    const bytes = Buffer.byteLength(JSON.stringify(reply), 'utf8');
+    expect(bytes).toBeLessThan(1024 * 1024);
+    // The mapper's fields survive; the paragraph does not.
+    const json = JSON.stringify(reply);
+    expect(json).toContain('context_length');
+    expect(json).not.toContain('xxxxxxxxxx');
+  });
+});
