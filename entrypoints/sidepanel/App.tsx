@@ -29,8 +29,8 @@ export default function App() {
   return (
     <div className="flex h-screen flex-col bg-paper text-ink">
       <header className="flex items-center justify-between gap-2 border-b border-line px-3 py-2">
-        <h1 className="text-sm font-semibold tracking-tight">nanobrowser</h1>
-        <div className="flex items-center gap-2 text-[11px] text-muted" title={panel.hub.status}>
+        <h1 className="text-base font-semibold tracking-tight">nanobrowser</h1>
+        <div className="flex items-center gap-2 text-xs text-muted" title={panel.hub.status}>
           <span className={`size-2 rounded-full ${DOT[panel.hub.status]}`} aria-hidden />
           <span data-testid="hub-status">{panel.hub.status}</span>
           {panel.hub.extensionVersion ? (
@@ -40,12 +40,12 @@ export default function App() {
       </header>
 
       {panel.workerSilent && panel.hub.status === 'connected' ? (
-        <p role="status" className="border-b border-line bg-amber-500/10 px-3 py-1 text-[11px] text-amber-700 dark:text-amber-300">
+        <p role="status" className="border-b border-line bg-amber-500/10 px-3 py-1 text-xs text-amber-700 dark:text-amber-300">
           Waiting for worker — it has not answered models, readiness or scripts yet.
         </p>
       ) : null}
       {panel.workerError ? (
-        <p role="alert" className="border-b border-line bg-rose-500/10 px-3 py-1 text-[11px] text-rose-700 dark:text-rose-300">
+        <p role="alert" className="border-b border-line bg-rose-500/10 px-3 py-1 text-xs text-rose-700 dark:text-rose-300">
           {panel.workerError}
         </p>
       ) : null}
@@ -56,6 +56,7 @@ export default function App() {
         <TabPanel value="run" active={tab}>
           <RunSection
             config={config}
+            models={panel.models}
             readiness={panel.readiness}
             readinessStatus={panel.readinessStatus}
             log={panel.log}
@@ -64,6 +65,7 @@ export default function App() {
             onPause={panel.pauseRun}
             onResume={panel.resumeRun}
             onAbort={panel.abortRun}
+            onGoToSetup={() => setTab('setup')}
           />
         </TabPanel>
 

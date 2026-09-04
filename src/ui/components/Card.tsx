@@ -19,10 +19,10 @@ export function Section({
   return (
     <section className="space-y-2">
       <div className="flex items-baseline justify-between gap-2">
-        <h2 className="text-[11px] font-semibold tracking-wide text-muted uppercase">{title}</h2>
+        <h2 className="text-xs font-semibold tracking-wide text-muted uppercase">{title}</h2>
         {actions}
       </div>
-      {hint ? <p className="text-[11px] text-muted">{hint}</p> : null}
+      {hint ? <p className="text-xs text-muted">{hint}</p> : null}
       {children}
     </section>
   );
@@ -41,11 +41,11 @@ export function Field({
 }) {
   return (
     <div className="space-y-1">
-      <label htmlFor={htmlFor} className="block text-xs font-medium text-ink">
+      <label htmlFor={htmlFor} className="block text-sm font-medium text-ink">
         {label}
       </label>
       {children}
-      {hint ? <p className="text-[11px] leading-snug text-muted">{hint}</p> : null}
+      {hint ? <p className="text-xs leading-snug text-muted">{hint}</p> : null}
     </div>
   );
 }

@@ -138,4 +138,29 @@ describe('ModelSelect', () => {
     await user.click(screen.getByRole('combobox', { name: 'Leader model' }));
     expect(screen.getByText('Waiting for worker…')).toBeTruthy();
   });
+
+  it('shows the stored model id even before the catalog loads', () => {
+    // Regression: a stored id with no matching catalog entry (the models.list answer
+    // has not arrived yet, or the model fell out of the catalog) used to render an
+    // empty box, which reads as "my selection was lost" even though storage still
+    // holds it (src/ui/state/useConfig.ts never touches it).
+    const onChange = vi.fn();
+    render(
+      <ModelSelect id="leader" label="Leader model" models={[]} value="nvidia/nemotron-ultra" onChange={onChange} />,
+    );
+
+    const input = screen.getByRole('combobox', { name: 'Leader model' }) as HTMLInputElement;
+    expect(input.value).toBe('nvidia/nemotron-ultra');
+    expect(screen.getByText(/waiting for the model list/i)).toBeTruthy();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('flags a stored id that is not in a loaded catalog, distinctly from still-loading', () => {
+    render(
+      <ModelSelect id="leader" label="Leader model" models={MODELS} value="mistral/ghost" onChange={() => {}} />,
+    );
+    const input = screen.getByRole('combobox', { name: 'Leader model' }) as HTMLInputElement;
+    expect(input.value).toBe('mistral/ghost');
+    expect(screen.getByText(/not in the loaded catalog/i)).toBeTruthy();
+  });
 });

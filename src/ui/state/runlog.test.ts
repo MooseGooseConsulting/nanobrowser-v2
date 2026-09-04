@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { RunEvent } from '@/src/messaging';
 import {
+  currentSubgoal,
+  endedEvent,
   initialRunLogState,
+  latestStep,
   runLogReducer,
   runPhase,
+  savedFilesFrom,
+  startedEvent,
   toEntries,
+  toSections,
   type RunLogState,
 } from './runlog';
 
@@ -170,5 +176,106 @@ describe('runPhase', () => {
 
   it('treats a claimed runId with no events as running', () => {
     expect(runPhase(runLogReducer(initialRunLogState, { type: 'run', runId: RUN }))).toBe('running');
+  });
+});
+
+const CONFIG = {
+  leaderModel: 'a',
+  followerModel: 'b',
+  observe: 'dom' as const,
+  planningInterval: 5,
+  maxSteps: 50,
+  inputFidelity: 'in-page' as const,
+};
+
+describe('toSections', () => {
+  it('puts everything before the first step in section 0', () => {
+    const events: RunEvent[] = [
+      { kind: 'run.started', runId: RUN, prompt: 'go', config: CONFIG, tabId: 1, url: 'https://x', at: 1 },
+      { kind: 'leader.plan', plan: 'p', subgoals: [], replan: false, at: 2 },
+      step(1, 3),
+      call('c1', 'click', 4),
+    ];
+    const sections = toSections(events);
+    expect(sections.map((s) => s.n)).toEqual([0, 1]);
+    expect(sections[0]?.entries).toHaveLength(2);
+  });
+
+  it('never hides a non-step entry: every entry but the step markers themselves lands in exactly one section', () => {
+    // The `step` marker itself is deliberately left out of every section body — its
+    // number and role are what the section header already shows.
+    const events: RunEvent[] = [step(1, 1), call('c1', 'click', 2), step(2, 3), step(3, 4)];
+    const sections = toSections(events);
+    const total = sections.reduce((n, s) => n + s.entries.length, 0);
+    const nonStepEntries = toEntries(events).filter((entry) => !(entry.kind === 'plain' && entry.event.kind === 'step'));
+    expect(total).toBe(nonStepEntries.length);
+  });
+
+  it('drops an empty section rather than showing an empty step header', () => {
+    const events: RunEvent[] = [step(1, 1), step(2, 2), call('c1', 'click', 3)];
+    const sections = toSections(events);
+    expect(sections.map((s) => s.n)).toEqual([2]);
+  });
+});
+
+describe('currentSubgoal', () => {
+  it('is undefined with no plan yet', () => {
+    expect(currentSubgoal([step(1, 1)])).toBeUndefined();
+  });
+
+  it('starts at the first subgoal of the latest plan', () => {
+    const events: RunEvent[] = [{ kind: 'leader.plan', plan: 'p', subgoals: ['open cart', 'checkout'], replan: false, at: 1 }];
+    expect(currentSubgoal(events)).toBe('open cart');
+  });
+
+  it('advances one subgoal per SUBGOAL_COMPLETE signal, and stops at the last', () => {
+    const events: RunEvent[] = [
+      { kind: 'leader.plan', plan: 'p', subgoals: ['a', 'b', 'c'], replan: false, at: 1 },
+      { kind: 'follower.signal', signal: 'SUBGOAL_COMPLETE', note: '', at: 2 },
+      { kind: 'follower.signal', signal: 'SUBGOAL_COMPLETE', note: '', at: 3 },
+      { kind: 'follower.signal', signal: 'SUBGOAL_COMPLETE', note: '', at: 4 },
+    ];
+    expect(currentSubgoal(events)).toBe('c');
+  });
+
+  it('resets on a replan', () => {
+    const events: RunEvent[] = [
+      { kind: 'leader.plan', plan: 'p', subgoals: ['a', 'b'], replan: false, at: 1 },
+      { kind: 'follower.signal', signal: 'SUBGOAL_COMPLETE', note: '', at: 2 },
+      { kind: 'leader.plan', plan: 'p2', subgoals: ['x', 'y'], replan: true, at: 3 },
+    ];
+    expect(currentSubgoal(events)).toBe('x');
+  });
+});
+
+describe('latestStep / startedEvent / endedEvent', () => {
+  it('finds the latest step', () => {
+    expect(latestStep([step(1, 1), step(2, 2)])?.n).toBe(2);
+    expect(latestStep([])).toBeUndefined();
+  });
+
+  it('finds the run.started and run.ended events', () => {
+    const events: RunEvent[] = [
+      { kind: 'run.started', runId: RUN, prompt: 'go', config: CONFIG, tabId: 1, url: 'https://x', at: 10 },
+      { kind: 'run.ended', status: 'done', message: 'ok', steps: 2, at: 20 },
+    ];
+    expect(startedEvent(events)?.at).toBe(10);
+    expect(endedEvent(events)?.at).toBe(20);
+    expect(endedEvent([])).toBeUndefined();
+  });
+});
+
+describe('savedFilesFrom', () => {
+  it('is empty with no matching event, and never throws on an unrelated shape', () => {
+    expect(savedFilesFrom([step(1, 1)])).toEqual([]);
+  });
+
+  it('reads a generic file.saved-shaped event until the real variant lands', () => {
+    // TODO(file.saved): swap for a typed RunEvent variant once one exists.
+    const events = [
+      step(1, 1),
+      { kind: 'file.saved', name: 'report.pdf', url: 'blob:report' } as unknown as RunEvent,
+    ];
+    expect(savedFilesFrom(events)).toEqual([{ name: 'report.pdf', path: undefined, url: 'blob:report' }]);
   });
 });

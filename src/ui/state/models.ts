@@ -36,6 +36,15 @@ export function findModel(models: ModelInfo[], id: string): ModelInfo | undefine
   return models.find((model) => model.id === id);
 }
 
+/**
+ * The Setup tab's "free models only" filter (default ON — the user has authorised
+ * only free OpenRouter models, the nvidia/nemotron *:free pair, as the enforced norm).
+ * Pure so the default-on / paid-warns behaviour is testable without rendering anything.
+ */
+export function filterFree(models: ModelInfo[], freeOnly: boolean): ModelInfo[] {
+  return freeOnly ? models.filter((model) => model.free) : models;
+}
+
 export function formatContext(tokens: number): string {
   if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(tokens % 1_000_000 === 0 ? 0 : 1)}M ctx`;
   if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}K ctx`;

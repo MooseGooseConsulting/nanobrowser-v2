@@ -10,11 +10,14 @@ export function Collapsible({
   summary,
   defaultOpen = false,
   className,
+  toggleTestId,
   children,
 }: {
   summary: (open: boolean) => ReactNode;
   defaultOpen?: boolean;
   className?: string;
+  /** Distinguishes this disclosure's own toggle button from any nested inside `children`. */
+  toggleTestId?: string;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -24,6 +27,7 @@ export function Collapsible({
     <div className={className}>
       <button
         type="button"
+        data-testid={toggleTestId}
         aria-expanded={open}
         aria-controls={regionId}
         onClick={() => setOpen((value) => !value)}

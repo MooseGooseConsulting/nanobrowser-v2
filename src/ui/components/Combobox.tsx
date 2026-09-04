@@ -18,6 +18,13 @@ export interface ComboboxProps<T> {
   placeholder?: string;
   emptyMessage?: string;
   disabled?: boolean;
+  /**
+   * Caption shown under the input when `value` is non-empty but matches no item in
+   * `items` — either the catalog has not arrived yet or the stored id fell out of it.
+   * Without this the input just goes blank, which reads as "the selection was lost"
+   * even though the stored value is untouched (it is only display that is missing it).
+   */
+  unresolvedHint?: (value: string) => string;
 }
 
 /**
@@ -38,6 +45,7 @@ export function Combobox<T>({
   placeholder = 'Search models…',
   emptyMessage = 'No matches.',
   disabled = false,
+  unresolvedHint,
 }: ComboboxProps<T>) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -47,6 +55,9 @@ export function Combobox<T>({
 
   const visible = useMemo(() => filter(items, open ? query : ''), [filter, items, open, query]);
   const selected = items.find((item) => getKey(item) === value);
+  // A stored value with no matching item is still a value, not an empty one — the
+  // catalog just has not caught up. Never let the closed-state text collapse to '' here.
+  const unresolved = value.length > 0 && !selected;
 
   useEffect(() => {
     setActive(0);
@@ -109,8 +120,9 @@ export function Combobox<T>({
         aria-activedescendant={activeId}
         autoComplete="off"
         disabled={disabled}
-        value={open ? query : (selected ? getLabel(selected) : '')}
+        value={open ? query : selected ? getLabel(selected) : unresolved ? value : ''}
         placeholder={selected ? getLabel(selected) : placeholder}
+        aria-describedby={!open && unresolved && unresolvedHint ? `${id}-unresolved` : undefined}
         onFocus={() => setOpen(true)}
         onChange={(event) => {
           setQuery(event.target.value);
@@ -118,10 +130,16 @@ export function Combobox<T>({
         }}
         onKeyDown={onKeyDown}
         className={cn(
-          'w-full rounded-md border border-line bg-paper px-2 py-1.5 text-xs text-ink',
+          'w-full rounded-md border bg-paper px-2 py-1.5 text-sm text-ink',
+          unresolved ? 'border-amber-500' : 'border-line',
           'outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-60',
         )}
       />
+      {!open && unresolved && unresolvedHint ? (
+        <p id={`${id}-unresolved`} className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+          {unresolvedHint(value)}
+        </p>
+      ) : null}
       <ul
         id={listboxId}
         role="listbox"
@@ -133,7 +151,7 @@ export function Combobox<T>({
         )}
       >
         {visible.length === 0 ? (
-          <li className="px-2 py-2 text-[11px] text-muted">{emptyMessage}</li>
+          <li className="px-2 py-2 text-xs text-muted">{emptyMessage}</li>
         ) : (
           visible.map((item, index) => {
             const key = getKey(item);
@@ -149,7 +167,7 @@ export function Combobox<T>({
                 }}
                 onMouseEnter={() => setActive(index)}
                 className={cn(
-                  'cursor-pointer px-2 py-1.5 text-xs',
+                  'cursor-pointer px-2 py-1.5 text-sm',
                   index === active ? 'bg-raised' : '',
                   key === value ? 'font-semibold text-ink' : 'text-ink/90',
                 )}

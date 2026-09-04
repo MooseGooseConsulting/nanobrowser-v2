@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ModelInfo } from '@/src/messaging';
-import { findModel, formatContext, isPinned, matchesQuery, rankModels } from './models';
+import { filterFree, findModel, formatContext, isPinned, matchesQuery, rankModels } from './models';
 
 function model(id: string, over: Partial<ModelInfo> = {}): ModelInfo {
   return {
@@ -74,5 +74,16 @@ describe('helpers', () => {
     expect(formatContext(1_000_000)).toBe('1M ctx');
     expect(formatContext(1_500_000)).toBe('1.5M ctx');
     expect(formatContext(512)).toBe('512 ctx');
+  });
+});
+
+describe('filterFree', () => {
+  it('keeps only free models when on', () => {
+    expect(filterFree(CATALOG, true).every((m) => m.free)).toBe(true);
+    expect(filterFree(CATALOG, true)).toHaveLength(3);
+  });
+
+  it('passes every model through when off', () => {
+    expect(filterFree(CATALOG, false)).toEqual(CATALOG);
   });
 });

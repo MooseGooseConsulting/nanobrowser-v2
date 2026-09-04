@@ -18,7 +18,7 @@ export function HandoffCard({ event }: { event: HandoffEvent }) {
         className="rounded-md border border-amber-500/50 bg-amber-500/10 px-2 py-1.5"
       >
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] font-semibold tracking-wide text-amber-700 uppercase dark:text-amber-300">
+          <span className="text-[11px] font-semibold tracking-wide text-amber-700 uppercase dark:text-amber-300">
             Handoff
           </span>
           <Badge tone={event.from}>{roleLabel(event.from)}</Badge>
@@ -30,7 +30,7 @@ export function HandoffCard({ event }: { event: HandoffEvent }) {
             <Badge tone={event.signal === 'BLOCKED' ? 'bad' : 'accent'}>{event.signal}</Badge>
           ) : null}
         </div>
-        <p className="mt-1 text-xs text-ink">{event.reason}</p>
+        <p className="mt-1 text-sm text-ink">{event.reason}</p>
       </div>
     </EventShell>
   );

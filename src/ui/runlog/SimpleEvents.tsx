@@ -1,5 +1,6 @@
 import type { RunEvent } from '@/src/messaging';
 import { Badge, type BadgeTone } from '../components/Badge';
+import { ExpandableText } from '../components/ExpandableText';
 import { EventShell } from './EventShell';
 import { roleLabel } from './format';
 
@@ -8,7 +9,7 @@ type Of<K extends RunEvent['kind']> = Extract<RunEvent, { kind: K }>;
 export function StepEvent({ event }: { event: Of<'step'> }) {
   return (
     <EventShell at={event.at}>
-      <p className="py-0.5 text-[11px] text-muted">
+      <p className="py-0.5 text-xs text-muted">
         Step <span className="font-medium text-ink tabular-nums">{event.n}</span> ·{' '}
         {roleLabel(event.role)}
       </p>
@@ -21,7 +22,7 @@ export function ModelTextEvent({ event }: { event: Of<'model.text'> }) {
     <EventShell at={event.at} rail={event.role === 'leader' ? 'border-violet-400' : 'border-sky-400'}>
       <div className="py-0.5">
         <Badge tone={event.role}>{roleLabel(event.role)}</Badge>
-        <p className="mt-1 text-xs whitespace-pre-wrap text-ink">{event.text}</p>
+        <ExpandableText text={event.text} className="mt-1 text-sm text-ink" />
       </div>
     </EventShell>
   );
@@ -42,7 +43,7 @@ export function FollowerSignalEvent({ event }: { event: Of<'follower.signal'> })
           <Badge tone="follower">Follower</Badge>
           <Badge tone={SIGNAL_TONE[event.signal]}>{event.signal}</Badge>
         </span>
-        {event.note ? <p className="mt-1 text-xs text-ink">{event.note}</p> : null}
+        {event.note ? <p className="mt-1 text-sm text-ink">{event.note}</p> : null}
       </div>
     </EventShell>
   );
@@ -51,7 +52,7 @@ export function FollowerSignalEvent({ event }: { event: Of<'follower.signal'> })
 export function ObservationEvent({ event }: { event: Of<'observation'> }) {
   return (
     <EventShell at={event.at}>
-      <p className="flex flex-wrap items-center gap-1.5 py-0.5 text-[11px] text-muted">
+      <p className="flex flex-wrap items-center gap-1.5 py-0.5 text-xs text-muted">
         <Badge tone="neutral">observe: {event.mode}</Badge>
         {event.hasScreenshot ? <Badge tone="accent">screenshot</Badge> : null}
         {event.tokens !== undefined ? (
@@ -66,7 +67,7 @@ export function InputFidelityEvent({ event }: { event: Of<'input.fidelity'> }) {
   const escalated = event.fidelity === 'escalated';
   return (
     <EventShell at={event.at} rail={escalated ? 'border-amber-500' : 'border-line'}>
-      <p className="flex flex-wrap items-center gap-1.5 py-0.5 text-[11px] text-muted">
+      <p className="flex flex-wrap items-center gap-1.5 py-0.5 text-xs text-muted">
         <Badge tone={escalated ? 'warn' : 'neutral'}>input: {event.fidelity}</Badge>
         <span>
           {escalated
@@ -89,7 +90,7 @@ const CONSOLE_TONE: Record<Of<'userscript.output'>['level'], string> = {
 export function UserscriptOutputEvent({ event }: { event: Of<'userscript.output'> }) {
   return (
     <EventShell at={event.at} rail="border-teal-500">
-      <p className="py-0.5 font-mono text-[11px] break-words">
+      <p className="py-0.5 font-mono text-xs break-words">
         <span className="text-muted">{event.scriptId}</span>{' '}
         <span className={CONSOLE_TONE[event.level]}>{event.text}</span>
       </p>
@@ -101,8 +102,8 @@ export function RunStartedEvent({ event }: { event: Of<'run.started'> }) {
   return (
     <EventShell at={event.at} rail="border-accent">
       <div className="py-0.5">
-        <p className="text-[10px] font-semibold tracking-wide text-muted uppercase">Run started</p>
-        <p className="mt-0.5 text-xs text-ink">{event.prompt}</p>
+        <p className="text-[11px] font-semibold tracking-wide text-muted uppercase">Run started</p>
+        <p className="mt-0.5 text-sm text-ink">{event.prompt}</p>
         <p className="mt-1 flex flex-wrap gap-1">
           <Badge tone="leader">{event.config.leaderModel || 'no leader model'}</Badge>
           <Badge tone="follower">{event.config.followerModel || 'no follower model'}</Badge>
@@ -110,7 +111,7 @@ export function RunStartedEvent({ event }: { event: Of<'run.started'> }) {
           <Badge tone="neutral">every {event.config.planningInterval}</Badge>
           <Badge tone="neutral">max {event.config.maxSteps}</Badge>
         </p>
-        <p className="mt-1 truncate text-[10px] text-muted">
+        <p className="mt-1 truncate text-[11px] text-muted">
           tab {event.tabId} · {event.url}
         </p>
       </div>
@@ -121,7 +122,7 @@ export function RunStartedEvent({ event }: { event: Of<'run.started'> }) {
 export function RunPausedEvent({ event }: { event: Of<'run.paused'> }) {
   return (
     <EventShell at={event.at} rail="border-amber-500">
-      <p className="py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">Paused</p>
+      <p className="py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">Paused</p>
     </EventShell>
   );
 }
@@ -129,7 +130,7 @@ export function RunPausedEvent({ event }: { event: Of<'run.paused'> }) {
 export function RunResumedEvent({ event }: { event: Of<'run.resumed'> }) {
   return (
     <EventShell at={event.at} rail="border-emerald-500">
-      <p className="py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">Resumed</p>
+      <p className="py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">Resumed</p>
     </EventShell>
   );
 }
@@ -151,11 +152,11 @@ export function RunEndedEvent({ event }: { event: Of<'run.ended'> }) {
     >
       <div data-testid="run-ended" className="py-0.5">
         <span className="flex items-center gap-1.5">
-          <span className="text-[10px] font-semibold tracking-wide text-muted uppercase">Run ended</span>
+          <span className="text-[11px] font-semibold tracking-wide text-muted uppercase">Run ended</span>
           <Badge tone={tone}>{event.status}</Badge>
-          <span className="text-[10px] text-muted tabular-nums">{event.steps} steps</span>
+          <span className="text-[11px] text-muted tabular-nums">{event.steps} steps</span>
         </span>
-        {event.message ? <p className="mt-1 text-xs text-ink">{event.message}</p> : null}
+        {event.message ? <ExpandableText text={event.message} className="mt-1 text-sm text-ink" /> : null}
       </div>
     </EventShell>
   );

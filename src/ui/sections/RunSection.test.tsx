@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { RunEvent } from '@/src/messaging';
+import type { ModelInfo, RunEvent } from '@/src/messaging';
 import { DEFAULT_CONFIG, type Config } from '@/src/storage';
 import { initialRunLogState, runLogReducer, type RunLogState } from '../state/runlog';
 import { RunSection } from './RunSection';
@@ -14,6 +14,11 @@ const CONFIG: Config = {
   leaderModel: 'nvidia/nemotron-ultra',
   followerModel: 'meta/llama-4',
 };
+
+const MODELS: ModelInfo[] = [
+  { id: 'nvidia/nemotron-ultra', name: 'NVIDIA Nemotron Ultra', free: false, vision: true, tools: true, contextLength: 1_000_000 },
+  { id: 'meta/llama-4', name: 'Llama 4', free: true, vision: false, tools: true, contextLength: 256_000 },
+];
 
 const READY = { hostConnected: true, keyReady: true };
 
@@ -40,10 +45,12 @@ function setup(over: Partial<Parameters<typeof RunSection>[0]> = {}) {
     onPause: vi.fn(),
     onResume: vi.fn(),
     onAbort: vi.fn(),
+    onGoToSetup: vi.fn(),
   };
   render(
     <RunSection
       config={CONFIG}
+      models={MODELS}
       readiness={READY}
       readinessStatus="ready"
       log={initialRunLogState}
@@ -53,6 +60,38 @@ function setup(over: Partial<Parameters<typeof RunSection>[0]> = {}) {
   );
   return handlers;
 }
+
+describe('composer', () => {
+  it('shows the chosen Leader/Follower as chips, with a change link to Setup', async () => {
+    const user = userEvent.setup();
+    const handlers = setup();
+
+    expect(screen.getByText('NVIDIA Nemotron Ultra')).toBeTruthy();
+    expect(screen.getByText('Llama 4')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'change' }));
+    expect(handlers.onGoToSetup).toHaveBeenCalledOnce();
+  });
+
+  it('submits with Ctrl+Enter', async () => {
+    const user = userEvent.setup();
+    const handlers = setup();
+
+    await user.type(screen.getByLabelText('Objective'), 'buy the thing');
+    await user.keyboard('{Control>}{Enter}{/Control}');
+
+    expect(handlers.onStart).toHaveBeenCalledExactlyOnceWith('buy the thing');
+  });
+
+  it('does not submit Ctrl+Enter while the gate is not open', async () => {
+    const user = userEvent.setup();
+    const handlers = setup({ config: { ...CONFIG, followerModel: '' } });
+
+    await user.type(screen.getByLabelText('Objective'), 'buy the thing');
+    await user.keyboard('{Control>}{Enter}{/Control}');
+
+    expect(handlers.onStart).not.toHaveBeenCalled();
+  });
+});
 
 describe('Run button gating', () => {
   it('is disabled while readiness has not come back', async () => {
@@ -66,10 +105,14 @@ describe('Run button gating', () => {
     expect(screen.getByTestId('run-blocked-reason').textContent).toMatch(/waiting for the worker/i);
   });
 
-  it('is disabled with a specific reason when readiness is red', () => {
-    setup({ readiness: { hostConnected: false, keyReady: false, reason: 'host offline' } });
+  it('is disabled with a specific reason when readiness is red, with a fix action to Setup', async () => {
+    const user = userEvent.setup();
+    const handlers = setup({ readiness: { hostConnected: false, keyReady: false, reason: 'host offline' } });
     expect((screen.getByRole('button', { name: 'Run' }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByTestId('run-blocked-reason').textContent).toBe('host offline');
+    expect(screen.getByTestId('run-blocked-reason').textContent).toContain('host offline');
+
+    await user.click(within(screen.getByTestId('run-blocked-reason')).getByRole('button', { name: 'Fix in Setup' }));
+    expect(handlers.onGoToSetup).toHaveBeenCalledOnce();
   });
 
   it('is disabled when readiness is green but a model is unpicked', () => {
@@ -97,48 +140,76 @@ describe('Run button gating', () => {
   });
 });
 
-describe('transport controls', () => {
+describe('transport controls: only the applicable ones render', () => {
   it('offers only Run while idle', () => {
     setup();
-    const button = (name: string) => screen.getByRole('button', { name }) as HTMLButtonElement;
-    expect(button('Pause').disabled).toBe(true);
-    expect(button('Resume').disabled).toBe(true);
-    expect(button('Abort').disabled).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Pause' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Resume' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Abort' })).toBeNull();
   });
 
-  it('offers Pause and Abort while running', async () => {
+  it('offers Pause and Abort while running, not Resume', async () => {
     const user = userEvent.setup();
     const handlers = setup({ log: logOf([started]) });
-    const button = (name: string) => screen.getByRole('button', { name }) as HTMLButtonElement;
 
-    expect(button('Run').disabled).toBe(true);
-    expect(button('Pause').disabled).toBe(false);
-    expect(button('Resume').disabled).toBe(true);
-    expect(button('Abort').disabled).toBe(false);
+    expect((screen.getByRole('button', { name: 'Run' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Resume' })).toBeNull();
 
-    await user.click(button('Pause'));
-    await user.click(button('Abort'));
+    await user.click(screen.getByRole('button', { name: 'Pause' }));
+    await user.click(screen.getByRole('button', { name: 'Abort' }));
     expect(handlers.onPause).toHaveBeenCalledOnce();
     expect(handlers.onAbort).toHaveBeenCalledOnce();
   });
 
-  it('offers Resume once paused', async () => {
+  it('offers Resume once paused, not Pause', async () => {
     const user = userEvent.setup();
     const handlers = setup({ log: logOf([started, { kind: 'run.paused', at: 2 }]) });
-    const button = (name: string) => screen.getByRole('button', { name }) as HTMLButtonElement;
 
-    expect(button('Pause').disabled).toBe(true);
-    expect(button('Resume').disabled).toBe(false);
-    await user.click(button('Resume'));
+    expect(screen.queryByRole('button', { name: 'Pause' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Resume' }));
     expect(handlers.onResume).toHaveBeenCalledOnce();
   });
 
-  it('re-enables Run after the run ends', () => {
+  it('re-enables Run and hides transport controls once the run ends', () => {
     setup({
       log: logOf([started, { kind: 'run.ended', status: 'done', message: 'ok', steps: 4, at: 3 }]),
     });
-    expect((screen.getByRole('button', { name: 'Abort' }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByTestId('run-ended').textContent).toContain('done');
+    expect(screen.queryByRole('button', { name: 'Abort' })).toBeNull();
+    expect(screen.getByTestId('run-result-card').textContent).toContain('Done');
+  });
+
+  it('replaces Abort with an "Aborting…" status once clicked, until the run ends', async () => {
+    const user = userEvent.setup();
+    setup({ log: logOf([started]) });
+
+    await user.click(screen.getByRole('button', { name: 'Abort' }));
+    expect(screen.queryByRole('button', { name: 'Abort' })).toBeNull();
+    const strip = screen.getAllByRole('status').find((el) => /aborting/i.test(el.textContent ?? ''));
+    expect(strip).toBeTruthy();
+  });
+});
+
+describe('status strip', () => {
+  it('is an aria-live region showing state, step N of maxSteps, and the current subgoal', () => {
+    setup({
+      log: logOf([
+        started,
+        { kind: 'leader.plan', plan: 'p', subgoals: ['open cart', 'checkout'], replan: false, at: 2 },
+        { kind: 'step', n: 3, role: 'follower', at: 3 },
+      ]),
+    });
+
+    const strips = screen.getAllByRole('status');
+    const strip = strips.find((el) => /running/i.test(el.textContent ?? ''));
+    expect(strip).toBeTruthy();
+    expect(strip?.getAttribute('aria-live')).toBe('polite');
+    expect(strip?.textContent).toContain('step 3 of');
+    expect(strip?.textContent).toContain('open cart');
+  });
+
+  it('does not render while idle', () => {
+    setup();
+    expect(screen.queryByText(/^Running$/)).toBeNull();
   });
 });
 
@@ -154,14 +225,30 @@ describe('run log', () => {
       ]),
     });
 
-    const items = screen.getByTestId('run-log').children;
+    const items = within(screen.getByTestId('run-log')).getAllByTestId('log-entry');
     expect(items).toHaveLength(4);
     expect(screen.getByTestId('plan-card')).toBeTruthy();
     expect(screen.getByTestId('handoff-card')).toBeTruthy();
     expect(screen.getByTestId('tool-call-summary')).toBeTruthy();
   });
 
-  it('filters by kind without hiding run lifecycle events', async () => {
+  it('groups a Follower step behind a collapsible "Step N" section, open by default', () => {
+    setup({
+      log: logOf([
+        started,
+        { kind: 'step', n: 1, role: 'follower', at: 2 },
+        { kind: 'tool.call', role: 'follower', call: { callId: 'c1', name: 'click', args: {} }, at: 3 },
+        { kind: 'tool.result', role: 'follower', result: { callId: 'c1', name: 'click', ok: true, summary: 'clicked', durationMs: 8 }, at: 4 },
+      ]),
+    });
+
+    const section = screen.getByText('Step 1').closest('[data-testid="log-section"]');
+    expect(section).toBeTruthy();
+    expect(within(section as HTMLElement).getByTestId('tool-call-summary')).toBeTruthy();
+    expect(within(section as HTMLElement).getByTestId('step-toggle').getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('the "steps" entry in the Show menu turns per-step grouping into a flat list', async () => {
     const user = userEvent.setup();
     setup({
       log: logOf([
@@ -171,13 +258,34 @@ describe('run log', () => {
       ]),
     });
 
-    expect(screen.getByTestId('run-log').children).toHaveLength(3);
-    await user.click(screen.getByRole('button', { name: 'steps' }));
-    expect(screen.getByTestId('run-log').children).toHaveLength(2);
-    expect(screen.getByTestId('handoff-card')).toBeTruthy();
+    // Grouped by default: the step marker itself never renders as its own line — the
+    // section header already says "Step 1" — so it does not inflate the entry count.
+    expect(screen.getByText('Step 1')).toBeTruthy();
+    expect(within(screen.getByTestId('run-log')).getAllByTestId('log-entry')).toHaveLength(2);
 
-    await user.click(screen.getByRole('button', { name: 'handoffs' }));
-    expect(screen.getByTestId('run-log').children).toHaveLength(1);
+    await user.click(screen.getByRole('button', { name: /^Show/ }));
+    await user.click(screen.getByRole('checkbox', { name: 'steps' }));
+
+    expect(screen.queryByText('Step 1')).toBeNull();
+    expect(within(screen.getByTestId('run-log')).getAllByTestId('log-entry')).toHaveLength(2);
+    expect(screen.getByTestId('handoff-card')).toBeTruthy();
+  });
+
+  it('other Show-menu filters hide entries by kind regardless of grouping', async () => {
+    const user = userEvent.setup();
+    setup({
+      log: logOf([
+        started,
+        { kind: 'step', n: 1, role: 'leader', at: 2 },
+        { kind: 'handoff', from: 'leader', to: 'follower', reason: 'go', at: 3 },
+      ]),
+    });
+
+    await user.click(screen.getByRole('button', { name: /^Show/ }));
+    await user.click(screen.getByRole('checkbox', { name: 'handoffs' }));
+
+    expect(screen.queryByTestId('handoff-card')).toBeNull();
+    expect(within(screen.getByTestId('run-log')).getAllByTestId('log-entry')).toHaveLength(1);
   });
 
   it('copies the raw event list as JSON', async () => {
@@ -209,11 +317,9 @@ describe('run log', () => {
 });
 
 describe('start hand-off to the worker', () => {
-  it('blocks a second Run while the worker has not acknowledged the first', () => {
+  it('blocks a second Run while the worker has not acknowledged the first, but still allows Abort', () => {
     setup({ starting: true });
-    expect((screen.getByRole('button', { name: 'Starting…' }) as HTMLButtonElement).disabled).toBe(
-      true,
-    );
-    expect((screen.getByRole('button', { name: 'Abort' }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole('button', { name: 'Starting…' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: 'Abort' })).toBeTruthy();
   });
 });

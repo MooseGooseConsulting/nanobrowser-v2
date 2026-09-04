@@ -47,6 +47,9 @@ describe('ToolCallCard', () => {
     expect(summary.textContent).toContain('click_element');
     expect(summary.textContent).toContain('ok');
     expect(summary.textContent).toContain('1.24s');
+    // Requirement 4: "name, key args, ok/error, duration" — a glance at the args
+    // without expanding the card.
+    expect(summary.textContent).toContain('selector=#buy');
 
     expect(screen.getByRole('button').getAttribute('aria-expanded')).toBe('false');
     expect(screen.queryByTestId('tool-call-args')).toBeNull();

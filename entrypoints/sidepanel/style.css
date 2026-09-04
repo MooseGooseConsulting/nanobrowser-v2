@@ -35,9 +35,19 @@ body,
   height: 100%;
 }
 
+/* 14px base (Requirement 1): comfortable to read at the real side-panel width without
+ * scaling every rem-based Tailwind utility, so `font-size` is set on the body rather
+ * than the root — `rem` units elsewhere stay anchored to the browser default. */
 body {
   background-color: var(--color-paper);
   color: var(--color-ink);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+/* Visible focus outrings everywhere, including elements Tailwind's own reset dims. */
+:focus-visible {
+  outline: none;
 }
 
 /* The run log is a long list of small monospace blocks; keep them from stretching the panel. */

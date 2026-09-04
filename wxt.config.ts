@@ -39,5 +39,12 @@ export default defineConfig({
       default_path: 'sidepanel.html',
     },
     action: {},
+    // Opens the panel from the keyboard (R-05): `_execute_action` is the reserved name
+    // Chrome maps to the toolbar action itself, so no listener is needed for it to work.
+    commands: {
+      _execute_action: {
+        suggested_key: { default: 'Ctrl+Shift+Y' },
+      },
+    },
   }),
 });

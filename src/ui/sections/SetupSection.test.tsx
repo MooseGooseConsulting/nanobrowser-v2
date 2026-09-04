@@ -38,6 +38,9 @@ describe('SetupSection config persistence', () => {
     const user = userEvent.setup();
     setup();
 
+    // Nemotron Ultra is paid in this fixture; free-only is on by default, so it would
+    // not appear in the dropdown otherwise (see the free-models-only tests below).
+    await user.click(screen.getByRole('switch', { name: 'Free models only' }));
     await user.click(screen.getByRole('combobox', { name: 'Leader model' }));
     await user.click(screen.getByRole('option', { name: /Nemotron/ }));
     await waitFor(async () =>
@@ -115,6 +118,67 @@ describe('SetupSection config persistence', () => {
   it('explains that escalated input raises Chrome\'s debugger banner', () => {
     setup();
     expect(screen.getByTestId('fidelity-explainer').textContent).toMatch(/debugging this browser/i);
+  });
+
+  it('shows the currently running Leader/Follower prominently', async () => {
+    await configItem.setValue({
+      leaderModel: 'nvidia/nemotron-ultra',
+      followerModel: 'meta/llama-4',
+      observe: 'dom',
+      planningInterval: 5,
+      maxSteps: 50,
+      inputFidelity: 'in-page',
+    });
+    setup();
+    expect(await screen.findAllByText('NVIDIA Nemotron Ultra')).not.toHaveLength(0);
+  });
+});
+
+describe('SetupSection free models only', () => {
+  it('defaults on and hides paid models from the picker', async () => {
+    const user = userEvent.setup();
+    setup();
+
+    expect(screen.getByRole('switch', { name: 'Free models only' }).getAttribute('aria-checked')).toBe('true');
+
+    await user.click(screen.getByRole('combobox', { name: 'Leader model' }));
+    expect(screen.queryByRole('option', { name: /Nemotron/ })).toBeNull();
+    expect(screen.getByRole('option', { name: /Llama 4/ })).toBeTruthy();
+  });
+
+  it('reveals paid models once turned off', async () => {
+    const user = userEvent.setup();
+    setup();
+
+    await user.click(screen.getByRole('switch', { name: 'Free models only' }));
+    await user.click(screen.getByRole('combobox', { name: 'Leader model' }));
+    expect(screen.getByRole('option', { name: /Nemotron/ })).toBeTruthy();
+  });
+
+  it('warns when a paid model is picked', async () => {
+    const user = userEvent.setup();
+    setup();
+
+    await user.click(screen.getByRole('switch', { name: 'Free models only' }));
+    await user.click(screen.getByRole('combobox', { name: 'Leader model' }));
+    await user.click(screen.getByRole('option', { name: /Nemotron/ }));
+
+    expect(screen.getByRole('alert').textContent).toMatch(/paid model/i);
+  });
+
+  it('never keeps an existing paid selection out of view: it still resolves, just is not offered as a new pick', async () => {
+    await configItem.setValue({
+      leaderModel: 'nvidia/nemotron-ultra',
+      followerModel: 'meta/llama-4',
+      observe: 'dom',
+      planningInterval: 5,
+      maxSteps: 50,
+      inputFidelity: 'in-page',
+    });
+    setup();
+
+    // Free-only defaults on, but the stored paid Leader still displays as itself.
+    expect(await screen.findByDisplayValue('NVIDIA Nemotron Ultra')).toBeTruthy();
   });
 });
 

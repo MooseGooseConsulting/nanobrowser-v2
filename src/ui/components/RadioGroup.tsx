@@ -38,7 +38,7 @@ export function RadioGroup<T extends string>({
             key={option.value}
             title={option.title}
             className={cn(
-              'cursor-pointer rounded px-2.5 py-1 text-xs font-medium transition-colors',
+              'cursor-pointer rounded px-2.5 py-1 text-sm font-medium transition-colors',
               'focus-within:ring-2 focus-within:ring-accent',
               checked ? 'bg-accent text-accent-ink' : 'text-muted hover:text-ink',
             )}

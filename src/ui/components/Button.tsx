@@ -19,7 +19,7 @@ export function Button({ variant = 'secondary', className, type = 'button', ...r
     <button
       type={type}
       className={cn(
-        'inline-flex items-center justify-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium',
+        'inline-flex items-center justify-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium',
         'transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-paper',
         'disabled:cursor-not-allowed disabled:opacity-60',
         VARIANTS[variant],

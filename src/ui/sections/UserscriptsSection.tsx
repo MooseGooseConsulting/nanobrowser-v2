@@ -107,12 +107,12 @@ export function UserscriptsSection({
                   onClick={() => load(script, false)}
                   aria-current={script.id === draft.id}
                   className={cn(
-                    'min-w-0 flex-1 truncate text-left text-xs outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                    'min-w-0 flex-1 truncate text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-accent',
                     script.id === draft.id ? 'font-semibold text-ink' : 'text-muted',
                   )}
                 >
                   {script.name}
-                  <span className="ml-1 text-[10px] text-muted">{script.matches.join(' ')}</span>
+                  <span className="ml-1 text-[11px] text-muted">{script.matches.join(' ')}</span>
                 </button>
                 <ConfirmButton label="delete" onConfirm={() => onDelete(script.id)} />
               </li>
@@ -147,7 +147,7 @@ export function UserscriptsSection({
                 id="script-name"
                 value={draft.name}
                 onChange={(event) => edit({ name: event.target.value })}
-                className="w-full rounded-md border border-line bg-paper px-2 py-1.5 text-xs text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="w-full rounded-md border border-line bg-paper px-2 py-1.5 text-sm text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent"
               />
             </Field>
             <Field label="Matches" htmlFor="script-matches" hint="Space-separated match patterns.">
@@ -158,7 +158,7 @@ export function UserscriptsSection({
                   setMatchesText(event.target.value);
                   edit({ matches: parseMatches(event.target.value) });
                 }}
-                className="w-full rounded-md border border-line bg-paper px-2 py-1.5 font-mono text-[11px] text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="w-full rounded-md border border-line bg-paper px-2 py-1.5 font-mono text-xs text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent"
               />
             </Field>
           </div>
@@ -169,7 +169,7 @@ export function UserscriptsSection({
               spellCheck={false}
               value={draft.code}
               onChange={(event) => edit({ code: event.target.value })}
-              className="w-full resize-y rounded-md border border-line bg-paper px-2 py-1.5 font-mono text-[11px] leading-snug text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              className="w-full resize-y rounded-md border border-line bg-paper px-2 py-1.5 font-mono text-xs leading-snug text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent"
             />
           </Field>
         </div>
@@ -177,15 +177,15 @@ export function UserscriptsSection({
 
       <Section title="Result">
         {runStatus === 'waiting' ? (
-          <p className="text-[11px] text-muted">Waiting for the worker to run the script…</p>
+          <p className="text-xs text-muted">Waiting for the worker to run the script…</p>
         ) : !result ? (
-          <p className="text-[11px] text-muted">Run a script to see its value, errors and console.</p>
+          <p className="text-xs text-muted">Run a script to see its value, errors and console.</p>
         ) : (
           <Card className="space-y-2 p-2">
-            <p className="flex items-center gap-1.5 text-[11px] text-muted">
+            <p className="flex items-center gap-1.5 text-xs text-muted">
               <span
                 className={cn(
-                  'rounded border px-1.5 py-px text-[10px] font-medium',
+                  'rounded border px-1.5 py-px text-[11px] font-medium',
                   result.ok
                     ? 'border-emerald-500/40 bg-emerald-500/12 text-emerald-700 dark:text-emerald-300'
                     : 'border-rose-500/40 bg-rose-500/12 text-rose-700 dark:text-rose-300',
@@ -197,26 +197,26 @@ export function UserscriptsSection({
               <span className="font-mono">{result.scriptId}</span>
             </p>
             {result.error ? (
-              <pre data-testid="script-error" className="rounded bg-rose-500/10 p-2 font-mono text-[11px] text-rose-700 dark:text-rose-300">
+              <pre data-testid="script-error" className="rounded bg-rose-500/10 p-2 font-mono text-xs text-rose-700 dark:text-rose-300">
                 {result.error}
               </pre>
             ) : null}
             <div>
-              <p className="text-[10px] font-semibold tracking-wide text-muted uppercase">Value</p>
-              <pre data-testid="script-value" className="mt-1 rounded bg-raised p-2 font-mono text-[11px] text-ink">
+              <p className="text-[11px] font-semibold tracking-wide text-muted uppercase">Value</p>
+              <pre data-testid="script-value" className="mt-1 rounded bg-raised p-2 font-mono text-xs text-ink">
                 {prettyJson(result.value)}
               </pre>
             </div>
             <div>
-              <p className="text-[10px] font-semibold tracking-wide text-muted uppercase">Console</p>
+              <p className="text-[11px] font-semibold tracking-wide text-muted uppercase">Console</p>
               {result.console.length === 0 ? (
-                <p className="text-[11px] text-muted">nothing logged</p>
+                <p className="text-xs text-muted">nothing logged</p>
               ) : (
                 <ul data-testid="script-console" className="mt-1 space-y-0.5">
                   {result.console.map((line, index) => (
                     <li
                       key={`${index}-${line.at}`}
-                      className={cn('font-mono text-[11px] break-words', LEVEL_CLASS[line.level])}
+                      className={cn('font-mono text-xs break-words', LEVEL_CLASS[line.level])}
                     >
                       <span className="text-muted">[{line.level}]</span> {line.text}
                     </li>

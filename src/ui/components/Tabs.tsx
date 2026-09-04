@@ -50,7 +50,7 @@ export function Tabs<T extends string>({
               }
             }}
             className={cn(
-              '-mb-px border-b-2 px-2 py-1.5 text-xs font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent',
+              '-mb-px border-b-2 px-2 py-1.5 text-sm font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent',
               selected ? 'border-accent text-ink' : 'border-transparent text-muted hover:text-ink',
             )}
           >

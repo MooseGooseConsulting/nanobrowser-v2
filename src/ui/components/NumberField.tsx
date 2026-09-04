@@ -38,13 +38,13 @@ export function NumberField({
         aria-describedby={message ? `${id}-error` : undefined}
         onChange={(event) => onChange(event.target.valueAsNumber)}
         className={cn(
-          'w-full rounded-md border bg-paper px-2 py-1.5 text-xs text-ink tabular-nums',
+          'w-full rounded-md border bg-paper px-2 py-1.5 text-sm text-ink tabular-nums',
           'outline-none focus-visible:ring-2 focus-visible:ring-accent',
           invalid ? 'border-rose-500' : 'border-line',
         )}
       />
       {message ? (
-        <p id={`${id}-error`} role="alert" className="mt-1 text-[11px] text-rose-600 dark:text-rose-400">
+        <p id={`${id}-error`} role="alert" className="mt-1 text-xs text-rose-600 dark:text-rose-400">
           {message}
         </p>
       ) : null}

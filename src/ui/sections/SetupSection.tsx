@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import type { ModelInfo, Readiness } from '@/src/messaging';
 import type { InputFidelity, ObserveMode } from '@/src/storage';
+import { Badge } from '../components/Badge';
 import { Button } from '../components/Button';
 import { Field, Section } from '../components/Card';
 import { ModelSelect } from '../components/ModelSelect';
@@ -7,14 +9,16 @@ import { NumberField } from '../components/NumberField';
 import { RadioGroup } from '../components/RadioGroup';
 import { Toggle } from '../components/Toggle';
 import { MAX_STEPS, PLANNING_INTERVAL } from '../state/gate';
+import { findModel } from '../state/models';
+import { useFreeModelsOnly } from '../state/modelFilter';
 import { isWaiting, type AreaStatus } from '../state/status';
 import { useConfig } from '../state/useConfig';
 import { ReadinessRow } from './ReadinessRow';
 
 const OBSERVE_OPTIONS = [
-  { value: 'dom' as const, label: 'DOM', title: 'Navigate from the accessibility/DOM snapshot.' },
-  { value: 'pixels' as const, label: 'Pixels', title: 'Navigate from screenshots.' },
-  { value: 'both' as const, label: 'Both', title: 'Send both the DOM snapshot and a screenshot.' },
+  { value: 'dom' as const, label: 'DOM', title: 'Navigate from the accessibility/DOM snapshot — fast, and works on pages a screenshot would misread.' },
+  { value: 'pixels' as const, label: 'Pixels', title: 'Navigate from a screenshot — closer to what a person sees, at a higher token cost.' },
+  { value: 'both' as const, label: 'Both', title: 'Send both the DOM snapshot and a screenshot, for the hardest pages.' },
 ] satisfies ReadonlyArray<{ value: ObserveMode; label: string; title: string }>;
 
 export function SetupSection({
@@ -35,7 +39,23 @@ export function SetupSection({
   onRefreshReadiness: () => void;
 }) {
   const { config, update, reset } = useConfig();
+  const [freeOnly, setFreeOnly] = useFreeModelsOnly();
   const escalated: boolean = config.inputFidelity === 'escalated';
+  const observeExplainer = OBSERVE_OPTIONS.find((option) => option.value === config.observe)?.title;
+
+  // "Selecting one must warn": these track the last picker to knowingly commit a paid
+  // model, so the warning stays specific to the role that just changed and clears once
+  // that role is free again.
+  const [paidWarning, setPaidWarning] = useState<{ role: 'Leader' | 'Follower'; model: ModelInfo } | null>(null);
+
+  const pick = (role: 'Leader' | 'Follower', field: 'leaderModel' | 'followerModel') => (id: string) => {
+    update({ [field]: id } as Partial<typeof config>);
+    const model = findModel(models, id);
+    setPaidWarning(model && !model.free ? { role, model } : null);
+  };
+
+  const leaderModel = findModel(models, config.leaderModel);
+  const followerModel = findModel(models, config.followerModel);
 
   return (
     <div className="space-y-4">
@@ -44,9 +64,20 @@ export function SetupSection({
       <Section
         title="Models"
         actions={
-          <Button variant="ghost" onClick={onRefreshModels}>
-            reload
-          </Button>
+          <span className="flex items-center gap-2">
+            <span className="flex items-center gap-1.5 text-xs text-muted">
+              <Toggle
+                id="free-only"
+                label="Free models only"
+                checked={freeOnly}
+                onChange={setFreeOnly}
+              />
+              free only
+            </span>
+            <Button variant="ghost" onClick={onRefreshModels}>
+              reload
+            </Button>
+          </span>
         }
         hint={
           modelsError ? (
@@ -54,18 +85,28 @@ export function SetupSection({
           ) : isWaiting(modelsStatus) ? (
             'Waiting for the worker to send the model list.'
           ) : (
-            `${models.length} models. Free models and NVIDIA Nemotron are listed first.`
+            `${models.length} models. NVIDIA Nemotron is listed first, then free models.`
           )
         }
       >
-        <div className="space-y-2">
+        {/* Prominent, so a stale picker display is never mistaken for a lost selection
+           (the value itself lives in Config storage untouched either way). */}
+        <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+          <span>Running with</span>
+          <Badge tone="leader">{leaderModel?.name || config.leaderModel || 'no leader model'}</Badge>
+          <span>/</span>
+          <Badge tone="follower">{followerModel?.name || config.followerModel || 'no follower model'}</Badge>
+        </p>
+
+        <div className="mt-2 space-y-2">
           <Field label="Leader" htmlFor="leader-model" hint="Plans and re-plans the objective.">
             <ModelSelect
               id="leader-model"
               label="Leader model"
               models={models}
+              freeOnly={freeOnly}
               value={config.leaderModel}
-              onChange={(id) => update({ leaderModel: id })}
+              onChange={pick('Leader', 'leaderModel')}
             />
           </Field>
           <Field label="Follower" htmlFor="follower-model" hint="Acts, and signals when to hand control back.">
@@ -73,11 +114,19 @@ export function SetupSection({
               id="follower-model"
               label="Follower model"
               models={models}
+              freeOnly={freeOnly}
               value={config.followerModel}
-              onChange={(id) => update({ followerModel: id })}
+              onChange={pick('Follower', 'followerModel')}
             />
           </Field>
         </div>
+
+        {paidWarning ? (
+          <p role="alert" className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-700 dark:text-amber-300">
+            {paidWarning.role} is now a paid model ({paidWarning.model.name}) — it costs money to run. Turn on
+            &ldquo;free only&rdquo; above and re-pick to go back to a free model.
+          </p>
+        ) : null}
       </Section>
 
       <Section title="Observation">
@@ -89,6 +138,7 @@ export function SetupSection({
             options={OBSERVE_OPTIONS}
             onChange={(observe) => update({ observe })}
           />
+          {observeExplainer ? <p className="mt-1 text-xs leading-snug text-muted">{observeExplainer}</p> : null}
         </Field>
       </Section>
 
@@ -97,7 +147,7 @@ export function SetupSection({
           <Field
             label="Planning interval"
             htmlFor="planning-interval"
-            hint="Steps between Leader re-plans."
+            hint="How many Follower steps run before the Leader re-plans."
           >
             <NumberField
               id="planning-interval"
@@ -107,7 +157,11 @@ export function SetupSection({
               onChange={(planningInterval) => update({ planningInterval })}
             />
           </Field>
-          <Field label="Max steps" htmlFor="max-steps" hint="Safety valve, not the normal handoff.">
+          <Field
+            label="Max steps"
+            htmlFor="max-steps"
+            hint="A safety valve that ends the run if it goes on too long, not the normal way it finishes."
+          >
             <NumberField
               id="max-steps"
               value={config.maxSteps}
@@ -130,10 +184,10 @@ export function SetupSection({
             }
           />
           <div className="min-w-0">
-            <p className="text-xs font-medium text-ink">
+            <p className="text-sm font-medium text-ink">
               {escalated ? 'Escalated (debugger/CDP)' : 'In-page events'}
             </p>
-            <p data-testid="fidelity-explainer" className="text-[11px] leading-snug text-muted">
+            <p data-testid="fidelity-explainer" className="text-xs leading-snug text-muted">
               Escalated input is delivered through chrome.debugger, so Chrome shows its
               &ldquo;is debugging this browser&rdquo; banner while it is attached.
             </p>

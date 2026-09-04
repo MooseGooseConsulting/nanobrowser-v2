@@ -161,6 +161,115 @@ export function entryKind(entry: LogEntry): RunEvent['kind'] {
   return entry.event.kind;
 }
 
+/** One `step` boundary's worth of entries (Requirement 4: collapsible per-step sections). */
+export interface LogSection {
+  key: string;
+  /** 0 is everything before the first `step` event (the plan, the opening handoff). */
+  n: number;
+  role?: import('@/src/messaging').Role;
+  entries: LogEntry[];
+}
+
+/**
+ * Groups entries by the `step` events that already mark Follower turns (R-04). The
+ * step entry itself stays out of the body — its number and role are what the section
+ * header shows — so nothing is rendered twice. Every entry still ends up in exactly
+ * one section, and the grouping never hides anything: it is scaffolding around the
+ * turn-by-turn log, not a substitute for it.
+ */
+export function toSections(events: RunEvent[]): LogSection[] {
+  const entries = toEntries(events);
+  const sections: LogSection[] = [{ key: 'section-0', n: 0, entries: [] }];
+
+  for (const entry of entries) {
+    if (entry.kind === 'plain' && entry.event.kind === 'step') {
+      sections.push({ key: `section-${entry.event.n}`, n: entry.event.n, role: entry.event.role, entries: [] });
+      continue;
+    }
+    sections[sections.length - 1]!.entries.push(entry);
+  }
+
+  return sections.filter((section) => section.entries.length > 0);
+}
+
+/**
+ * The subgoal the Follower is presumed to be working on right now, for the status
+ * strip (Requirement 2). There is no explicit "current subgoal index" on the wire, so
+ * this counts `SUBGOAL_COMPLETE` signals since the latest plan and reads that far into
+ * the subgoal list — an approximation, but the Leader/Follower signal vocabulary (R-03)
+ * makes subgoals complete in order, so it tracks the real run closely.
+ */
+export function currentSubgoal(events: RunEvent[]): string | undefined {
+  let subgoals: string[] = [];
+  let completed = 0;
+  for (const event of events) {
+    if (event.kind === 'leader.plan') {
+      subgoals = event.subgoals;
+      completed = 0;
+    } else if (event.kind === 'follower.signal' && event.signal === 'SUBGOAL_COMPLETE') {
+      completed += 1;
+    }
+  }
+  if (subgoals.length === 0) return undefined;
+  return subgoals[Math.min(completed, subgoals.length - 1)];
+}
+
+/** The most recent `step` event, for "step N of maxSteps" in the status strip. */
+export function latestStep(events: RunEvent[]): Extract<RunEvent, { kind: 'step' }> | undefined {
+  let found: Extract<RunEvent, { kind: 'step' }> | undefined;
+  for (const event of events) if (event.kind === 'step') found = event;
+  return found;
+}
+
+/** The run's own `run.started` event, so a status strip can use the run's *actual*
+ * config (maxSteps included) rather than whatever the Setup tab currently shows. */
+export function startedEvent(events: RunEvent[]): Extract<RunEvent, { kind: 'run.started' }> | undefined {
+  return events.find((event): event is Extract<RunEvent, { kind: 'run.started' }> => event.kind === 'run.started');
+}
+
+/** The run's terminal event, if it has one yet. */
+export function endedEvent(events: RunEvent[]): Extract<RunEvent, { kind: 'run.ended' }> | undefined {
+  let found: Extract<RunEvent, { kind: 'run.ended' }> | undefined;
+  for (const event of events) if (event.kind === 'run.ended') found = event;
+  return found;
+}
+
+/** A saved file as the result card renders it, independent of who produced the event. */
+export interface SavedFileInfo {
+  name: string;
+  path?: string;
+  url?: string;
+}
+
+/**
+ * TODO(file.saved): a concurrent change is expected to add a `file.saved` variant to
+ * the `RunEvent` union (src/messaging/contract.ts) and a dedicated
+ * src/ui/runlog/FileSavedCard.tsx. Until that lands there is no typed variant to match
+ * on, so this reads the event generically (by its `kind` string and a best-effort
+ * shape) rather than not showing saved files at all. Once the real variant exists,
+ * replace this with a proper `Extract<RunEvent, { kind: 'file.saved' }>` match and
+ * render saved files with `<FileSavedCard>` instead.
+ */
+export function savedFilesFrom(events: RunEvent[]): SavedFileInfo[] {
+  const files: SavedFileInfo[] = [];
+  for (const event of events) {
+    const raw = event as unknown as Record<string, unknown>;
+    if (raw.kind !== 'file.saved') continue;
+    const file = raw.file as Record<string, unknown> | undefined;
+    const name =
+      (typeof file?.name === 'string' && file.name) ||
+      (typeof raw.name === 'string' && raw.name) ||
+      (typeof raw.path === 'string' && raw.path) ||
+      'saved file';
+    files.push({
+      name,
+      path: (typeof file?.path === 'string' && file.path) || (typeof raw.path === 'string' ? raw.path : undefined),
+      url: (typeof file?.url === 'string' && file.url) || (typeof raw.url === 'string' ? raw.url : undefined),
+    });
+  }
+  return files;
+}
+
 /** Status of the run as the panel understands it, used to enable Pause/Resume/Abort. */
 export type RunPhase = 'idle' | 'running' | 'paused' | 'ended';
 

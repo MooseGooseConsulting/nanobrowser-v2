@@ -1,5 +1,6 @@
 import type { RunEvent } from '@/src/messaging';
 import { Badge } from '../components/Badge';
+import { ExpandableText } from '../components/ExpandableText';
 import { EventShell } from './EventShell';
 
 export type PlanEvent = Extract<RunEvent, { kind: 'leader.plan' }>;
@@ -11,16 +12,16 @@ export function PlanCard({ event }: { event: PlanEvent }) {
       <div data-testid="plan-card" className="rounded-md border border-violet-500/40 bg-violet-500/8 px-2 py-1.5">
         <div className="flex items-center gap-1.5">
           <Badge tone="leader">Leader</Badge>
-          <span className="text-[10px] font-semibold tracking-wide text-muted uppercase">
+          <span className="text-[11px] font-semibold tracking-wide text-muted uppercase">
             {event.replan ? 'Replan' : 'Plan'}
           </span>
           {event.replan ? <Badge tone="warn">replan</Badge> : null}
         </div>
-        <p className="mt-1 text-xs whitespace-pre-wrap text-ink">{event.plan}</p>
+        <ExpandableText text={event.plan} className="mt-1 text-sm text-ink" />
         {event.subgoals.length > 0 ? (
           <ol className="mt-1.5 space-y-0.5">
             {event.subgoals.map((subgoal, index) => (
-              <li key={`${index}-${subgoal}`} className="flex gap-1.5 text-[11px] text-ink">
+              <li key={`${index}-${subgoal}`} className="flex gap-1.5 text-xs text-ink">
                 <span aria-hidden className="text-muted">
                   &#9744;
                 </span>
