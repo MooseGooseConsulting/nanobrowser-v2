@@ -41,6 +41,23 @@ async function defaultListAvailableUserscripts(url: string): Promise<Array<{ id:
   return scripts.filter((s) => matchesAny(s.matches, url)).map((s) => ({ id: s.id, name: s.name }));
 }
 
+/**
+ * The scripts `list_userscripts` shows the Follower: the ones it wrote itself, plus
+ * the user's that already apply to the tab the run started on.
+ *
+ * Not the whole catalog. An adversarial review pointed out that handing the model
+ * every id — including user-written scripts that the authoring rails never vetted,
+ * and which may write the DOM or submit forms — combines with `navigate` into "go to
+ * the host this script targets and run it". Filtering by the starting tab is the same
+ * basis {@link defaultListAvailableUserscripts} already uses for the Follower's
+ * context line, so the two agree, and it errs toward showing fewer.
+ */
+export async function defaultListUserscriptsForAgent(url: string): Promise<Userscript[]> {
+  await seedDefaults();
+  const scripts = await listUserscripts();
+  return scripts.filter((script) => script.author === 'agent' || matchesAny(script.matches, url));
+}
+
 /** The tab a run acts on. */
 export interface TargetTab {
   id: number;
@@ -95,11 +112,10 @@ export interface RunManagerDeps {
    */
   listAvailableUserscripts?: (url: string) => Promise<Array<{ id: string; name: string }>>;
   /**
-   * The whole catalog, for the Follower's `list_userscripts`. Separate from
-   * `listAvailableUserscripts`, which is filtered to the starting tab: the agent may
-   * navigate, so what it can *see* is not what applied when the run began.
+   * What the Follower's `list_userscripts` may see. Defaults to
+   * {@link defaultListUserscriptsForAgent}.
    */
-  listUserscriptCatalog?: () => Promise<Userscript[]>;
+  listUserscriptCatalog?: (url: string) => Promise<Userscript[]>;
   /**
    * The agent's own write path (R-10/O-03). Defaults to the real one, whose rails
    * live in `src/userscripts/authoring.ts`.
@@ -258,7 +274,7 @@ export class RunManager {
       input,
       observe: config.observe,
       runUserscript: this.#deps.runUserscript,
-      listUserscripts: this.#deps.listUserscriptCatalog ?? listUserscripts,
+      listUserscripts: () => (this.#deps.listUserscriptCatalog ?? defaultListUserscriptsForAgent)(tab.url),
       writeUserscript: this.#deps.writeUserscript ?? ((request) => writeAgentUserscript(request)),
       emit,
       runId,

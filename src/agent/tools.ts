@@ -342,8 +342,9 @@ export function createPageToolset(page: PageTools): PageToolset {
           .array(z.string())
           .min(1)
           .describe(
-            'Which pages it may run on, e.g. ["*://chatgpt.com/*"]. Name a real host: ' +
-              'patterns that match every site are refused.',
+            'Which pages it may run on, e.g. ["*://chatgpt.com/*"]. Write each host out ' +
+              'in full; a wildcard host like "*" or "*.com" is refused. List several ' +
+              'patterns if you mean several hosts.',
           ),
         code: z
           .string()

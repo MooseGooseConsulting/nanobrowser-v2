@@ -226,14 +226,21 @@ export const EBAY_SEARCH_EXTRACT: UserscriptSeed = {
  * bundled script it shows up in the catalog like any other, for the panel and for
  * `run_userscript` alike.
  *
- * `<all_urls>` is right here and nowhere else: the probe's whole job is to report
- * what is reachable on a site nobody has characterised yet, and it only reads. The
- * rails in `authoring.ts` refuse `<all_urls>` for scripts the *agent* writes, which
- * is a different question -- this one is ours, and its source is right here.
+ * The allow-list below is an any-host http/https pattern rather than `<all_urls>`.
+ * The probe does have to be runnable on a site nobody has characterised yet, so it is
+ * broad on purpose -- but Chrome's `<all_urls>` also covers `file:` and `ftp:`, and an
+ * adversarial review pointed out that this one bundled script would then be an
+ * agent-reachable way onto `file:///…`. Restricting it to the two web schemes still
+ * covers every site the probe has any business on.
+ *
+ * Being broad at all is a privilege the rails in `authoring.ts` deny to scripts the
+ * *agent* writes. That asymmetry is the point: this code is ours and is right here to
+ * read, it only reads, and `sameOriginFetch` is baked to false at seed time so the
+ * probe issues no request at all.
  */
 export const I03_PAGE_ACCESS: UserscriptSeed = {
   name: 'i03-page-access',
-  matches: ['<all_urls>'],
+  matches: ['*://*/*'],
   code: buildProbeCode(DEFAULT_PROBE_GLOBALS, false),
 };
 

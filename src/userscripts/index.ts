@@ -65,7 +65,11 @@ export async function handleUserscriptMessage(
 
     case 'userscript.save': {
       try {
-        await saveUserscript(message.payload, context.now);
+        // A save from the panel is the user saving, so the script becomes theirs --
+        // including one the agent wrote and the user then edited. Without this the
+        // `author: 'agent'` stamp survived the user's own edit, and the agent could
+        // overwrite work the user had put into it.
+        await saveUserscript({ ...message.payload, author: undefined }, context.now);
       } catch (error) {
         return errorReply(describe(error), 'userscript.save');
       }

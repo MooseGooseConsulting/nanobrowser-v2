@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { EBAY_SEARCH_EXTRACT, HYPERAGENT_OBSERVE, I03_PAGE_ACCESS } from './examples';
+import { matchesAny } from './match-pattern';
 import { resetWorldConfiguration, runUserscript } from './runner';
 import { vmUserScriptsApi } from './testing';
 
@@ -359,6 +360,14 @@ describe('bundled i03-page-access probe', () => {
       // Not asked for, so not performed: the probe issues no request unless told to.
       sameOriginFetch: null,
     });
+  });
+
+  it('is reachable on the web and nowhere else', () => {
+    expect(matchesAny(I03_PAGE_ACCESS.matches, 'https://chatgpt.com/c/1')).toBe(true);
+    expect(matchesAny(I03_PAGE_ACCESS.matches, 'http://example.com/')).toBe(true);
+    // `<all_urls>` would also cover these two; it is not used, deliberately.
+    expect(matchesAny(I03_PAGE_ACCESS.matches, 'file:///home/coldaine/.ssh/id_rsa')).toBe(false);
+    expect(matchesAny(I03_PAGE_ACCESS.matches, 'ftp://ftp.example.com/x')).toBe(false);
   });
 
   it('reads only: it logs nothing and leaves the DOM as it found it', async () => {

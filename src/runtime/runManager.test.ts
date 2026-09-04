@@ -6,13 +6,20 @@
  * The graph itself is not exercised here — `start` is a seam. `smoke.test.ts`
  * covers the real graph over these page tools.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import type { RunEvent } from '@/src/messaging';
 import type { Config } from '@/src/storage';
 import { FakeChatModel } from '@/src/agent/models';
 import type { RunEndedEvent, RunHandle, StartRunOptions } from '@/src/agent/run';
-import { RunManager, refuseReason, type RunManagerDeps, type TabsPort } from './runManager';
+import { saveUserscript } from '@/src/userscripts';
+import {
+  RunManager,
+  defaultListUserscriptsForAgent,
+  refuseReason,
+  type RunManagerDeps,
+  type TabsPort,
+} from './runManager';
 import type { RuntimeDriver } from './pageTools';
 
 const config: Config = {
@@ -337,5 +344,30 @@ describe('RunManager.start', () => {
     expect(saveArtifact).toHaveBeenCalledWith('run-save', 'a.json', '{"a":1}');
     expect(result).toContain('a.json');
     expect(result).toContain('/artifacts/run-save/a.json');
+  });
+});
+
+describe('what list_userscripts may show the Follower', () => {
+  beforeEach(() => {
+    fakeBrowser.reset();
+  });
+
+  /**
+   * Handing the model every id in the catalog combines with `navigate` into "go to
+   * the host this script targets and run it" -- including user-written scripts that
+   * the authoring rails never vetted and which may write the DOM or submit forms.
+   */
+  it('shows the agent its own scripts and the user\'s that already apply to the tab', async () => {
+    await saveUserscript({ name: 'applies here', matches: ['*://example.com/*'], code: 'return 1;' });
+    await saveUserscript({ name: 'somewhere else', matches: ['*://elsewhere.test/*'], code: 'return 2;' });
+    await saveUserscript({ name: 'mine', matches: ['*://elsewhere.test/*'], code: 'return 3;', author: 'agent' });
+
+    const visible = await defaultListUserscriptsForAgent('https://example.com/page');
+
+    // The bundled i03 probe is there because it applies to every http/https page,
+    // which is its job. The point of the assertion is what is *absent*: the user's
+    // script for another host, and the two bundled examples for hyperagent and eBay.
+    expect(visible.map((s) => s.name).sort()).toEqual(['applies here', 'i03-page-access', 'mine']);
+    expect(visible.map((s) => s.name)).not.toContain('somewhere else');
   });
 });
