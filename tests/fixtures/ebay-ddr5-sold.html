@@ -1,0 +1,191 @@
+<!--
+  Fixture: eBay sold/completed results for "ddr5" (LH_Sold=1&LH_Complete=1).
+  Hand-written: curl gets a 403 challenge page, and in the user's own Chrome that URL redirects to
+  signin.ebay.com (eBay gates sold searches behind sign-in), so no live DOM could be captured.
+  It carries BOTH markups on purpose: the new .s-card cards the live current-offerings page uses,
+  and the classic .s-item rows eBay still serves to some buckets, each with a "Sold <date>" caption.
+-->
+<div class="s-page srp-main">
+  <header class="srp-header">
+    <h1 class="srp-controls__count-heading"><span class="BOLD">4,120</span> results for <span class="BOLD">ddr5</span></h1>
+    <div class="srp-controls">
+      <label for="srp-sort">Sort:</label>
+      <select id="srp-sort"><option>Best Match</option><option>Price + Shipping: lowest first</option><option>Time: ending soonest</option></select>
+      <button type="button" aria-label="Save this search">Save this search</button>
+    </div>
+    <nav aria-label="Search refinements">
+      <ul class="srp-refine">
+        <li><a href="/sch/i.html?_nkw=ddr5&amp;LH_ItemCondition=1000">New</a></li>
+        <li><a href="/sch/i.html?_nkw=ddr5&amp;LH_ItemCondition=3000">Used</a></li>
+        <li><a href="/sch/i.html?_nkw=ddr5&amp;LH_BIN=1">Buy It Now</a></li>
+      </ul>
+    </nav>
+  </header>
+  <main>
+    <h2 class="srp-list__heading">Sold items</h2>
+  <ul class="srp-results srp-grid">
+    <li class="s-card s-card--horizontal s-card--pagination-below" data-testid="item-card" data-view="mi:1686|iid:903">
+      <div class="su-card-container">
+        <div class="su-card-container__content">
+          <div class="s-card__title">
+            <a class="s-card__link" href="https://ebay.com/itm/123456">
+              <span class="su-styled-text primary default">Shop on eBay</span>
+              <span class="clipped">Opens in a new window or tab</span>
+            </a>
+          </div>
+          <div class="su-card-container__attributes">
+            <div class="s-card__attribute-row"><span class="s-card__price su-styled-text primary bold large-1">$20.00</span></div>
+          </div>
+        </div>
+      </div>
+    </li>
+    <li class="s-card s-card--horizontal s-card--pagination-below" data-testid="item-card" data-view="mi:1686|iid:1">
+      <div class="su-card-container">
+        <div class="su-card-container__header">
+          <div class="s-card__image-wrapper"><img class="s-card__image" src="https://i.ebayimg.com/thumbs/images/g/nb1/s-l500.jpg" alt="Corsair Vengeance 32GB (2x16GB) DDR5 6000 CL30 Desktop Memory"></div>
+          <button class="s-card__watchheart" aria-label="watch Corsair Vengeance 32GB (2x16GB) DDR5 6000 CL30 Desktop Memory"></button>
+        </div>
+        <div class="su-card-container__content">
+          <div class="s-card__title">
+            <a class="s-card__link" href="https://www.ebay.com/itm/226534891201?_trkparms=pageci%3A1">
+              <span class="su-styled-text primary default">Corsair Vengeance 32GB (2x16GB) DDR5 6000 CL30 Desktop Memory</span>
+              <span class="clipped">Opens in a new window or tab</span>
+            </a>
+          </div>
+          <div class="s-card__subtitle"><span class="su-styled-text secondary default">Pre-Owned</span></div>
+          <div class="su-card-container__attributes">
+          <div class="s-card__attribute-row"><span class="s-card__price su-styled-text primary bold large-1">$104.99</span></div>
+          <div class="s-card__attribute-row"><span class="su-styled-text secondary default">+$5.45 shipping</span></div>
+          <div class="s-card__attribute-row"><span class="su-styled-text positive default">Sold&nbsp; Aug 30, 2026</span></div>
+          <div class="s-card__attribute-row"><span class="su-styled-text secondary default">3 bids</span></div>
+          </div>
+          <div class="s-card__searchsimilar"><a class="su-link" href="https://www.ebay.com/sch/i.html?_nkw=ddr5">See similar items</a></div>
+        </div>
+      </div>
+    </li>
+    <li class="s-card s-card--horizontal s-card--pagination-below" data-testid="item-card" data-view="mi:1686|iid:2">
+      <div class="su-card-container">
+        <div class="su-card-container__header">
+          <div class="s-card__image-wrapper"><img class="s-card__image" src="https://i.ebayimg.com/thumbs/images/g/nb2/s-l500.jpg" alt="G.SKILL Trident Z5 RGB 64GB (2x32GB) DDR5-6400 CL32 Intel XMP"></div>
+          <button class="s-card__watchheart" aria-label="watch G.SKILL Trident Z5 RGB 64GB (2x32GB) DDR5-6400 CL32 Intel XMP"></button>
+        </div>
+        <div class="su-card-container__content">
+          <div class="s-card__title">
+            <a class="s-card__link" href="https://www.ebay.com/itm/396112233445?_trkparms=pageci%3A2">
+              <span class="su-styled-text primary default">G.SKILL Trident Z5 RGB 64GB (2x32GB) DDR5-6400 CL32 Intel XMP</span>
+              <span class="clipped">Opens in a new window or tab</span>
+            </a>
+          </div>
+          <div class="s-card__subtitle"><span class="su-styled-text secondary default">Brand New</span></div>
+          <div class="su-card-container__attributes">
+          <div class="s-card__attribute-row"><span class="s-card__price su-styled-text primary bold large-1">$219.99</span></div>
+          <div class="s-card__attribute-row"><span class="su-styled-text secondary default">Free shipping</span></div>
+          <div class="s-card__attribute-row"><span class="su-styled-text positive default">Sold&nbsp; Aug 29, 2026</span></div>
+          </div>
+          <div class="s-card__searchsimilar"><a class="su-link" href="https://www.ebay.com/sch/i.html?_nkw=ddr5">See similar items</a></div>
+        </div>
+      </div>
+    </li>
+    <li class="s-card s-card--horizontal s-card--pagination-below" data-testid="item-card" data-view="mi:1686|iid:3">
+      <div class="su-card-container">
+        <div class="su-card-container__header">
+          <div class="s-card__image-wrapper"><img class="s-card__image" src="https://i.ebayimg.com/thumbs/images/g/nb3/s-l500.jpg" alt="Samsung 32GB DDR5 4800 ECC RDIMM Server Memory M321R4GA3BB6-CQK"></div>
+          <button class="s-card__watchheart" aria-label="watch Samsung 32GB DDR5 4800 ECC RDIMM Server Memory M321R4GA3BB6-CQK"></button>
+        </div>
+        <div class="su-card-container__content">
+          <div class="s-card__title">
+            <a class="s-card__link" href="https://www.ebay.com/itm/145998877665?_trkparms=pageci%3A3">
+              <span class="su-styled-text primary default">Samsung 32GB DDR5 4800 ECC RDIMM Server Memory M321R4GA3BB6-CQK</span>
+              <span class="clipped">Opens in a new window or tab</span>
+            </a>
+          </div>
+          <div class="s-card__subtitle"><span class="su-styled-text secondary default">Refurbished</span></div>
+          <div class="su-card-container__attributes">
+          <div class="s-card__attribute-row"><span class="s-card__price su-styled-text primary bold large-1">US $62.00</span></div>
+          <div class="s-card__attribute-row"><span class="su-styled-text secondary default">+$12.00 delivery</span></div>
+          <div class="s-card__attribute-row"><span class="su-styled-text positive default">Sold&nbsp; Aug 27, 2026</span></div>
+          <div class="s-card__attribute-row"><span class="su-styled-text secondary default">11 bids</span></div>
+          </div>
+          <div class="s-card__searchsimilar"><a class="su-link" href="https://www.ebay.com/sch/i.html?_nkw=ddr5">See similar items</a></div>
+        </div>
+      </div>
+    </li>
+    <li class="s-card s-card--horizontal s-card--pagination-below" data-testid="item-card" data-view="mi:1686|iid:4">
+      <div class="su-card-container">
+        <div class="su-card-container__header">
+          <div class="s-card__image-wrapper"><img class="s-card__image" src="https://i.ebayimg.com/thumbs/images/g/nb4/s-l500.jpg" alt="Kingston FURY Beast 16GB DDR5 5200 CL40 DIMM Black"></div>
+          <button class="s-card__watchheart" aria-label="watch Kingston FURY Beast 16GB DDR5 5200 CL40 DIMM Black"></button>
+        </div>
+        <div class="su-card-container__content">
+          <div class="s-card__title">
+            <a class="s-card__link" href="https://www.ebay.com/itm/335544332211?_trkparms=pageci%3A4">
+              <span class="su-styled-text primary default">Kingston FURY Beast 16GB DDR5 5200 CL40 DIMM Black</span>
+              <span class="clipped">Opens in a new window or tab</span>
+            </a>
+          </div>
+          <div class="s-card__subtitle"><span class="su-styled-text secondary default">Brand New</span></div>
+          <div class="su-card-container__attributes">
+          <div class="s-card__attribute-row"><span class="s-card__price su-styled-text primary bold large-1">$38.50 to $74.00</span></div>
+          <div class="s-card__attribute-row"><span class="su-styled-text positive default">Sold&nbsp; Aug 25, 2026</span></div>
+          </div>
+          <div class="s-card__searchsimilar"><a class="su-link" href="https://www.ebay.com/sch/i.html?_nkw=ddr5">See similar items</a></div>
+        </div>
+      </div>
+    </li>
+    <li class="s-item s-item--large"><div class="s-item__wrapper"><div class="s-item__info"><a class="s-item__link" href="https://ebay.com/itm/123456"><div class="s-item__title">Shop on eBay</div></a><div class="s-item__detail s-item__detail--primary"><span class="s-item__price">$20.00</span></div></div></div></li>
+    <li class="s-item s-item__pl-on-bottom" data-view="mi:1686|iid:1">
+      <div class="s-item__wrapper clearfix">
+        <div class="s-item__image-section">
+          <a class="s-item__link" href="https://www.ebay.com/itm/186655443322?hash=item1"><div class="s-item__image-wrapper"><img src="https://i.ebayimg.com/thumbs/images/g/c1/s-l140.jpg" alt="Crucial Pro 96GB (2x48GB) DDR5-5600 UDIMM Desktop RAM"></div></a>
+        </div>
+        <div class="s-item__info clearfix">
+          <a class="s-item__link" href="https://www.ebay.com/itm/186655443322?hash=item1">
+            <div class="s-item__title"><span role="heading" aria-level="3">Crucial Pro 96GB (2x48GB) DDR5-5600 UDIMM Desktop RAM</span></div>
+          </a>
+          <div class="s-item__subtitle"><span class="SECONDARY_INFO">Brand New</span></div>
+          <div class="s-item__title--tagblock"><span class="POSITIVE"><span class="s-item__caption--signal POSITIVE"><span>Sold&nbsp; Aug 24, 2026</span></span></span></div>
+          <div class="s-item__detail s-item__detail--primary"><span class="s-item__price">$248.00</span></div>
+          <div class="s-item__detail s-item__detail--primary"><span class="s-item__shipping s-item__logisticsCost">Free shipping</span></div>
+        </div>
+      </div>
+    </li>
+    <li class="s-item s-item__pl-on-bottom" data-view="mi:1686|iid:2">
+      <div class="s-item__wrapper clearfix">
+        <div class="s-item__image-section">
+          <a class="s-item__link" href="https://www.ebay.com/itm/204411223344?hash=item2"><div class="s-item__image-wrapper"><img src="https://i.ebayimg.com/thumbs/images/g/c2/s-l140.jpg" alt="SK hynix 16GB 1Rx8 PC5-4800B SODIMM Laptop RAM"></div></a>
+        </div>
+        <div class="s-item__info clearfix">
+          <a class="s-item__link" href="https://www.ebay.com/itm/204411223344?hash=item2">
+            <div class="s-item__title"><span role="heading" aria-level="3">SK hynix 16GB 1Rx8 PC5-4800B SODIMM Laptop RAM</span></div>
+          </a>
+          <div class="s-item__subtitle"><span class="SECONDARY_INFO">Pre-Owned</span></div>
+          <div class="s-item__title--tagblock"><span class="POSITIVE"><span class="s-item__caption--signal POSITIVE"><span>Sold&nbsp; Aug 22, 2026</span></span></span></div>
+          <div class="s-item__detail s-item__detail--primary"><span class="s-item__price">C $41.25</span></div>
+          <div class="s-item__detail s-item__detail--primary"><span class="s-item__bids s-item__bidCount">5 bids</span></div>
+          <div class="s-item__detail s-item__detail--primary"><span class="s-item__shipping s-item__logisticsCost">+C $9.50 shipping</span></div>
+        </div>
+      </div>
+    </li>
+    <li class="s-item s-item__pl-on-bottom" data-view="mi:1686|iid:3">
+      <div class="s-item__wrapper clearfix">
+        <div class="s-item__image-section">
+          <a class="s-item__link" href="https://www.ebay.com/itm/256677889900?hash=item3"><div class="s-item__image-wrapper"><img src="https://i.ebayimg.com/thumbs/images/g/c3/s-l140.jpg" alt="Micron 64GB DDR5-4800 ECC RDIMM MTC40F2046S1RC48BA1"></div></a>
+        </div>
+        <div class="s-item__info clearfix">
+          <a class="s-item__link" href="https://www.ebay.com/itm/256677889900?hash=item3">
+            <div class="s-item__title"><span role="heading" aria-level="3">Micron 64GB DDR5-4800 ECC RDIMM MTC40F2046S1RC48BA1</span></div>
+          </a>
+          <div class="s-item__subtitle"><span class="SECONDARY_INFO">Parts Only</span></div>
+          <div class="s-item__title--tagblock"><span class="POSITIVE"><span class="s-item__caption--signal POSITIVE"><span>Sold&nbsp; Aug 21, 2026</span></span></span></div>
+          <div class="s-item__detail s-item__detail--primary"><span class="s-item__price">£188.00</span></div>
+        </div>
+      </div>
+    </li>
+  </ul>
+  </main>
+  <nav class="pagination" aria-label="Results pagination">
+    <a class="pagination__item" href="/sch/i.html?_nkw=ddr5&amp;_pgn=2">2</a>
+    <a class="pagination__item" href="/sch/i.html?_nkw=ddr5&amp;_pgn=3">3</a>
+    <a class="pagination__next" href="/sch/i.html?_nkw=ddr5&amp;_pgn=2">Next page of results</a>
+  </nav>
+</div>

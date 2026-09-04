@@ -1,0 +1,18 @@
+<!--
+  Fixture: the eBay sign-in page the sold/completed search redirects to when the user is not
+  signed in (observed live in the user's own Chrome). Hand-written from that observation; it
+  exists to prove the Follower can see a login wall in extract_text and call blocked.
+-->
+<div class="signin-page">
+  <main>
+    <h1>Hello</h1>
+    <p>Sign in to eBay or create an account</p>
+    <form action="/signin/s" method="post">
+      <label for="userid">Email or username</label>
+      <input id="userid" name="userid" type="text" autocomplete="username">
+      <button id="signin-continue-btn" type="submit">Continue</button>
+      <a href="/signin/passkey">Sign in with a passkey</a>
+    </form>
+    <p>Don't have an account? <a href="/register">Create account</a></p>
+  </main>
+</div>
