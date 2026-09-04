@@ -218,6 +218,59 @@ extension from disk on demand.
 
 ## Suitability for the eBay DDR5 task
 
+### Live evidence, 2026-09-04 (the user's real Chrome, models via Kilo)
+
+This section is pasted output, not a claim. Runs used Leader
+`meta/muse-spark-1.3-contributor` **via Kilo** and Follower `stepfun/step-3.7-flash:free`.
+
+**Current offerings: PROVED.** `scripts/e2e.sh` against
+`https://www.ebay.com/sch/i.html?_nkw=ddr5&_sacat=0&_ipg=60`, run
+`run-mtmnea38-83bd2a88`:
+
+```
+run.ended.status = done (as expected)
+saved file  ~/.local/share/nanobrowser/artifacts/run-mtmnea38-83bd2a88/ebay-ddr5-current.json
+valid JSON, 49 items          titles: 49  prices: 49  urls: 49
+```
+
+Sample row: `{"title":"Corsair Vengeance RGB 64GB (2x32GB) RAM DDR5 6000MHz CL40 Desktop
+RAM Memory","price":"$725.00","condition":"Open Box","shipping":"Buy It Now Free
+delivery","url":"https://www.ebay.com/itm/158245180030"}`. A copy also lands in
+`~/Downloads/nanobrowser/`.
+
+Caveat, stated honestly: **49 of 60** listings. The earlier run of the same task captured
+38; adding `startChar` continuation to `extract_text` took it to 49. The remaining gap is
+the model deciding it has read enough, not a missing capability. The deterministic fix is
+the `ebay-search-extract` userscript, which returns all 60 in one structured call — blocked
+below.
+
+**`save_file` proved end to end** on hyperagent.com first (run `run-mtmn1750-1f0a1b4b`,
+517 bytes, 6 items, both write paths).
+
+**eBay's bot challenge does not stop it.** Navigation lands on
+`ebay.com/splashui/challenge` and resolves through to real results for this real profile.
+No challenge was ever answered or bypassed.
+
+**Sold/completed: NOT PROVED, blocked on the user.** The live search redirects to
+`signin.ebay.com`; the user is not signed into eBay in this profile. Entering credentials is
+out of scope by policy, so this half stays unproved until the user signs in. Everything it
+needs is built and unit-proved (below).
+
+**Second blocker: `chrome.userScripts` is unavailable.** Verified directly in
+`~/.config/google-chrome/Default/Preferences`: the extension's `allow_user_scripts` key is
+absent, i.e. the per-extension "Allow User Scripts" toggle at `chrome://extensions` is off.
+Chrome does not expose the namespace at all without it, so `run_userscript` cannot work and
+the run correctly ends `blocked`. One user click unblocks it.
+
+**Bugs these live runs found that no unit test did** (all fixed, each with a regression
+test): bundled userscripts seeded only into an empty catalog, so a newly bundled script
+never reached an existing profile; run options could not carry a model source, sending a
+Kilo-only model to OpenRouter; the merged OpenRouter+Kilo catalog was 1,167,174 bytes
+against Chrome's 1,048,576-byte native-messaging cap, so `models.list` silently never
+arrived; `save_file`'s `content` accepted string-or-object but not an **array**, the one
+shape a scrape produces; `extract_text` could not say "there is more".
+
+
 The task: "scrape and save a JSON of the first page of recently sold DDR5 from eBay, and
 of the current offerings for DDR5 from eBay", unattended, on free models.
 
