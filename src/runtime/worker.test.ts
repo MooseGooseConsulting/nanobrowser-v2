@@ -33,8 +33,9 @@ import {
 } from './worker';
 
 const config: Config = {
-  leaderModel: 'fake/leader',
-  followerModel: 'fake/follower',
+  // `:free` because the run path refuses paid models (src/runtime/modelPolicy.ts).
+  leaderModel: 'fake/leader:free',
+  followerModel: 'fake/follower:free',
   observe: 'dom',
   planningInterval: 5,
   maxSteps: 10,

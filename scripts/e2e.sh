@@ -27,6 +27,8 @@ OBSERVE="${NB_E2E_OBSERVE:-dom}"
 FIDELITY="${NB_E2E_FIDELITY:-in-page}"
 RELOAD_TIMEOUT="${NB_E2E_RELOAD_TIMEOUT:-30}"
 SKIP_BUILD="${NB_E2E_SKIP_BUILD:-0}"
+EXPECT="${NB_E2E_EXPECT:-done}"
+EXPECT_FILE="${NB_E2E_EXPECT_FILE:-}"
 
 usage() {
   cat <<'USAGE'
@@ -40,9 +42,11 @@ usage: scripts/e2e.sh [options]
   --fidelity <in-page|escalated>                (env NB_E2E_FIDELITY)
   --reload-timeout <s>   seconds to wait for the reloaded extension
   --skip-build           reuse .output/chrome-mv3 as it stands
+  --expect <status>      run.ended status to require (default done; e.g. blocked)
+  --expect-file <name>   require ~/.local/share/nanobrowser/artifacts/<runId>/<name> to exist
   -h, --help
 
-Exit codes: 0 run ended `done` with no forwarded errors, 1 anything else.
+Exit codes: 0 run ended with the expected status (default `done`) and no forwarded errors, 1 anything else.
 USAGE
 }
 
@@ -56,6 +60,8 @@ while [ $# -gt 0 ]; do
     --fidelity) FIDELITY="$2"; shift 2 ;;
     --reload-timeout) RELOAD_TIMEOUT="$2"; shift 2 ;;
     --skip-build) SKIP_BUILD=1; shift ;;
+    --expect) EXPECT="$2"; shift 2 ;;
+    --expect-file) EXPECT_FILE="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -143,10 +149,10 @@ if [ -z "$STATUS" ]; then
   STATUS="$(jq -rs '[.[] | select(.type == "run.end")] | last | .status // empty' "$STREAM" 2>/dev/null)"
 fi
 
-if [ "$STATUS" = "done" ]; then
-  echo "run.ended.status = done"
+if [ "$STATUS" = "$EXPECT" ]; then
+  echo "run.ended.status = $STATUS (as expected)"
 else
-  echo "run.ended.status = ${STATUS:-<none>} (expected done)" >&2
+  echo "run.ended.status = ${STATUS:-<none>} (expected $EXPECT)" >&2
   [ "$RUN_RC" -ne 0 ] && echo "nb-run exited $RUN_RC" >&2
   MESSAGE="$(jq -rs '[.[] | select(.kind == "run.ended" or .type == "run.end")] | last | .message // empty' "$STREAM" 2>/dev/null)"
   [ -n "$MESSAGE" ] && echo "message: $MESSAGE" >&2
@@ -154,11 +160,29 @@ else
 fi
 
 step "done summary"
-SUMMARY="$(jq -rs '[.[] | select(.kind == "tool.call" and .call.name == "done")] | last | .call.args.summary // empty' "$STREAM" 2>/dev/null)"
+SUMMARY="$(jq -rs '[.[] | select(.kind == "tool.call" and (.call.name == "done" or .call.name == "blocked"))] | last | .call.args.summary // .call.args.reason // empty' "$STREAM" 2>/dev/null)"
 if [ -n "$SUMMARY" ]; then
   echo "$SUMMARY"
 else
-  echo "(the agent never called done)"
+  echo "(the agent never called done or blocked)"
+fi
+
+# ---------------------------------------------------------------- 5b. saved file
+if [ -n "$EXPECT_FILE" ]; then
+  step "saved file"
+  RUN_ID="$(jq -rs '[.[] | .runId // empty] | last // empty' "$STREAM" 2>/dev/null)"
+  ART="${XDG_DATA_HOME:-$HOME/.local/share}/nanobrowser/artifacts/$RUN_ID/$EXPECT_FILE"
+  if [ -n "$RUN_ID" ] && [ -s "$ART" ]; then
+    echo "$ART ($(wc -c <"$ART") bytes)"
+    if [[ "$EXPECT_FILE" == *.json ]]; then
+      jq -e 'if type == "array" then length else 1 end' "$ART" >/dev/null 2>&1 \
+        && echo "valid JSON, $(jq -r 'if type == "array" then "\(length) items" else "object" end' "$ART")" \
+        || { echo "e2e: $ART is not valid JSON" >&2; FAILED=1; }
+    fi
+  else
+    echo "e2e: expected artifact missing: $ART" >&2
+    FAILED=1
+  fi
 fi
 
 # ---------------------------------------------------------------- 6. extension errors

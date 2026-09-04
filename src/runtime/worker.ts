@@ -28,6 +28,7 @@ import {
   type WorkerToPanelMessage,
 } from '@/src/messaging';
 import type { Config, InputFidelity, ObserveMode } from '@/src/storage';
+import { allowPaidFromOptions, checkModelPolicy } from './modelPolicy';
 import type { ExtLogEntry } from './errorLog';
 import { handleUserscriptMessage as defaultHandleUserscript } from '@/src/userscripts';
 import type { HostRunEndEvent, StartOptions, StartResult } from './runManager';
@@ -293,6 +294,15 @@ export function createWorker(deps: WorkerDeps): Worker {
       config = applyRunOptions(await deps.getConfig(), msg.options);
     } catch (error) {
       end('error', `could not read the stored config: ${describe(error)}`, 0);
+      return;
+    }
+
+    // Free models only unless the caller says otherwise in words. A dev run comes
+    // straight off the socket with `--option leaderModel=...`, so the panel's own
+    // free-only filter is not in the path here.
+    const policy = checkModelPolicy(config, { allowPaid: allowPaidFromOptions(msg.options) });
+    if (!policy.ok) {
+      end('error', policy.reason, 0);
       return;
     }
 
