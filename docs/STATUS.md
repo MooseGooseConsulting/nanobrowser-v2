@@ -222,6 +222,28 @@ extension from disk on demand.
 
 #### Model suitability, measured not assumed
 
+**An all-free pair completes the task.** Run `run-mtmpih5p-e902b9d9`, Leader
+`nvidia/nemotron-3-ultra-550b-a55b:free` + Follower `stepfun/step-3.7-flash:free`, both on
+Kilo:
+
+```
+run.ended.status = done (as expected)
+valid JSON, 31 items    titles: 31  prices: 31
+done summary: Successfully extracted and saved 31 DDR5 listings ... with title, price,
+condition, shipping, and url for each listing.
+```
+
+So the eBay task needs no paid model. The paid Leader captured 49 listings against 31 on the
+same working pipeline: a quality difference between models, not a missing capability.
+
+**On judging a model fairly.** The "not usable" verdict on `nemotron-3.5-lightning:free` was
+recorded while three of our own defects were still present: unbounded Follower history
+heading for a context blowout, no way to resume a truncated `extract_text`, and no timeout
+on page ops. Re-measuring after those were fixed, the same model produced 8 tool calls and
+completed subgoals where it had managed 2 in 38 steps. A model's limits cannot be measured
+through our bugs, and a verdict recorded under them is not evidence.
+
+
 The user asked for free models. Running the task on them, rather than on the paid Leader,
 is what surfaced three defects that a roomier model had been hiding:
 
@@ -230,7 +252,7 @@ is what surfaced three defects that a roomier model had been hiding:
 | `meta/muse-spark-1.3-contributor` (paid, Kilo only) | Leader | Works. Reasoning model: never cap completion tokens, and it needs a real system prompt or it calls tools with `{}`. 1M context. ~$0.00017/turn. |
 | `nvidia/nemotron-3-ultra-550b-a55b:free` | Leader | Works. Produces correct `set_plan` calls. |
 | `stepfun/step-3.7-flash:free` | Follower | Works. Drives the page and saves files. 262k context. |
-| `nvidia/nemotron-3.5-lightning:free` | Follower | **Not usable on a page this size.** Across 38 steps it produced 2 tool calls; every other turn it answered in prose. Not a stack defect, a capability limit against a ~17k-token observation. |
+| `nvidia/nemotron-3.5-lightning:free` | Follower | Verdict revised, see below. It first produced 2 tool calls in 38 steps, but that was measured while three of our own defects were still in play. |
 
 Defects found only by insisting on free models, each fixed with a regression test:
 
