@@ -220,6 +220,37 @@ extension from disk on demand.
 
 ### Live evidence, 2026-09-04 (the user's real Chrome, models via Kilo)
 
+#### Model suitability, measured not assumed
+
+The user asked for free models. Running the task on them, rather than on the paid Leader,
+is what surfaced three defects that a roomier model had been hiding:
+
+| Model | Role | Verdict |
+|---|---|---|
+| `meta/muse-spark-1.3-contributor` (paid, Kilo only) | Leader | Works. Reasoning model: never cap completion tokens, and it needs a real system prompt or it calls tools with `{}`. 1M context. ~$0.00017/turn. |
+| `nvidia/nemotron-3-ultra-550b-a55b:free` | Leader | Works. Produces correct `set_plan` calls. |
+| `stepfun/step-3.7-flash:free` | Follower | Works. Drives the page and saves files. 262k context. |
+| `nvidia/nemotron-3.5-lightning:free` | Follower | **Not usable on a page this size.** Across 38 steps it produced 2 tool calls; every other turn it answered in prose. Not a stack defect, a capability limit against a ~17k-token observation. |
+
+Defects found only by insisting on free models, each fixed with a regression test:
+
+1. **Empty-choices guard covered one gateway only.** `hardenEmptyChoices` (was
+   `hardenOpenRouterFetch`) was applied to OpenRouter alone on the reasoning that Kilo had
+   shown no such quirk. The free Nemotron pair on Kilo then died with "Cannot read
+   properties of undefined (reading 'message')" -- LangChain reading `generations[0][0]`
+   after a 200 with no `choices`. The check never depended on the gateway.
+2. **No stall detection.** A Follower answering in prose hands back to the Leader, who
+   replans, and nothing changes. 18 steps of that, heading for all 50, reported as
+   `max-steps` -- which says nothing about the cause. Four consecutive tool-call-less turns
+   now end the run naming the real problem (`MAX_IDLE_FOLLOWER_TURNS` in `src/agent/graph.ts`).
+3. **Unbounded Follower history.** Every turn carries a full page observation (~17k tokens
+   here) and the whole history was resent each step, reaching **285,351 tokens against a
+   262,144-token model** and dying with a 400 before anything could be saved. Only the last
+   few turns are resent now (`trimFollowerHistory`); older observations are stale snapshots
+   of a page that has since changed, so resending them was wrong as well as expensive. This
+   was invisible under a 1M-context Leader -- a latent ceiling on every long run.
+
+
 This section is pasted output, not a claim. Runs used Leader
 `meta/muse-spark-1.3-contributor` **via Kilo** and Follower `stepfun/step-3.7-flash:free`.
 
