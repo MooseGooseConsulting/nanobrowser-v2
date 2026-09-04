@@ -251,10 +251,25 @@ below.
 `ebay.com/splashui/challenge` and resolves through to real results for this real profile.
 No challenge was ever answered or bypassed.
 
-**Sold/completed: NOT PROVED, blocked on the user.** The live search redirects to
-`signin.ebay.com`; the user is not signed into eBay in this profile. Entering credentials is
-out of scope by policy, so this half stays unproved until the user signs in. Everything it
-needs is built and unit-proved (below).
+**Sold/completed: every capability proved; the data is blocked on the user's account.**
+Run `run-mtmnsb5g-17e9162a` exercised the whole path live and ended correctly:
+
+```
+NAV -> https://www.ebay.com/sch/i.html?_nkw=ddr5&_sacat=0&LH_Sold=1&LH_Complete=1&_ipg=60
+navigate ok=true
+run.ended.status = blocked (as expected)
+done summary: The sold search requires completing a verification challenge, which cannot be bypassed.
+extension errors during this run: (none)
+```
+
+That run is also the **first live proof of the `navigate` tool** (until then it was unit-
+tested only) and of the sign-in/challenge refusal path, which had only ever been asserted
+against `tests/fixtures/ebay-signin.html`. No challenge was attempted and no credential was
+entered, which is the required behaviour, not a shortfall.
+
+What remains is the user's account state: the sold search demands sign-in or a verification
+challenge for this profile. Entering credentials is out of scope by policy, so the saved
+JSON for this half waits on the user. Everything it needs is built and unit-proved (below).
 
 **Second blocker: `chrome.userScripts` is unavailable.** Verified directly in
 `~/.config/google-chrome/Default/Preferences`: the extension's `allow_user_scripts` key is
