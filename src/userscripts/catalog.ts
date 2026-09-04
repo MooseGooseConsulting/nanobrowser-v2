@@ -22,6 +22,8 @@ export interface UserscriptDraft {
   matches: string[];
   code: string;
   updatedAt?: number;
+  /** Absent means the user wrote it; see {@link Userscript.author}. */
+  author?: 'user' | 'agent';
 }
 
 export type ValidationResult =
@@ -73,6 +75,7 @@ export function validateUserscript(draft: UserscriptDraft, now: () => number = D
       matches: [...matches],
       code,
       updatedAt: now(),
+      ...(draft.author === 'agent' ? { author: 'agent' as const } : {}),
     },
   };
 }
@@ -85,18 +88,43 @@ export async function getUserscript(id: string): Promise<Userscript | undefined>
   return (await listUserscripts()).find((script) => script.id === id);
 }
 
+export interface SaveOptions {
+  /**
+   * Refuse to replace an existing script unless it carries this author.
+   *
+   * Checked against the same read the write is built from, which is the point:
+   * `writeAgentUserscript` also checks ownership, but that check is separated from
+   * the write by an await, so on its own a panel save landing in the gap would be
+   * silently overwritten. Nothing narrows this to zero without a real transaction,
+   * but this closes it to the same tick.
+   */
+  requireAuthor?: 'agent';
+}
+
 /**
  * Creates or replaces a script. An unknown (or absent) id creates; a known id
  * replaces in place, keeping list order stable so the panel does not reshuffle.
  * Throws on invalid input rather than storing something the runner would refuse.
  */
-export async function saveUserscript(draft: UserscriptDraft, now: () => number = Date.now): Promise<Userscript> {
+export async function saveUserscript(
+  draft: UserscriptDraft,
+  now: () => number = Date.now,
+  options: SaveOptions = {},
+): Promise<Userscript> {
   const validated = validateUserscript(draft, now);
   if (!validated.ok) throw new Error(`invalid userscript: ${validated.errors.join('; ')}`);
 
   const script = validated.script;
   const current = await listUserscripts();
   const index = current.findIndex((existing) => existing.id === script.id);
+
+  if (index >= 0 && options.requireAuthor && current[index]!.author !== options.requireAuthor) {
+    throw new Error(
+      `${script.id} ("${current[index]!.name}") was written by the user and cannot be overwritten. ` +
+        'Omit scriptId to create your own script instead.',
+    );
+  }
+
   const next = index >= 0 ? current.map((existing, i) => (i === index ? script : existing)) : [...current, script];
   await userscriptsItem.setValue(next);
   return script;

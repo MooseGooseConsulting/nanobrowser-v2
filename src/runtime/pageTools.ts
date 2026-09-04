@@ -24,6 +24,7 @@ import type {
   ScreenshotResult as ToolScreenshot,
   ScrollTarget,
   SnapshotResult as ToolSnapshot,
+  WriteUserscriptRequest,
 } from '@/src/agent/tools';
 import type { ScreenshotResult, SnapshotResponse } from '@/src/page/driver';
 import type { ExtractTextOptions } from '@/src/page/extractText';
@@ -41,9 +42,10 @@ import {
   type PageDriverLike,
   type RefInputTier,
 } from '@/src/input';
-import type { RunEvent, UserscriptRunResult } from '@/src/messaging';
+import type { RunEvent, Userscript, UserscriptRunResult } from '@/src/messaging';
 import type { InputFidelity, ObserveMode } from '@/src/storage';
 import { toRunEvents } from '@/src/userscripts/debug';
+import type { AgentWriteResult } from '@/src/userscripts/authoring';
 
 /** The slice of {@link PageDriver} the runtime uses. `PageDriver` satisfies it structurally. */
 export interface RuntimeDriver {
@@ -307,6 +309,13 @@ export interface CreatePageToolsOptions {
   input: EscalatableInput;
   observe: ObserveMode;
   runUserscript: RunUserscript;
+  /** Reads the catalog for `list_userscripts`. Absent means the run has no catalog. */
+  listUserscripts?: () => Promise<Userscript[]>;
+  /**
+   * The agent's write path for `write_userscript` (O-03). Absent means this run
+   * cannot author scripts; the tool says so rather than failing obscurely.
+   */
+  writeUserscript?: (request: WriteUserscriptRequest) => Promise<AgentWriteResult>;
   emit: (event: RunEvent) => void;
   maxNodes?: number;
   sleep?: (ms: number) => Promise<void>;
@@ -319,6 +328,51 @@ export interface CreatePageToolsOptions {
 
 /** Cap on the JSON echoed in `run_userscript`'s own return string (not what's retained). */
 const RUN_USERSCRIPT_RESULT_MAX_CHARS = 60_000;
+
+/**
+ * Cap on the console output echoed back to the model from one userscript run.
+ *
+ * The debug loop is *edit, run, read the console and the error, edit again* (O-03),
+ * so the console has to come back or the loop has no observation in it. It is capped
+ * separately from the returned value because a script that logs in a loop would
+ * otherwise crowd out its own result.
+ */
+const RUN_USERSCRIPT_CONSOLE_MAX_LINES = 40;
+const RUN_USERSCRIPT_CONSOLE_MAX_CHARS = 4_000;
+
+/** Renders captured console lines for the model, or '' when the script logged nothing. */
+export function formatUserscriptConsole(
+  lines: UserscriptRunResult['console'],
+  maxLines = RUN_USERSCRIPT_CONSOLE_MAX_LINES,
+  maxChars = RUN_USERSCRIPT_CONSOLE_MAX_CHARS,
+): string {
+  if (lines.length === 0) return '';
+
+  const kept: string[] = [];
+  let used = 0;
+  for (const line of lines.slice(0, maxLines)) {
+    const rendered = `[${line.level}] ${line.text}`;
+    if (used + rendered.length > maxChars) break;
+    kept.push(rendered);
+    used += rendered.length + 1;
+  }
+
+  const dropped = lines.length - kept.length;
+  const more = dropped > 0 ? `\n… ${dropped} more console line${dropped === 1 ? '' : 's'}` : '';
+  return `\nconsole:\n${kept.join('\n')}${more}`;
+}
+
+/** One line per script for `list_userscripts`, in the shape the model must echo back. */
+export function formatUserscriptList(scripts: Userscript[]): string {
+  if (scripts.length === 0) {
+    return 'No userscripts are saved. Use write_userscript to create one.';
+  }
+  const rows = scripts.map(
+    (script) =>
+      `${script.id} | ${script.name} | ${script.matches.join(' ')} | written by ${script.author === 'agent' ? 'you' : 'the user'}`,
+  );
+  return [`${scripts.length} saved userscript${scripts.length === 1 ? '' : 's'} (id | name | runs on | author):`, ...rows].join('\n');
+}
 
 /** {@link PageTools} plus `hover`, which the port does not name but the tiers support. */
 export interface RuntimePageTools extends PageTools {
@@ -444,7 +498,16 @@ export function createPageTools(options: CreatePageToolsOptions): RuntimePageToo
     async runUserscript(scriptId) {
       const result = await runUserscript(scriptId, tabId);
       for (const event of toRunEvents(result, now)) emit(event);
-      if (!result.ok) throw new Error(result.error ?? `userscript ${scriptId} failed`);
+      const logged = formatUserscriptConsole(result.console);
+      // A failure still throws, so the run log marks the step failed rather than
+      // showing a green tick over a broken script -- but the message now carries
+      // everything the next edit needs: the error, and what the script logged
+      // before it hit it.
+      if (!result.ok) {
+        throw new Error(
+          `userscript ${scriptId} failed after ${result.durationMs}ms: ${result.error ?? 'no error reported'}${logged}`,
+        );
+      }
       lastUserscriptValue = result.value;
       hasLastUserscriptValue = true;
       const full = result.value === undefined ? '(no value)' : JSON.stringify(result.value);
@@ -452,7 +515,29 @@ export function createPageTools(options: CreatePageToolsOptions): RuntimePageToo
         full.length > RUN_USERSCRIPT_RESULT_MAX_CHARS
           ? `${full.slice(0, RUN_USERSCRIPT_RESULT_MAX_CHARS)} [truncated]`
           : full;
-      return `userscript ${scriptId} ran in ${result.durationMs}ms: ${value}`;
+      return `userscript ${scriptId} ran in ${result.durationMs}ms: ${value}${logged}`;
+    },
+
+    async listUserscripts() {
+      if (!options.listUserscripts) return 'The userscript catalog is not available in this run.';
+      return formatUserscriptList(await options.listUserscripts());
+    },
+
+    async writeUserscript(request) {
+      if (!options.writeUserscript) {
+        throw new Error('writing userscripts is not available in this run');
+      }
+      const result = await options.writeUserscript(request);
+      if (!result.ok) {
+        // Thrown, not returned: a refused write is a failed step, and the model
+        // needs the reasons verbatim to produce an acceptable second attempt.
+        throw new Error(`write_userscript refused: ${result.errors.join('; ')}`);
+      }
+      const verb = result.created ? 'created' : 'updated';
+      return (
+        `${verb} userscript ${result.script.id} ("${result.script.name}") for ` +
+        `${result.script.matches.join(' ')}. Run it with run_userscript scriptId "${result.script.id}".`
+      );
     },
 
     async saveFile(filename, content, fromLastUserscript) {

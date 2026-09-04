@@ -14,10 +14,12 @@
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import type { BaseCheckpointSaver } from '@langchain/langgraph-checkpoint';
 import { startRun as defaultStartRun, type RunEndedEvent, type RunHandle } from '@/src/agent/run';
-import type { RunEvent, RunId } from '@/src/messaging';
+import type { RunEvent, RunId, Userscript } from '@/src/messaging';
+import type { WriteUserscriptRequest } from '@/src/agent/tools';
 import type { Config, ModelSource } from '@/src/storage';
 import type { InputTier } from '@/src/input';
-import { listUserscripts, matchesAny, seedDefaults } from '@/src/userscripts';
+import { listUserscripts, matchesAny, seedDefaults, writeAgentUserscript } from '@/src/userscripts';
+import type { AgentWriteResult } from '@/src/userscripts';
 import {
   EscalatableInput,
   createInPageTier,
@@ -37,6 +39,23 @@ async function defaultListAvailableUserscripts(url: string): Promise<Array<{ id:
   await seedDefaults();
   const scripts = await listUserscripts();
   return scripts.filter((s) => matchesAny(s.matches, url)).map((s) => ({ id: s.id, name: s.name }));
+}
+
+/**
+ * The scripts `list_userscripts` shows the Follower: the ones it wrote itself, plus
+ * the user's that already apply to the tab the run started on.
+ *
+ * Not the whole catalog. An adversarial review pointed out that handing the model
+ * every id — including user-written scripts that the authoring rails never vetted,
+ * and which may write the DOM or submit forms — combines with `navigate` into "go to
+ * the host this script targets and run it". Filtering by the starting tab is the same
+ * basis {@link defaultListAvailableUserscripts} already uses for the Follower's
+ * context line, so the two agree, and it errs toward showing fewer.
+ */
+export async function defaultListUserscriptsForAgent(url: string): Promise<Userscript[]> {
+  await seedDefaults();
+  const scripts = await listUserscripts();
+  return scripts.filter((script) => script.author === 'agent' || matchesAny(script.matches, url));
 }
 
 /** The tab a run acts on. */
@@ -92,6 +111,16 @@ export interface RunManagerDeps {
    * catalog (seeded with the bundled examples first), filtered by match pattern.
    */
   listAvailableUserscripts?: (url: string) => Promise<Array<{ id: string; name: string }>>;
+  /**
+   * What the Follower's `list_userscripts` may see. Defaults to
+   * {@link defaultListUserscriptsForAgent}.
+   */
+  listUserscriptCatalog?: (url: string) => Promise<Userscript[]>;
+  /**
+   * The agent's own write path (R-10/O-03). Defaults to the real one, whose rails
+   * live in `src/userscripts/authoring.ts`.
+   */
+  writeUserscript?: (request: WriteUserscriptRequest) => Promise<AgentWriteResult>;
   /** Seam for tests. */
   start?: typeof defaultStartRun;
   checkpointer?: BaseCheckpointSaver;
@@ -245,6 +274,8 @@ export class RunManager {
       input,
       observe: config.observe,
       runUserscript: this.#deps.runUserscript,
+      listUserscripts: () => (this.#deps.listUserscriptCatalog ?? defaultListUserscriptsForAgent)(tab.url),
+      writeUserscript: this.#deps.writeUserscript ?? ((request) => writeAgentUserscript(request)),
       emit,
       runId,
       ...(host.saveArtifact ? { saveArtifact: (filename: string, content: string) => host.saveArtifact!(runId, filename, content) } : {}),

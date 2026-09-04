@@ -350,3 +350,84 @@ describe('tool results reaching the model (R-06)', () => {
     expect(logged?.result.summary.length).toBeLessThanOrEqual(240);
   });
 });
+
+describe('the Follower authoring its own userscript (R-09/R-10, O-03)', () => {
+  it('can write a script, run the id it gets back, and see what the script returned', async () => {
+    const page = new FakePageTools();
+    page.writeUserscript = async (request) => {
+      // Recorded through the real port so the assertion below is on what the
+      // model actually asked for, not on a stub's convenience.
+      (page.calls as Array<{ name: 'writeUserscript'; args: unknown[] }>).push({
+        name: 'writeUserscript',
+        args: [request],
+      });
+      return 'created userscript sc-9 ("titles"). Run it with run_userscript scriptId "sc-9".';
+    };
+    page.runUserscript = async (scriptId) => {
+      (page.calls as Array<{ name: 'runUserscript'; args: unknown[] }>).push({
+        name: 'runUserscript',
+        args: [scriptId],
+      });
+      return `userscript ${scriptId} ran in 4ms: ["a","b"]\nconsole:\n[log] found 2`;
+    };
+
+    let turn = 0;
+    const events: RunEvent[] = [];
+    const leader = new FakeChatModel({
+      label: 'leader',
+      respond: () => ({
+        kind: 'tool',
+        name: 'set_plan',
+        args: { plan: 'script it', subgoals: ['read the titles'], currentSubgoal: 0 },
+      }),
+    });
+    const follower = new FakeChatModel({
+      label: 'follower',
+      respond: (): FakeTurn => {
+        switch (turn++) {
+          case 0:
+            return {
+              kind: 'tool',
+              name: 'write_userscript',
+              args: {
+                name: 'titles',
+                matches: ['*://chatgpt.com/*'],
+                code: 'return [...document.querySelectorAll("h1")].map((h) => h.textContent);',
+                signal: 'CONTINUE',
+              },
+            };
+          case 1:
+            return { kind: 'tool', name: 'run_userscript', args: { scriptId: 'sc-9', signal: 'CONTINUE' } };
+          default:
+            return { kind: 'tool', name: 'done', args: { summary: 'read the titles' } };
+        }
+      },
+    });
+
+    const handle = startRun({
+      prompt: 'read the titles',
+      config: baseConfig,
+      tools: page,
+      models: { leader, follower },
+      onEvent: (event) => events.push(event),
+      checkpointer: new MemorySaver(),
+      runId: `test-${Math.random().toString(36).slice(2)}`,
+    });
+    await handle.done;
+
+    const userscriptCalls = page.calls.filter(
+      (call) => call.name === 'writeUserscript' || call.name === 'runUserscript',
+    );
+    expect(userscriptCalls.map((call) => call.name)).toEqual(['writeUserscript', 'runUserscript']);
+    expect(userscriptCalls[0]!.args[0]).toMatchObject({ name: 'titles', matches: ['*://chatgpt.com/*'] });
+    expect(userscriptCalls[1]!.args[0]).toBe('sc-9');
+
+    const toolMessages = follower.calls.flatMap((call) =>
+      call.messages.filter((m) => m.type === 'tool') as ToolMessage[],
+    );
+    // Both halves of the loop have to survive the trip back to the model: the id to
+    // run, and the console the next edit would be based on.
+    expect(toolMessages.find((m) => m.name === 'write_userscript')?.content).toContain('sc-9');
+    expect(toolMessages.find((m) => m.name === 'run_userscript')?.content).toContain('[log] found 2');
+  });
+});

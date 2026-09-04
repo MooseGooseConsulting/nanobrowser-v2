@@ -5,7 +5,9 @@
  * rest of the run if the user cancels the debugging banner.
  */
 import { describe, expect, it } from 'vitest';
-import type { RunEvent, UserscriptRunResult } from '@/src/messaging';
+import type { RunEvent, Userscript, UserscriptRunResult } from '@/src/messaging';
+import type { WriteUserscriptRequest } from '@/src/agent/tools';
+import type { AgentWriteResult } from '@/src/userscripts/authoring';
 import type { InputTier } from '@/src/input';
 import type { InputFidelity } from '@/src/storage';
 import {
@@ -13,6 +15,7 @@ import {
   createInPageTier,
   createInputPagePort,
   createPageTools,
+  formatUserscriptConsole,
   type RuntimeDriver,
   type RuntimePageTools,
   type SaveArtifact,
@@ -152,7 +155,13 @@ interface Harness {
 
 function harness(
   fidelity: InputFidelity,
-  options: { withDebugger?: boolean; runId?: string; saveArtifact?: SaveArtifact } = {},
+  options: {
+    withDebugger?: boolean;
+    runId?: string;
+    saveArtifact?: SaveArtifact;
+    listUserscripts?: () => Promise<Userscript[]>;
+    writeUserscript?: (request: WriteUserscriptRequest) => Promise<AgentWriteResult>;
+  } = {},
 ): Harness {
   const driver = new FakeDriver();
   const events: RunEvent[] = [];
@@ -190,6 +199,8 @@ function harness(
       return state.userscriptResult;
     },
     sleep: async () => {},
+    ...(options.listUserscripts ? { listUserscripts: options.listUserscripts } : {}),
+    ...(options.writeUserscript ? { writeUserscript: options.writeUserscript } : {}),
     ...(options.runId !== undefined ? { runId: options.runId } : {}),
     ...(options.saveArtifact ? { saveArtifact: options.saveArtifact } : {}),
   });
@@ -433,5 +444,138 @@ describe('createPageTools', () => {
     expect(h.driver.calls.at(-1)).toEqual({ name: 'navigate', args: [TAB, 'https://x.test/next'] });
     expect(await h.tools.done('all good')).toBe('all good');
     expect(await h.tools.blocked('login wall')).toBe('login wall');
+  });
+});
+
+describe('the agent\'s userscript loop (R-09/R-10, O-03)', () => {
+  const script: Userscript = {
+    id: 'sc-1',
+    name: 'chatgpt-titles',
+    matches: ['*://chatgpt.com/*'],
+    code: 'return 1;',
+    updatedAt: 0,
+    author: 'agent',
+  };
+
+  // The loop is edit -> run -> read -> edit, so a run that hides what the script
+  // logged leaves the model nothing to edit *from*.
+  it('gives the model what the script logged, not just what it returned', async () => {
+    const h = harness('in-page');
+    h.userscriptResult = {
+      scriptId: 's1',
+      ok: true,
+      value: [1, 2],
+      console: [
+        { level: 'log', text: 'found 2 articles', at: 1 },
+        { level: 'warn', text: 'no timestamps', at: 2 },
+      ],
+      durationMs: 5,
+    };
+
+    const reply = await h.tools.runUserscript('s1');
+
+    expect(reply).toContain('[1,2]');
+    expect(reply).toContain('[log] found 2 articles');
+    expect(reply).toContain('[warn] no timestamps');
+  });
+
+  it('carries the console into the failure too, where it is needed most', async () => {
+    const h = harness('in-page');
+    h.userscriptResult = {
+      scriptId: 's1',
+      ok: false,
+      error: 'TypeError: rows.map is not a function (line 4, column 12)',
+      console: [{ level: 'log', text: 'rows = null', at: 1 }],
+      durationMs: 3,
+    };
+
+    await expect(h.tools.runUserscript('s1')).rejects.toThrow(/line 4, column 12[\s\S]*\[log\] rows = null/);
+  });
+
+  it('lists saved scripts with their ids and who wrote each one', async () => {
+    const h = harness('in-page', {
+      listUserscripts: async () => [script, { ...script, id: 'sc-2', name: 'mine', author: undefined }],
+    });
+
+    const listing = await h.tools.listUserscripts();
+
+    expect(listing).toContain('sc-1 | chatgpt-titles | *://chatgpt.com/* | written by you');
+    expect(listing).toContain('sc-2 | mine | *://chatgpt.com/* | written by the user');
+  });
+
+  it('tells the model to write one when the catalog is empty', async () => {
+    const h = harness('in-page', { listUserscripts: async () => [] });
+    expect(await h.tools.listUserscripts()).toContain('write_userscript');
+  });
+
+  it('hands back the id and how to run it after a write', async () => {
+    const h = harness('in-page', {
+      writeUserscript: async () => ({ ok: true, script, created: true }),
+    });
+
+    const reply = await h.tools.writeUserscript({
+      name: 'chatgpt-titles',
+      matches: ['*://chatgpt.com/*'],
+      code: 'return 1;',
+    });
+
+    expect(reply).toContain('created userscript sc-1');
+    expect(reply).toContain('run_userscript scriptId "sc-1"');
+  });
+
+  it('says "updated" when revising rather than pretending it made a new script', async () => {
+    const h = harness('in-page', {
+      writeUserscript: async () => ({ ok: true, script, created: false }),
+    });
+    const reply = await h.tools.writeUserscript({
+      scriptId: 'sc-1',
+      name: 'chatgpt-titles',
+      matches: ['*://chatgpt.com/*'],
+      code: 'return 2;',
+    });
+    expect(reply).toContain('updated userscript sc-1');
+  });
+
+  it('fails the step with the refusal reasons verbatim, so the retry can be correct', async () => {
+    const h = harness('in-page', {
+      writeUserscript: async () => ({ ok: false, errors: ['"<all_urls>" matches every site. Name the host you mean.'] }),
+    });
+
+    await expect(
+      h.tools.writeUserscript({ name: 'x', matches: ['<all_urls>'], code: 'return 1;' }),
+    ).rejects.toThrow('matches every site');
+  });
+
+  it('says plainly that a run without a write path cannot author scripts', async () => {
+    const h = harness('in-page');
+    await expect(
+      h.tools.writeUserscript({ name: 'x', matches: ['*://chatgpt.com/*'], code: 'return 1;' }),
+    ).rejects.toThrow('not available in this run');
+    expect(await h.tools.listUserscripts()).toContain('not available in this run');
+  });
+});
+
+describe('formatUserscriptConsole', () => {
+  it('is empty for a script that logged nothing, so the reply stays short', () => {
+    expect(formatUserscriptConsole([])).toBe('');
+  });
+
+  it('caps the number of lines and says how many it dropped', () => {
+    const lines = Array.from({ length: 6 }, (_, i) => ({ level: 'log' as const, text: `line ${i}`, at: i }));
+    const out = formatUserscriptConsole(lines, 4);
+    expect(out).toContain('[log] line 3');
+    expect(out).not.toContain('[log] line 4');
+    expect(out).toContain('… 2 more console lines');
+  });
+
+  it('caps by size too, so one enormous log line cannot crowd out the result', () => {
+    const lines = [
+      { level: 'log' as const, text: 'a'.repeat(50), at: 1 },
+      { level: 'log' as const, text: 'b'.repeat(50), at: 2 },
+    ];
+    const out = formatUserscriptConsole(lines, 10, 60);
+    expect(out).toContain('a'.repeat(50));
+    expect(out).not.toContain('b'.repeat(50));
+    expect(out).toContain('… 1 more console line');
   });
 });

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import type { RunEvent } from '@/src/messaging';
 import { listUserscripts, saveUserscript } from './catalog';
+import { BUNDLED_USERSCRIPTS } from './examples';
 import { handleUserscriptMessage, type UserscriptMessageContext } from './index';
 import { resetWorldConfiguration } from './runner';
 import { vmUserScriptsApi } from './testing';
@@ -21,7 +22,7 @@ describe('handleUserscriptMessage', () => {
 
     expect(reply?.type).toBe('userscript.list');
     const scripts = (reply as { payload: { scripts: Array<{ name: string }> } }).payload.scripts;
-    expect(scripts.map((script) => script.name)).toEqual(['hyperagent-observe', 'ebay-search-extract']);
+    expect(scripts.map((script) => script.name)).toEqual(BUNDLED_USERSCRIPTS.map((seed) => seed.name));
   });
 
   it('saves a script and replies with the refreshed list', async () => {
@@ -131,5 +132,35 @@ describe('handleUserscriptMessage', () => {
     await expect(
       handleUserscriptMessage({ type: 'readiness.get', payload: {} }),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe('who owns a script after the user saves it', () => {
+  beforeEach(() => {
+    fakeBrowser.reset();
+  });
+
+  /**
+   * A save from the panel is the user saving. Without this the `author: 'agent'`
+   * stamp survived the user's own edit, so the agent could overwrite work the user
+   * had put into a script it originally wrote.
+   */
+  it('makes an agent-written script the user\'s once they save it themselves', async () => {
+    const agentScript = await saveUserscript({
+      name: 'agent thing',
+      matches: ['*://example.com/*'],
+      code: 'return 1;',
+      author: 'agent',
+    });
+    expect(agentScript.author).toBe('agent');
+
+    await handleUserscriptMessage({
+      type: 'userscript.save',
+      payload: { ...agentScript, code: 'return 2; // my edit' },
+    });
+
+    const [stored] = await listUserscripts();
+    expect(stored!.author).toBeUndefined();
+    expect(stored!.code).toBe('return 2; // my edit');
   });
 });

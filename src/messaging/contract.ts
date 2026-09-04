@@ -88,6 +88,13 @@ export interface Userscript {
   matches: string[];
   code: string;
   updatedAt: number;
+  /**
+   * Who wrote this script. Absent means the user: every script stored before the
+   * agent could write one is the user's, and the panel and the agent's own write
+   * path both depend on telling the two apart -- an agent may only replace a
+   * script it wrote itself (`src/userscripts/authoring.ts`).
+   */
+  author?: 'user' | 'agent';
 }
 
 export interface UserscriptRunResult {

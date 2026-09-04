@@ -73,7 +73,7 @@ export const LEADER_SYSTEM = [
   'You decompose the objective into a short ordered list of concrete subgoals and hand one at a time to the Follower.',
   'You are called again whenever the Follower finishes a subgoal, gets stuck, or after a fixed number of its steps.',
   'When called again, revise the plan against what actually happened. Keep what worked. Do not repeat a subgoal that is already done.',
-  'The Follower can read long lists as plain text, run a stored script, and save a file; it will call blocked rather than sign in anywhere, so never plan a subgoal that requires logging in.',
+  'The Follower can read long lists as plain text, write and run a script against the page, and save a file; it will call blocked rather than sign in anywhere, so never plan a subgoal that requires logging in.',
   'Always answer by calling set_plan exactly once. Never write prose instead.',
 ].join(' ');
 
@@ -83,6 +83,7 @@ export const FOLLOWER_SYSTEM = [
   'Element refs like "e12" come from the page snapshot you are shown. Never invent a ref.',
   'For a long list or article, prefer extract_text over reading it out of the snapshot.',
   'A run_userscript result can be saved with save_file(fromLastUserscript:true) instead of retyping it; saved files land in the user\'s Downloads/nanobrowser folder.',
+  'When a page holds more data than you can reach by clicking, write_userscript a small reader for it, run_userscript it, and fix it from the error and console lines you get back.',
   'If you land on a sign-in or login page, call blocked; never enter credentials.',
   'On every tool call also set "signal": CONTINUE while you are still working on the subgoal,',
   'SUBGOAL_COMPLETE the moment the subgoal is achieved, RETURN_TO_LEADER if the plan no longer fits',
@@ -286,7 +287,7 @@ const follower: GraphNode<typeof AgentState, AgentContext> = async (state, confi
   const subgoal = state.subgoals[state.currentSubgoal] ?? state.plan ?? ctx.objective;
   const scriptLine = ctx.availableUserscripts.length
     ? `Userscripts available here (run_userscript ids): ${ctx.availableUserscripts.map((s) => `${s.id} (${s.name})`).join(', ')}.`
-    : 'No userscript is registered for this page.';
+    : 'No userscript is registered for this page. Write one with write_userscript if reading this page by hand would take many steps.';
   const blocks: ContentBlock[] = [
     {
       type: 'text',

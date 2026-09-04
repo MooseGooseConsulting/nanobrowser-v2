@@ -10,6 +10,7 @@
  * script hands its result back with a top-level `return`.
  */
 import type { Userscript } from '@/src/messaging';
+import { DEFAULT_PROBE_GLOBALS, buildProbeCode } from './i03';
 
 /** A bundled example, before the catalog stamps an id and `updatedAt` on it. */
 export type UserscriptSeed = Omit<Userscript, 'id' | 'updatedAt'>;
@@ -214,5 +215,38 @@ export const EBAY_SEARCH_EXTRACT: UserscriptSeed = {
   code: EBAY_SEARCH_EXTRACT_CODE,
 };
 
+/**
+ * The I-03 capability probe, bundled so it is actually reachable.
+ *
+ * I-03 asks "whether R-09/R-10 can route around R-13 entirely by calling the page's
+ * own APIs instead of synthesizing input", and `src/userscripts/i03.ts` is the
+ * executable half of the answer. It was exported and covered by tests but wired to
+ * nothing -- no panel button, no agent tool -- so the one instrument that can tell
+ * anyone what a userscript reaches on a given site could not be run on one. As a
+ * bundled script it shows up in the catalog like any other, for the panel and for
+ * `run_userscript` alike.
+ *
+ * The allow-list below is an any-host http/https pattern rather than `<all_urls>`.
+ * The probe does have to be runnable on a site nobody has characterised yet, so it is
+ * broad on purpose -- but Chrome's `<all_urls>` also covers `file:` and `ftp:`, and an
+ * adversarial review pointed out that this one bundled script would then be an
+ * agent-reachable way onto `file:///…`. Restricting it to the two web schemes still
+ * covers every site the probe has any business on.
+ *
+ * Being broad at all is a privilege the rails in `authoring.ts` deny to scripts the
+ * *agent* writes. That asymmetry is the point: this code is ours and is right here to
+ * read, it only reads, and `sameOriginFetch` is baked to false at seed time so the
+ * probe issues no request at all.
+ */
+export const I03_PAGE_ACCESS: UserscriptSeed = {
+  name: 'i03-page-access',
+  matches: ['*://*/*'],
+  code: buildProbeCode(DEFAULT_PROBE_GLOBALS, false),
+};
+
 /** Everything `seedDefaults()` installs into an empty catalog. */
-export const BUNDLED_USERSCRIPTS: readonly UserscriptSeed[] = [HYPERAGENT_OBSERVE, EBAY_SEARCH_EXTRACT];
+export const BUNDLED_USERSCRIPTS: readonly UserscriptSeed[] = [
+  HYPERAGENT_OBSERVE,
+  EBAY_SEARCH_EXTRACT,
+  I03_PAGE_ACCESS,
+];

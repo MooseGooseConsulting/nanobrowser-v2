@@ -53,6 +53,13 @@ place. In dev it also listens on a unix socket so the CLI can start a run.
 world, and it writes nothing to the DOM. It produces an accessibility snapshot where every
 actionable element gets a `[ref=eNN]` handle, and performs clicks and typing.
 
+Separately from all of that, the agent can **write a userscript and iterate on it**: author
+the code, run it in the `USER_SCRIPT` world, read what it returned and what it logged, and
+fix it. Scripts it writes must name a concrete http/https host — never every site — and it
+can never overwrite one you wrote; the panel marks the ones it did write. This needs
+**Allow User Scripts** turned on for the extension at `chrome://extensions`, which is off by
+default and only you can turn on.
+
 ---
 
 ## How the agent moves between websites
@@ -156,7 +163,7 @@ bash scripts/check-invariants.sh
 | `src/agent/` | LangGraph graph, tools, state, checkpointer, model handles |
 | `src/page/` | accessibility snapshot, actions, the injected script and its driver |
 | `src/input/` | input tiers: in-page, debugger/CDP, humanisation |
-| `src/runtime/` | run manager, worker message hub, page tools, model policy |
-| `src/userscripts/` | userscript catalog, matching, runner, bundled examples |
+| `src/runtime/` | run manager, worker message hub, page tools |
+| `src/userscripts/` | userscript catalog, matching, runner, the agent's write path, bundled examples |
 | `src/ui/` | side panel components, run log, state |
 | `host/` | the native messaging host and its CLIs |

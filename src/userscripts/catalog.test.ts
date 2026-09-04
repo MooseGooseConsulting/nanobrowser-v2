@@ -10,7 +10,7 @@ import {
   userscriptsItem,
   validateUserscript,
 } from './catalog';
-import { HYPERAGENT_OBSERVE } from './examples';
+import { BUNDLED_USERSCRIPTS, HYPERAGENT_OBSERVE } from './examples';
 
 const draft = {
   name: '  observe  ',
@@ -90,7 +90,9 @@ describe('userscript catalog', () => {
     it('installs every bundled example into an empty catalog', async () => {
       const seeded = await seedDefaults(() => 99);
 
-      expect(seeded).toHaveLength(2);
+      // Derived from the bundle rather than hard-coded, so adding a bundled script
+      // is not an unrelated test failure.
+      expect(seeded.map((s) => s.name)).toEqual(BUNDLED_USERSCRIPTS.map((s) => s.name));
       expect(seeded[0]!).toMatchObject({
         name: 'hyperagent-observe',
         matches: ['*://hyperagent.com/*', '*://www.hyperagent.com/*'],
@@ -116,7 +118,7 @@ describe('userscript catalog', () => {
       await saveUserscript({ name: 'hyperagent-observe', matches: ['*://hyperagent.com/*'], code: '1' });
 
       const after = await seedDefaults();
-      expect(after.map((s) => s.name).sort()).toEqual(['ebay-search-extract', 'hyperagent-observe']);
+      expect(after.map((s) => s.name).sort()).toEqual(BUNDLED_USERSCRIPTS.map((s) => s.name).sort());
     });
 
     it('does not resurrect a bundled example the user deleted', async () => {
@@ -133,7 +135,7 @@ describe('userscript catalog', () => {
       const second = await seedDefaults();
 
       expect(second).toEqual(first);
-      await expect(listUserscripts()).resolves.toHaveLength(2);
+      await expect(listUserscripts()).resolves.toHaveLength(BUNDLED_USERSCRIPTS.length);
     });
 
     it('seeds a script the runner will accept for hyperagent.com', async () => {

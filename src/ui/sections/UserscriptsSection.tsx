@@ -112,6 +112,16 @@ export function UserscriptsSection({
                   )}
                 >
                   {script.name}
+                  {/* The agent can now author scripts (O-03). Which ones it wrote is
+                      the user's business, so it is on the row rather than buried. */}
+                  {script.author === 'agent' ? (
+                    <span
+                      title="Written by the agent during a run"
+                      className="ml-1 rounded-sm border border-line px-1 text-[10px] uppercase tracking-wide text-muted"
+                    >
+                      agent
+                    </span>
+                  ) : null}
                   <span className="ml-1 text-[11px] text-muted">{script.matches.join(' ')}</span>
                 </button>
                 <ConfirmButton label="delete" onConfirm={() => onDelete(script.id)} />
