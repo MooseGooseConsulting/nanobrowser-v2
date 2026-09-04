@@ -23,6 +23,8 @@ PROMPT="${NB_E2E_PROMPT:-$DEFAULT_PROMPT}"
 URL="${NB_E2E_URL:-https://hyperagent.com}"
 LEADER="${NB_E2E_LEADER:-nvidia/nemotron-3-ultra-550b-a55b:free}"
 FOLLOWER="${NB_E2E_FOLLOWER:-nvidia/nemotron-3.5-lightning:free}"
+LEADER_SOURCE="${NB_E2E_LEADER_SOURCE:-}"
+FOLLOWER_SOURCE="${NB_E2E_FOLLOWER_SOURCE:-}"
 OBSERVE="${NB_E2E_OBSERVE:-dom}"
 FIDELITY="${NB_E2E_FIDELITY:-in-page}"
 RELOAD_TIMEOUT="${NB_E2E_RELOAD_TIMEOUT:-30}"
@@ -38,6 +40,8 @@ usage: scripts/e2e.sh [options]
   --url <url>            page to start on       (env NB_E2E_URL)
   --leader <model>       leader model id        (env NB_E2E_LEADER)
   --follower <model>     follower model id      (env NB_E2E_FOLLOWER)
+  --leader-source <s>    openrouter|kilo        (env NB_E2E_LEADER_SOURCE)
+  --follower-source <s>  openrouter|kilo        (env NB_E2E_FOLLOWER_SOURCE)
   --observe <dom|pixels|both>                   (env NB_E2E_OBSERVE)
   --fidelity <in-page|escalated>                (env NB_E2E_FIDELITY)
   --reload-timeout <s>   seconds to wait for the reloaded extension
@@ -56,6 +60,8 @@ while [ $# -gt 0 ]; do
     --url) URL="$2"; shift 2 ;;
     --leader) LEADER="$2"; shift 2 ;;
     --follower) FOLLOWER="$2"; shift 2 ;;
+    --leader-source) LEADER_SOURCE="$2"; shift 2 ;;
+    --follower-source) FOLLOWER_SOURCE="$2"; shift 2 ;;
     --observe) OBSERVE="$2"; shift 2 ;;
     --fidelity) FIDELITY="$2"; shift 2 ;;
     --reload-timeout) RELOAD_TIMEOUT="$2"; shift 2 ;;
@@ -112,12 +118,17 @@ fi
 step "run"
 echo "prompt:   $PROMPT"
 echo "url:      $URL"
-echo "models:   leader=$LEADER follower=$FOLLOWER"
+echo "models:   leader=$LEADER${LEADER_SOURCE:+ ($LEADER_SOURCE)} follower=$FOLLOWER${FOLLOWER_SOURCE:+ ($FOLLOWER_SOURCE)}"
 echo "observe:  $OBSERVE   fidelity: $FIDELITY"
 echo "stream:   $STREAM"
 
+SOURCE_OPTS=()
+[ -n "$LEADER_SOURCE" ] && SOURCE_OPTS+=(--option "leaderModelSource=$LEADER_SOURCE")
+[ -n "$FOLLOWER_SOURCE" ] && SOURCE_OPTS+=(--option "followerModelSource=$FOLLOWER_SOURCE")
+
 host/bin/nb-run "$PROMPT" \
   --url "$URL" \
+  "${SOURCE_OPTS[@]}" \
   --option "leaderModel=$LEADER" \
   --option "followerModel=$FOLLOWER" \
   --option "observe=$OBSERVE" \

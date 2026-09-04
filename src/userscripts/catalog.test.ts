@@ -102,11 +102,30 @@ describe('userscript catalog', () => {
       await expect(listUserscripts()).resolves.toEqual(seeded);
     });
 
-    it('does nothing when the catalog already has scripts', async () => {
+    it('keeps the user\'s own scripts and adds the bundled ones alongside them', async () => {
       const mine = await saveUserscript(draft);
 
-      await expect(seedDefaults()).resolves.toEqual([mine]);
-      await expect(listUserscripts()).resolves.toEqual([mine]);
+      const after = await seedDefaults();
+      expect(after[0]).toEqual(mine);
+      expect(after.map((s) => s.name)).toContain('ebay-search-extract');
+    });
+
+    it('delivers a newly bundled example to a profile that already has the older one', async () => {
+      // The real failure this fixes: a profile seeded before ebay-search-extract
+      // existed never received it, because seeding used to require an empty catalog.
+      await saveUserscript({ name: 'hyperagent-observe', matches: ['*://hyperagent.com/*'], code: '1' });
+
+      const after = await seedDefaults();
+      expect(after.map((s) => s.name).sort()).toEqual(['ebay-search-extract', 'hyperagent-observe']);
+    });
+
+    it('does not resurrect a bundled example the user deleted', async () => {
+      const seeded = await seedDefaults();
+      const ebay = seeded.find((s) => s.name === 'ebay-search-extract');
+      await deleteUserscript(ebay!.id);
+
+      const after = await seedDefaults();
+      expect(after.map((s) => s.name)).not.toContain('ebay-search-extract');
     });
 
     it('is idempotent across repeated calls', async () => {

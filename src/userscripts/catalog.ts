@@ -120,16 +120,45 @@ function seedToScript(seed: UserscriptSeed, now: () => number): Userscript {
 }
 
 /**
- * Installs the bundled examples, but only into an empty catalog. "Empty" is the
- * only trigger: a per-script presence check would resurrect an example the user
- * edited or removed while keeping their own scripts, which is worse than the one
- * case this does allow (emptying the catalog completely re-seeds it).
+ * Names of bundled examples this profile has already been offered.
+ *
+ * Presence in the catalog cannot answer that question: a user who deleted an
+ * example looks identical to one who never received it. Recording the offer
+ * separately lets a NEW bundled script reach an existing install without
+ * resurrecting one the user threw away.
+ */
+export const seededNamesItem = storage.defineItem<string[]>('local:userscripts.seeded', {
+  fallback: [],
+  version: 1,
+});
+
+/**
+ * Installs any bundled example this profile has not been offered before.
+ *
+ * The first version of this seeded only into an empty catalog, which meant a
+ * newly bundled script never reached anyone who already had one -- the eBay
+ * extractor was invisible on a profile that had been running since before it
+ * existed. Deleted and edited examples still stay gone, because the decision is
+ * made from the offer record rather than from the catalog's contents.
  */
 export async function seedDefaults(now: () => number = Date.now): Promise<Userscript[]> {
   const current = await listUserscripts();
-  if (current.length > 0) return current;
+  const offered = new Set(await seededNamesItem.getValue());
 
-  const seeded = BUNDLED_USERSCRIPTS.map((seed) => seedToScript(seed, now));
-  await userscriptsItem.setValue(seeded);
-  return seeded;
+  // A pre-existing catalog from before the offer record was kept: treat whatever
+  // is in it as already offered, so nothing the user removed comes back.
+  if (offered.size === 0 && current.length > 0) {
+    for (const script of current) offered.add(script.name);
+  }
+
+  const missing = BUNDLED_USERSCRIPTS.filter((seed) => !offered.has(seed.name));
+  if (missing.length === 0) {
+    await seededNamesItem.setValue([...offered]);
+    return current;
+  }
+
+  const next = [...current, ...missing.map((seed) => seedToScript(seed, now))];
+  await userscriptsItem.setValue(next);
+  await seededNamesItem.setValue([...offered, ...missing.map((seed) => seed.name)]);
+  return next;
 }
