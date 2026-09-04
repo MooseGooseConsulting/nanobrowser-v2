@@ -351,3 +351,32 @@ describe('saveFile', () => {
     expect(result.error).toContain('"downloads" permission is not granted');
   });
 });
+
+describe('a Chrome call that never answers', () => {
+  // Regression: a live eBay run sat 10 minutes on captureVisibleTab, which stalls when
+  // the target tab is not the visible one, and died only when the harness timed out --
+  // with no event saying why.
+  it('turns a hung screenshot into an ordinary error instead of wedging the run', async () => {
+    const f = fake({ scriptPresent: true });
+    f.api.tabs.captureVisibleTab = () => new Promise<string>(() => {});
+    const driver = new PageDriver(f.api, { opTimeoutMs: 20 });
+
+    const result = await driver.screenshot(1);
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.error).toContain('captureVisibleTab');
+    expect(result.ok === false && result.error).toContain('20ms');
+  });
+
+  it('times out a page round trip the content script never answers', async () => {
+    const f = fake({ scriptPresent: true, respond: () => undefined });
+    f.api.tabs.sendMessage = ((_tabId: number, request: PageRequest) =>
+      request.op === 'ping'
+        ? Promise.resolve({ ok: true, devicePixelRatio: 1 })
+        : new Promise(() => {})) as ChromeApi['tabs']['sendMessage'];
+    const driver = new PageDriver(f.api, { opTimeoutMs: 20 });
+
+    const res = await driver.snapshot(1);
+    expect(res.ok).toBe(false);
+    expect(res.ok === false && res.error).toContain('did not answer');
+  });
+});

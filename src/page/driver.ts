@@ -79,12 +79,24 @@ export class PageDriver {
   private readonly api: ChromeApi;
   /** Tabs whose injected script has answered a ping at least once in this worker's life. */
   private readonly injected = new Set<number>();
+  /**
+   * Ceiling on any single page round trip or Chrome call.
+   *
+   * Nothing here had a timeout, so one unanswered call wedged the whole run: a live
+   * eBay run sat 10 minutes on `captureVisibleTab` (which stalls when the target tab
+   * is not the visible one) and only died when the outer harness timed out, with no
+   * event explaining why. A timeout turns a hang into an ordinary tool error the
+   * model can react to.
+   */
+  readonly opTimeoutMs: number;
+
   /** How long `navigate` waits for `status: 'complete'` before giving up. */
   readonly navigateTimeoutMs: number;
 
-  constructor(api: ChromeApi = chromeApi(), options: { navigateTimeoutMs?: number } = {}) {
+  constructor(api: ChromeApi = chromeApi(), options: { navigateTimeoutMs?: number; opTimeoutMs?: number } = {}) {
     this.api = api;
     this.navigateTimeoutMs = options.navigateTimeoutMs ?? 30_000;
+    this.opTimeoutMs = options.opTimeoutMs ?? 20_000;
   }
 
   /** Forget a tab's injection state — call on navigation, since the script does not survive it. */
@@ -130,11 +142,31 @@ export class PageDriver {
   }
 
   /** Send one op, injecting first if necessary. */
+  /** Rejects with a named timeout rather than hanging forever. */
+  private withTimeout<T>(work: Promise<T>, what: string): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error(`${what} did not answer in ${this.opTimeoutMs}ms`)),
+        this.opTimeoutMs,
+      );
+      work.then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        (err: unknown) => {
+          clearTimeout(timer);
+          reject(err as Error);
+        },
+      );
+    });
+  }
+
   private async send<T extends PageResponse>(tabId: number, request: PageRequest): Promise<T> {
     const ready = await this.ensureInjected(tabId);
     if (!ready.ok) return ready as T;
     try {
-      const res = await this.api.tabs.sendMessage(tabId, request);
+      const res = await this.withTimeout(this.api.tabs.sendMessage(tabId, request), `page op "${request.op}"`);
       if (!res) return { ok: false, error: 'no response from page' } as T;
       return res as T;
     } catch (err) {
@@ -204,7 +236,10 @@ export class PageDriver {
       return { ok: false, error: `tabs.get failed: ${errorOf(err)}` };
     }
     try {
-      const dataUrl = await this.api.tabs.captureVisibleTab(windowId, { format: 'png' });
+      const dataUrl = await this.withTimeout(
+        this.api.tabs.captureVisibleTab(windowId, { format: 'png' }),
+        'captureVisibleTab',
+      );
       const dpr = metrics.devicePixelRatio || 1;
       return {
         ok: true,
