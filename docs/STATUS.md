@@ -239,9 +239,20 @@ same working pipeline: a quality difference between models, not a missing capabi
 **On judging a model fairly.** The "not usable" verdict on `nemotron-3.5-lightning:free` was
 recorded while three of our own defects were still present: unbounded Follower history
 heading for a context blowout, no way to resume a truncated `extract_text`, and no timeout
-on page ops. Re-measuring after those were fixed, the same model produced 8 tool calls and
-completed subgoals where it had managed 2 in 38 steps. A model's limits cannot be measured
-through our bugs, and a verdict recorded under them is not evidence.
+on page ops. Re-measured after those fixes, the same model **completed the task**:
+
+```
+run.ended.status = done (as expected)     run-mtmps6ya-eabc607f
+valid JSON, 6 items                        9 follower tool calls across 15 steps
+```
+
+So the user's originally requested pairing -- `nemotron-3-ultra-550b-a55b:free` leading and
+`nemotron-3.5-lightning:free` following -- **is suitable for this task**. It saves fewer rows
+per run than the alternatives (6, against 31 for the stepfun follower and 49 for the paid
+Leader) but the rows it saves are correct and completely formed.
+
+A model's limits cannot be measured through our own bugs, and a verdict recorded under them
+is not evidence. This one was wrong and is retracted.
 
 
 The user asked for free models. Running the task on them, rather than on the paid Leader,
@@ -252,7 +263,7 @@ is what surfaced three defects that a roomier model had been hiding:
 | `meta/muse-spark-1.3-contributor` (paid, Kilo only) | Leader | Works. Reasoning model: never cap completion tokens, and it needs a real system prompt or it calls tools with `{}`. 1M context. ~$0.00017/turn. |
 | `nvidia/nemotron-3-ultra-550b-a55b:free` | Leader | Works. Produces correct `set_plan` calls. |
 | `stepfun/step-3.7-flash:free` | Follower | Works. Drives the page and saves files. 262k context. |
-| `nvidia/nemotron-3.5-lightning:free` | Follower | Verdict revised, see below. It first produced 2 tool calls in 38 steps, but that was measured while three of our own defects were still in play. |
+| `nvidia/nemotron-3.5-lightning:free` | Follower | **Works**, once our own defects were fixed: run `run-mtmps6ya-eabc607f` ended `done` with 6 valid listings, 9 tool calls in 15 steps. Before those fixes: 2 tool calls in 38 steps and no completion. Weakest of the three on volume, correct on structure. |
 
 Defects found only by insisting on free models, each fixed with a regression test:
 
