@@ -147,3 +147,20 @@ describe('UserscriptsSection results', () => {
     expect(screen.getByText(/Waiting for the worker to send the script list/)).toBeTruthy();
   });
 });
+
+describe('who wrote each script (O-03)', () => {
+  it('marks a script the agent wrote and leaves the user\'s own unmarked', () => {
+    setup({
+      scripts: [
+        SCRIPT,
+        { ...SCRIPT, id: 'script-b', name: 'agent probe', author: 'agent' as const },
+      ],
+    });
+
+    // The agent authoring scripts into the user's catalog is only acceptable if
+    // the user can see at a glance which ones are the agent's.
+    const marks = screen.getAllByTitle('Written by the agent during a run');
+    expect(marks).toHaveLength(1);
+    expect(marks[0]!.textContent).toBe('agent');
+  });
+});

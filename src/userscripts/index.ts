@@ -9,6 +9,7 @@
  */
 export * from './match-pattern';
 export * from './catalog';
+export * from './authoring';
 export * from './examples';
 export * from './runner';
 export * from './debug';

@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { EBAY_SEARCH_EXTRACT, HYPERAGENT_OBSERVE } from './examples';
+import { EBAY_SEARCH_EXTRACT, HYPERAGENT_OBSERVE, I03_PAGE_ACCESS } from './examples';
 import { resetWorldConfiguration, runUserscript } from './runner';
 import { vmUserScriptsApi } from './testing';
 
@@ -328,5 +328,49 @@ describe('bundled ebay-search-extract example: sold/completed (.s-card and legac
       condition: 'Parts Only',
       soldDate: 'Aug 21, 2026',
     });
+  });
+});
+
+describe('bundled i03-page-access probe', () => {
+  beforeEach(() => {
+    resetWorldConfiguration();
+    document.head.innerHTML = '';
+    document.body.innerHTML = '<main>threads</main>';
+  });
+
+  /**
+   * The point of bundling it: `probePageAccess()` was exported, tested, and
+   * reachable from nowhere. As a catalog entry the panel can run it, and so can
+   * `run_userscript`.
+   */
+  it('runs from the catalog entry and reports what the world reaches', async () => {
+    const result = await runUserscript({
+      tabId: 1,
+      script: { id: 'i03', ...I03_PAGE_ACCESS, updatedAt: 0 },
+      url: 'https://hyperagent.com/threads',
+      api: vmUserScriptsApi(),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.value).toMatchObject({
+      origin: 'https://hyperagent.com',
+      world: 'USER_SCRIPT',
+      domVisible: true,
+      // Not asked for, so not performed: the probe issues no request unless told to.
+      sameOriginFetch: null,
+    });
+  });
+
+  it('reads only: it logs nothing and leaves the DOM as it found it', async () => {
+    const before = document.body.innerHTML;
+    const result = await runUserscript({
+      tabId: 1,
+      script: { id: 'i03', ...I03_PAGE_ACCESS, updatedAt: 0 },
+      url: 'https://hyperagent.com/threads',
+      api: vmUserScriptsApi(),
+    });
+
+    expect(result.console).toEqual([]);
+    expect(document.body.innerHTML).toBe(before);
   });
 });

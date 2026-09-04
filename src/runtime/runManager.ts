@@ -14,10 +14,12 @@
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import type { BaseCheckpointSaver } from '@langchain/langgraph-checkpoint';
 import { startRun as defaultStartRun, type RunEndedEvent, type RunHandle } from '@/src/agent/run';
-import type { RunEvent, RunId } from '@/src/messaging';
+import type { RunEvent, RunId, Userscript } from '@/src/messaging';
+import type { WriteUserscriptRequest } from '@/src/agent/tools';
 import type { Config, ModelSource } from '@/src/storage';
 import type { InputTier } from '@/src/input';
-import { listUserscripts, matchesAny, seedDefaults } from '@/src/userscripts';
+import { listUserscripts, matchesAny, seedDefaults, writeAgentUserscript } from '@/src/userscripts';
+import type { AgentWriteResult } from '@/src/userscripts';
 import {
   EscalatableInput,
   createInPageTier,
@@ -92,6 +94,17 @@ export interface RunManagerDeps {
    * catalog (seeded with the bundled examples first), filtered by match pattern.
    */
   listAvailableUserscripts?: (url: string) => Promise<Array<{ id: string; name: string }>>;
+  /**
+   * The whole catalog, for the Follower's `list_userscripts`. Separate from
+   * `listAvailableUserscripts`, which is filtered to the starting tab: the agent may
+   * navigate, so what it can *see* is not what applied when the run began.
+   */
+  listUserscriptCatalog?: () => Promise<Userscript[]>;
+  /**
+   * The agent's own write path (R-10/O-03). Defaults to the real one, whose rails
+   * live in `src/userscripts/authoring.ts`.
+   */
+  writeUserscript?: (request: WriteUserscriptRequest) => Promise<AgentWriteResult>;
   /** Seam for tests. */
   start?: typeof defaultStartRun;
   checkpointer?: BaseCheckpointSaver;
@@ -245,6 +258,8 @@ export class RunManager {
       input,
       observe: config.observe,
       runUserscript: this.#deps.runUserscript,
+      listUserscripts: this.#deps.listUserscriptCatalog ?? listUserscripts,
+      writeUserscript: this.#deps.writeUserscript ?? ((request) => writeAgentUserscript(request)),
       emit,
       runId,
       ...(host.saveArtifact ? { saveArtifact: (filename: string, content: string) => host.saveArtifact!(runId, filename, content) } : {}),

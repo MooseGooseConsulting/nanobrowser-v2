@@ -42,6 +42,14 @@ export interface ScreenshotResult {
 /** Scroll target: a direction keyword or an element ref from the snapshot. */
 export type ScrollTarget = 'up' | 'down' | 'top' | 'bottom' | (string & {});
 
+/** One `write_userscript` call: create when `scriptId` is absent, revise when present. */
+export interface WriteUserscriptRequest {
+  scriptId?: string;
+  name: string;
+  matches: string[];
+  code: string;
+}
+
 /**
  * The page port. One method per capability the Follower can exercise.
  * Implementations live outside `src/agent`.
@@ -58,6 +66,14 @@ export interface PageTools {
   navigate(url: string): Promise<string>;
   download(target: string): Promise<string>;
   runUserscript(scriptId: string): Promise<string>;
+  /** Lists the saved scripts so the Follower knows what ids exist (R-09). */
+  listUserscripts(): Promise<string>;
+  /**
+   * Creates or revises an agent-authored script (R-10/O-03). The rails on what an
+   * agent may write live in `src/userscripts/authoring.ts`, not here; this port
+   * just carries the request and returns whatever the write path reports.
+   */
+  writeUserscript(request: WriteUserscriptRequest): Promise<string>;
   /**
    * Saves `content` (or, when `fromLastUserscript` is true, the full untruncated
    * result of the most recent `run_userscript` call) as a file. `content` has
@@ -121,6 +137,8 @@ export const TOOL_NAMES = [
   'navigate',
   'download',
   'run_userscript',
+  'list_userscripts',
+  'write_userscript',
   'save_file',
   'wait',
   'done',
@@ -296,9 +314,44 @@ export function createPageToolset(page: PageTools): PageToolset {
     }),
     tool(async ({ scriptId }) => page.runUserscript(scriptId), {
       name: 'run_userscript',
-      description: 'Run a saved userscript on this page by its id. Only ids you were given.',
+      description:
+        'Run a saved userscript on this page by its id. The reply gives you what the script ' +
+        'returned plus anything it logged; if it failed you get the error and the line. ' +
+        'Fix it with write_userscript and run it again.',
       schema: z.object({
         scriptId: z.string().describe('The id of a saved userscript.'),
+        ...controlEnvelope,
+      }),
+    }),
+    tool(async () => page.listUserscripts(), {
+      name: 'list_userscripts',
+      description: 'List the saved userscripts with their ids, so you know what run_userscript can take.',
+      schema: z.object({ ...controlEnvelope }),
+    }),
+    tool(async ({ scriptId, name, matches, code }) => page.writeUserscript({ scriptId, name, matches, code }), {
+      name: 'write_userscript',
+      description:
+        'Write a small script that runs on the page, for reading data that would cost many ' +
+        'steps to click through. Your code is the body of an async function: hand back your ' +
+        'result with a top-level return, and use console.log to trace what it saw. Then call ' +
+        'run_userscript with the id you get back. If it fails, call this again with the same ' +
+        'scriptId and fixed code.',
+      schema: z.object({
+        name: z.string().describe('Short name, e.g. "chatgpt-thread-titles".'),
+        matches: z
+          .array(z.string())
+          .min(1)
+          .describe(
+            'Which pages it may run on, e.g. ["*://chatgpt.com/*"]. Name a real host: ' +
+              'patterns that match every site are refused.',
+          ),
+        code: z
+          .string()
+          .describe('The script body. End with "return <your result>;". No function wrapper.'),
+        scriptId: z
+          .string()
+          .optional()
+          .describe('Leave empty to create. Pass the id of a script you wrote to replace it.'),
         ...controlEnvelope,
       }),
     }),
@@ -504,6 +557,16 @@ export class FakePageTools implements PageTools {
   async runUserscript(scriptId: string): Promise<string> {
     this.#record('runUserscript', scriptId);
     return `ran userscript ${scriptId}`;
+  }
+
+  async listUserscripts(): Promise<string> {
+    this.#record('listUserscripts');
+    return 'no userscripts are saved';
+  }
+
+  async writeUserscript(request: WriteUserscriptRequest): Promise<string> {
+    this.#record('writeUserscript', request);
+    return `saved userscript ${request.scriptId ?? 'fake-script-id'}`;
   }
 
   async saveFile(filename: string, content: string | undefined, fromLastUserscript: boolean): Promise<string> {

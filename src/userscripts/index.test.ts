@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import type { RunEvent } from '@/src/messaging';
 import { listUserscripts, saveUserscript } from './catalog';
+import { BUNDLED_USERSCRIPTS } from './examples';
 import { handleUserscriptMessage, type UserscriptMessageContext } from './index';
 import { resetWorldConfiguration } from './runner';
 import { vmUserScriptsApi } from './testing';
@@ -21,7 +22,7 @@ describe('handleUserscriptMessage', () => {
 
     expect(reply?.type).toBe('userscript.list');
     const scripts = (reply as { payload: { scripts: Array<{ name: string }> } }).payload.scripts;
-    expect(scripts.map((script) => script.name)).toEqual(['hyperagent-observe', 'ebay-search-extract']);
+    expect(scripts.map((script) => script.name)).toEqual(BUNDLED_USERSCRIPTS.map((seed) => seed.name));
   });
 
   it('saves a script and replies with the refreshed list', async () => {

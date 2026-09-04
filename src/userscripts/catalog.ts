@@ -22,6 +22,8 @@ export interface UserscriptDraft {
   matches: string[];
   code: string;
   updatedAt?: number;
+  /** Absent means the user wrote it; see {@link Userscript.author}. */
+  author?: 'user' | 'agent';
 }
 
 export type ValidationResult =
@@ -73,6 +75,7 @@ export function validateUserscript(draft: UserscriptDraft, now: () => number = D
       matches: [...matches],
       code,
       updatedAt: now(),
+      ...(draft.author === 'agent' ? { author: 'agent' as const } : {}),
     },
   };
 }
