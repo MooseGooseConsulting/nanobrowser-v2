@@ -49,7 +49,7 @@ export type ScrollTarget = 'up' | 'down' | 'top' | 'bottom' | (string & {});
 export interface PageTools {
   snapshot(): Promise<SnapshotResult>;
   screenshot(): Promise<ScreenshotResult>;
-  extractText(maxChars?: number): Promise<string>;
+  extractText(maxChars?: number, startChar?: number): Promise<string>;
   click(ref: string): Promise<string>;
   type(ref: string, text: string): Promise<string>;
   press(key: string): Promise<string>;
@@ -177,7 +177,7 @@ export function createPageToolset(page: PageTools): PageToolset {
         schema: z.object({ ...controlEnvelope }),
       },
     ),
-    tool(async ({ maxChars }) => page.extractText(maxChars), {
+    tool(async ({ maxChars, startChar }) => page.extractText(maxChars, startChar), {
       name: 'extract_text',
       description:
         'Read the page as plain readable text instead of a structured snapshot. Use this for ' +
@@ -191,6 +191,15 @@ export function createPageToolset(page: PageTools): PageToolset {
           .max(60_000)
           .optional()
           .describe('Character cap on the returned text. Default 20000, max 60000.'),
+        startChar: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe(
+            'Start reading from this offset. When a reply ends "[truncated at N of M]", ' +
+              'call again with startChar N to read the rest.',
+          ),
         ...controlEnvelope,
       }),
     }),
@@ -424,8 +433,8 @@ export class FakePageTools implements PageTools {
     return item;
   }
 
-  async extractText(maxChars?: number): Promise<string> {
-    this.#record('extractText', maxChars);
+  async extractText(maxChars?: number, startChar?: number): Promise<string> {
+    this.#record('extractText', maxChars, startChar);
     return 'extracted text';
   }
 

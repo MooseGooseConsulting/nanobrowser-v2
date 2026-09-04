@@ -75,6 +75,44 @@ describe('extractText', () => {
   it('does not truncate text that already fits', () => {
     document.body.innerHTML = '<main><p>short</p></main>';
     const result = extractText({ maxChars: 100 });
-    expect(result).toEqual({ text: 'short', truncated: false });
+    expect(result).toMatchObject({ text: 'short', truncated: false });
+  });
+});
+
+describe('startChar continuation', () => {
+  // Regression: a live eBay scrape saved 38 of 60 listings because the readable
+  // text ran past maxChars and there was no way to ask for the remainder.
+  const fill = () => {
+    document.body.innerHTML = `<main>${Array.from({ length: 200 }, (_, i) => `<p>listing number ${i} priced at $${i}.00</p>`).join('')}</main>`;
+  };
+
+  it('reports the whole length and where to resume', () => {
+    fill();
+    const first = extractText({ maxChars: 500 });
+    expect(first.truncated).toBe(true);
+    expect(first.totalChars).toBeGreaterThan(500);
+    expect(first.nextStart).toBe(500);
+    expect(first.text.endsWith('[truncated]')).toBe(true);
+  });
+
+  it('resumes from an offset and reaches the end without overlap or loss', () => {
+    fill();
+    let start = 0;
+    let joined = '';
+    for (let i = 0; i < 100; i++) {
+      const page = extractText({ maxChars: 500, startChar: start });
+      joined += page.text.replace(/ \[truncated\]$/, '');
+      if (page.nextStart === undefined) break;
+      start = page.nextStart;
+    }
+    expect(joined).toBe(extractText({ maxChars: 1_000_000 }).text);
+    expect(joined).toContain('listing number 199');
+  });
+
+  it('returns an empty tail rather than throwing when startChar is past the end', () => {
+    fill();
+    const result = extractText({ maxChars: 500, startChar: 10_000_000 });
+    expect(result.text).toBe('');
+    expect(result.truncated).toBe(false);
   });
 });

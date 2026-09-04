@@ -12,6 +12,12 @@ import { isHidden } from './snapshot';
 export interface ExtractTextOptions {
   /** Character cap on the returned text. Default 20000, hard max 60000. */
   maxChars?: number;
+  /**
+   * Character offset to start from, for reading a page longer than one cap.
+   * A live eBay scrape stopped at 38 of 60 listings because the text ran past
+   * `maxChars` and there was no way to ask for the rest.
+   */
+  startChar?: number;
   /** Root to walk. Defaults to the injected script's own `document`. */
   root?: Document;
 }
@@ -20,6 +26,10 @@ export interface ExtractTextResult {
   text: string;
   /** True when `maxChars` cut the text short. */
   truncated: boolean;
+  /** Length of the whole extraction, so the caller knows how much it has not seen. */
+  totalChars: number;
+  /** Offset to pass as `startChar` next time; absent once the end is reached. */
+  nextStart?: number;
 }
 
 export const DEFAULT_MAX_CHARS = 20_000;
@@ -74,7 +84,13 @@ export function extractText(opts: ExtractTextOptions = {}): ExtractTextResult {
   const parts: string[] = [];
   collect(container, parts);
   const text = collapse(parts.join(' '));
+  const totalChars = text.length;
 
-  if (text.length <= maxChars) return { text, truncated: false };
-  return { text: `${text.slice(0, maxChars)} [truncated]`, truncated: true };
+  const start = Math.min(Math.max(opts.startChar ?? 0, 0), totalChars);
+  const end = start + maxChars;
+  if (end >= totalChars) return { text: text.slice(start), truncated: false, totalChars };
+  // The marker stays exactly " [truncated]": callers and tests match on it. Where to
+  // resume is carried in `nextStart` instead, and the model is told about it by the
+  // tool adapter rather than by changing this string.
+  return { text: `${text.slice(start, end)} [truncated]`, truncated: true, totalChars, nextStart: end };
 }

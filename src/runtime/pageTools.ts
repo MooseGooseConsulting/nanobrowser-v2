@@ -49,7 +49,7 @@ import { toRunEvents } from '@/src/userscripts/debug';
 export interface RuntimeDriver {
   snapshot(tabId: number, opts?: SnapshotOptions): Promise<SnapshotResponse>;
   screenshot(tabId: number): Promise<ScreenshotResult>;
-  extractText(tabId: number, opts?: ExtractTextOptions): Promise<ActionResult & Partial<{ text: string; truncated: boolean }>>;
+  extractText(tabId: number, opts?: ExtractTextOptions): Promise<ActionResult & Partial<{ text: string; truncated: boolean; totalChars: number; nextStart: number }>>;
   click(tabId: number, ref: string): Promise<ActionResult>;
   type(tabId: number, ref: string, text: string): Promise<ActionResult>;
   press(tabId: number, key: string): Promise<ActionResult>;
@@ -362,9 +362,17 @@ export function createPageTools(options: CreatePageToolsOptions): RuntimePageToo
       return { dataUrl: res.dataUrl, width: res.width ?? 0, height: res.height ?? 0 };
     },
 
-    async extractText(maxChars?: number) {
-      const res = await driver.extractText(tabId, maxChars !== undefined ? { maxChars } : {});
+    async extractText(maxChars?: number, startChar?: number) {
+      const res = await driver.extractText(tabId, {
+        ...(maxChars !== undefined ? { maxChars } : {}),
+        ...(startChar !== undefined ? { startChar } : {}),
+      });
       if (!res.ok || res.text === undefined) throw new Error(res.error ?? 'extract_text failed');
+      // Without this the model cannot tell a short page from a cut-off one, and a live
+      // eBay scrape quietly saved 38 of 60 listings.
+      if (res.nextStart !== undefined) {
+        return `${res.text}\n(read ${res.nextStart} of ${res.totalChars ?? '?'} characters; call extract_text again with startChar ${res.nextStart} for the rest)`;
+      }
       return res.text;
     },
 

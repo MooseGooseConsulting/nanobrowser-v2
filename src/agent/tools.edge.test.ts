@@ -200,7 +200,8 @@ describe('createPageToolset: every valid call routes to the matching PageTools m
       { name: 'download', args: ['https://x.test/f.pdf'] },
       { name: 'runUserscript', args: ['s1'] },
       { name: 'saveFile', args: ['a.json', 'x', false] },
-      { name: 'extractText', args: [100] },
+      // startChar rides along undefined when the model does not ask to resume.
+      { name: 'extractText', args: [100, undefined] },
       { name: 'wait', args: [5] },
       { name: 'done', args: ['done'] },
       { name: 'blocked', args: ['stuck'] },
