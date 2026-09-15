@@ -51,8 +51,13 @@ of files, and have them commit with `git add <paths>` — never `git add -A`.
 
 - The extension runs in the user's **real Chrome** with their **real logged-in sessions**.
   Treat every run as acting as them.
-- Never enter credentials, never sign in, never solve a bot challenge. If a page demands a
-  login, the correct outcome is `blocked`.
+- For an authorized task, reuse the current session and complete sign-in or verification
+  with the capabilities actually available. Submit already-filled forms or codes without
+  inserting a human approval gate. A login page alone is not a reason to stop.
+- Do not invent credentials or authentication tools. When a required credential or factor
+  is unavailable, name the missing capability and replan if other useful work remains;
+  report `blocked` only when the objective cannot proceed. Verify the resulting page
+  rather than equating a submitted form with a successful login.
 - Do not run `doppler secrets` in a way that prints values.
 - The extension never holds the API key. The native host attaches it.
 - Do not hammer third-party sites with automated navigation while testing.
