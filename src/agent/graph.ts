@@ -65,7 +65,7 @@ export function trimFollowerHistory(
   const keep = Math.max(Math.trunc(turns), 1);
   let seen = 0;
   for (let i = messages.length - 1; i >= 0; i -= 1) {
-    if (messages[i].type === 'human' && ++seen === keep) {
+    if (messages[i]?.type === 'human' && ++seen === keep) {
       return i === 0 ? messages : messages.slice(i);
     }
   }
