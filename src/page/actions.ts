@@ -107,9 +107,23 @@ interface Point {
  */
 let lastPoint: Point | null = null;
 
+/**
+ * Client position of the last dispatched pointer/mouse event. `movementX/Y` cannot
+ * be set through the event init dicts, so `dispatch` stamps each event with its
+ * delta from here — a path whose coordinates move while movement stays 0 is itself
+ * a tell (ranked-leak telemetry row). Keyboard events carry no position and pass
+ * through unstamped.
+ */
+let prevClient: { x: number; y: number } | null = null;
+/** Delta stamped on the last event. A compat twin (same position twice) repeats it
+ * once, matching real browsers; longer same-position runs then go quiet at rest. */
+let lastDelta: { x: number; y: number } = { x: 0, y: 0 };
+
 /** Test seam: forget where the pointer was, so the next click has no path to walk. */
 export function resetPointerForTests(): void {
   lastPoint = null;
+  prevClient = null;
+  lastDelta = { x: 0, y: 0 };
 }
 
 function screenOf(
@@ -189,6 +203,36 @@ function pointerEvent(type: string, init: PointerEventInit): Event {
 }
 
 function dispatch(el: Element, event: Event): void {
+  const point = event as Partial<MouseEvent>;
+  if (typeof point.clientX === 'number' && typeof point.clientY === 'number') {
+    let dx: number;
+    let dy: number;
+    if (prevClient === null) {
+      dx = 0;
+      dy = 0;
+      prevClient = { x: point.clientX, y: point.clientY };
+      lastDelta = { x: 0, y: 0 };
+    } else if (point.clientX === prevClient.x && point.clientY === prevClient.y) {
+      dx = lastDelta.x;
+      dy = lastDelta.y;
+      lastDelta = { x: 0, y: 0 };
+    } else {
+      dx = point.clientX - prevClient.x;
+      dy = point.clientY - prevClient.y;
+      prevClient = { x: point.clientX, y: point.clientY };
+      lastDelta = { x: dx, y: dy };
+    }
+    for (const [prop, value] of [
+      ['movementX', dx],
+      ['movementY', dy],
+    ] as const) {
+      try {
+        Object.defineProperty(event, prop, { value, configurable: true });
+      } catch {
+        // A host event that refuses own properties keeps the platform value.
+      }
+    }
+  }
   el.dispatchEvent(event);
 }
 

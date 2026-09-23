@@ -114,6 +114,33 @@ describe('click', () => {
     expect(movesBefore.length).toBeGreaterThan(2);
   });
 
+  it('stamps movementX/Y as the delta from the previous dispatched position', () => {
+    document.body.innerHTML = '<button>Go</button>';
+    const button = document.querySelector('button') as HTMLButtonElement;
+    const rectAt = (x: number, y: number) =>
+      ({ x, y, width: 100, height: 50, top: y, left: x, right: x + 100, bottom: y + 50, toJSON: () => ({}) }) as DOMRect;
+    button.getBoundingClientRect = () => rectAt(500, 500);
+    const ref = refOf('button');
+    click(ref);
+    button.getBoundingClientRect = () => rectAt(100, 100);
+
+    const moves: { x: number; y: number; dx: number; dy: number }[] = [];
+    button.addEventListener('mousemove', (e) => {
+      const m = e as MouseEvent;
+      moves.push({ x: m.clientX, y: m.clientY, dx: m.movementX ?? 0, dy: m.movementY ?? 0 });
+    });
+    click(ref);
+
+    // The arrival path moved, so some sample carries a nonzero delta...
+    expect(moves.length).toBeGreaterThan(2);
+    expect(moves.some((m) => m.dx !== 0 || m.dy !== 0)).toBe(true);
+    // ...and every delta matches the coordinate stream (first event: no previous).
+    for (let i = 1; i < moves.length; i++) {
+      expect(moves[i]!.dx).toBeCloseTo(moves[i]!.x - moves[i - 1]!.x, 9);
+      expect(moves[i]!.dy).toBeCloseTo(moves[i]!.y - moves[i - 1]!.y, 9);
+    }
+  });
+
   it('offsets screenX/screenY by the window origin instead of echoing clientX', () => {
     document.body.innerHTML = '<button>Go</button>';
     const button = document.querySelector('button') as HTMLButtonElement;

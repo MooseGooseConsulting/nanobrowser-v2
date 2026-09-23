@@ -11,14 +11,17 @@ import {
   SUSPECT_GLOBALS,
   probeAnomalies,
   runStealthProbe,
+  type ProbeNavigator,
   type ProbeScope,
 } from './probe';
 
 function cleanScope(): ProbeScope {
   return {
-    navigator: { userAgent: 'clean', plugins: [], languages: ['en-US'], hardwareConcurrency: 8, deviceMemory: 8 },
+    // webdriver:false, as clean Chrome/Firefox inherit it — presence is not the tell.
+    navigator: { webdriver: false, userAgent: 'clean', plugins: [], languages: ['en-US'], hardwareConcurrency: 8, deviceMemory: 8 },
     errorInstanceStackDescriptor: { value: 'Error\n    at clean', writable: true, enumerable: false, configurable: true },
     pointerEventHasCoalesced: true,
+    isSecureContext: true,
     pageChromeRuntime: undefined,
     globalNames: ['window', 'document', 'foo'],
   };
@@ -36,10 +39,28 @@ describe('runStealthProbe', () => {
     expect(probeAnomalies(findings)).toEqual([]);
   });
 
-  it('flags webdriver even when its value is undefined (presence is the tell)', () => {
+  it('treats inherited webdriver=false as clean: the value is the tell, not presence', () => {
+    const findings = runStealthProbe(cleanScope());
+    expect(findings.find((f) => f.check === 'webdriver')?.anomalous).toBe(false);
+  });
+
+  it('flags webdriver=true as driven', () => {
     const scope = cleanScope();
-    scope.navigator = { ...scope.navigator, webdriver: undefined };
-    expect(probeAnomalies(runStealthProbe(scope))).toEqual(['webdriver-including-undefined']);
+    scope.navigator = { ...scope.navigator, webdriver: true };
+    expect(probeAnomalies(runStealthProbe(scope))).toEqual(['webdriver']);
+  });
+
+  it('flags throwing webdriver traps without aborting the rest of the probe', () => {
+    const scope = cleanScope();
+    scope.navigator = new Proxy<ProbeNavigator>({} as ProbeNavigator, {
+      has: () => {
+        throw new Error('trap');
+      },
+    });
+    const findings = runStealthProbe(scope);
+    expect(probeAnomalies(findings)).toContain('webdriver');
+    // The probe survived to run every other check too.
+    expect(findings).toHaveLength(PROBE_CHECKS.length);
   });
 
   it('flags an injected stack getter on a fresh error', () => {
@@ -56,6 +77,16 @@ describe('runStealthProbe', () => {
         throw new Error('trap');
       },
     };
+    expect(probeAnomalies(runStealthProbe(scope))).toEqual(['proxy-ownkeys']);
+  });
+
+  it('flags a navigator whose key enumeration throws (ownKeys trap)', () => {
+    const scope = cleanScope();
+    scope.navigator = new Proxy<ProbeNavigator>({ userAgent: 'x' } as ProbeNavigator, {
+      ownKeys: () => {
+        throw new Error('trap');
+      },
+    });
     expect(probeAnomalies(runStealthProbe(scope))).toEqual(['proxy-ownkeys']);
   });
 
@@ -79,6 +110,13 @@ describe('runStealthProbe', () => {
     expect(probeAnomalies(runStealthProbe(scope))).toEqual(['coalesced-events']);
   });
 
+  it('treats missing coalesced events on an insecure page as expected, not anomalous', () => {
+    const scope = cleanScope();
+    scope.pointerEventHasCoalesced = false;
+    scope.isSecureContext = false;
+    expect(probeAnomalies(runStealthProbe(scope))).toEqual([]);
+  });
+
   it('fires every planted signal at once without cross-talk', () => {
     const findings = runStealthProbe({
       navigator: {
@@ -94,7 +132,7 @@ describe('runStealthProbe', () => {
     });
     expect(probeAnomalies(findings).sort()).toEqual(
       [
-        'webdriver-including-undefined',
+        'webdriver',
         'error-stack-accessor',
         'proxy-ownkeys',
         'main-world-execution',

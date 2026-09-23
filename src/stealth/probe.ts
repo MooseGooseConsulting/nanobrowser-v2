@@ -5,12 +5,12 @@
  * nothing (docs/research/bot-detection-research.md), so the signals that matter
  * for *this* extension are collected here, against the page scope the extension
  * actually drives. Each check reports an observation; only the signals with an
- * absolute clean-room answer (`webdriver` absent, coalesced events present, no
- * extension leak into page scope, no automation globals, no throwing property
- * reads) raise `anomalous`. The structural checks (`error-stack-accessor`,
- * `proxy-ownkeys` counts) are differential evidence — run early vs late, or
- * clean profile vs driven run — and say so in their detail rather than crying
- * wolf on a single sample.
+ * absolute clean-room answer (`webdriver` true, coalesced events present on a secure
+ * page, no extension leak into page scope, no automation globals, no throwing
+ * property reads or key enumeration) raise `anomalous`. The structural checks
+ * (`error-stack-accessor` data-or-inherited readings, `proxy-ownkeys` counts) are
+ * differential evidence — run early vs late, or clean profile vs driven run — and
+ * say so in their detail rather than crying wolf on a single sample.
  *
  * `ProbeScope` is deliberately structural, not `Window`: production passes the
  * page scope, tests pass fakes with planted signals, and the detection logic is
@@ -27,6 +27,9 @@ export interface ProbeScope {
   errorInstanceStackDescriptor?: PropertyDescriptor;
   /** Whether `PointerEvent.prototype.getCoalescedEvents` exists in the page scope. */
   pointerEventHasCoalesced?: boolean;
+  /** The page's `window.isSecureContext`. Coalesced events are a secure-context API,
+   * so absence outside one is expected, not anomalous. */
+  isSecureContext?: boolean;
   /** `window.chrome?.runtime` as seen from page scope. Must be absent: the
    * extension lives in the ISOLATED world and must not leak into the page. */
   pageChromeRuntime?: unknown;
@@ -47,7 +50,7 @@ export interface ProbeFinding {
 
 /** Every signal this probe covers. A test pins the list so none rots away silently. */
 export const PROBE_CHECKS = [
-  'webdriver-including-undefined',
+  'webdriver',
   'error-stack-accessor',
   'proxy-ownkeys',
   'main-world-execution',
@@ -63,25 +66,42 @@ const NAVIGATOR_PROBE_PROPS = ['userAgent', 'plugins', 'languages', 'hardwareCon
 export function runStealthProbe(scope: ProbeScope): ProbeFinding[] {
   const findings: ProbeFinding[] = [];
 
-  // 1. webdriver, *including* undefined: `'webdriver' in navigator` is true in
-  // drivers that define the property but leave it undefined. Presence itself is
-  // the tell — a clean browser has no such property at all.
+  // 1. webdriver: the VALUE is the tell. Clean Chrome/Firefox inherit
+  // `navigator.webdriver === false` from the prototype, so presence alone flags
+  // every clean browser. Only `true` — or a throwing `has`/`get` trap, which
+  // would otherwise abort the probe before the proxy check runs — is anomalous.
   if (!scope.navigator) {
     findings.push({
-      check: 'webdriver-including-undefined',
+      check: 'webdriver',
       observed: 'no navigator in scope',
       anomalous: false,
       detail: 'nothing to read; the live probe always runs with a real navigator',
     });
   } else {
-    const present = 'webdriver' in scope.navigator;
+    let trap: string | undefined;
+    let present = false;
+    let value: unknown;
+    try {
+      present = 'webdriver' in scope.navigator;
+    } catch {
+      trap = 'has';
+    }
+    if (trap === undefined) {
+      try {
+        value = scope.navigator.webdriver;
+      } catch {
+        trap = 'get';
+      }
+    }
+    const automated = value === true;
     findings.push({
-      check: 'webdriver-including-undefined',
-      observed: present
-        ? `webdriver present with value ${String(scope.navigator.webdriver)}`
-        : 'webdriver absent',
-      anomalous: present,
-      detail: 'clean Chrome/Firefox define no webdriver property, not even an undefined one',
+      check: 'webdriver',
+      observed:
+        trap !== undefined
+          ? `webdriver ${trap} trap threw`
+          : `webdriver ${present ? `present, value ${String(value)}` : 'absent'}`,
+      anomalous: trap !== undefined || automated,
+      detail: 'clean browsers inherit webdriver === false; true means driven, a throw means interposed',
     });
   }
 
@@ -101,9 +121,10 @@ export function runStealthProbe(scope: ProbeScope): ProbeFinding[] {
     detail: 'an accessor on the instance is an injected stack hook; data-or-inherited needs a clean-profile baseline to judge',
   });
 
-  // 3. Proxy ownKeys/value traps around navigator: reading ordinary properties
-  // must never throw. A throw means something interposes on property access —
-  // the shape a `Proxy` around `navigator` takes when its traps are incomplete.
+  // 3. Proxy traps around navigator: reading ordinary properties must never
+  // throw, and neither must enumerating them. A throw means something interposes
+  // on access — the shape a `Proxy` around `navigator` takes when its traps are
+  // incomplete. The key count is differential evidence (compare runs), not a verdict.
   if (!scope.navigator) {
     findings.push({
       check: 'proxy-ownkeys',
@@ -123,11 +144,21 @@ export function runStealthProbe(scope: ProbeScope): ProbeFinding[] {
         break;
       }
     }
+    let keys: string[] | undefined;
+    if (threw === undefined) {
+      try {
+        keys = Object.keys(scope.navigator);
+      } catch {
+        threw = '[[ownKeys]]';
+      }
+    }
     findings.push({
       check: 'proxy-ownkeys',
-      observed: threw ? `reading navigator.${threw} threw` : `read ${read}/${NAVIGATOR_PROBE_PROPS.length} navigator properties cleanly`,
+      observed: threw
+        ? `navigator.${threw} threw`
+        : `read ${read}/${NAVIGATOR_PROBE_PROPS.length} cleanly; enumerated ${keys?.length ?? 0} keys`,
       anomalous: threw !== undefined,
-      detail: 'ordinary navigator reads never throw on a clean browser; a throw is an interposed trap',
+      detail: 'ordinary navigator reads and enumeration never throw on a clean browser; a throw is an interposed trap',
     });
   }
 
@@ -154,7 +185,8 @@ export function runStealthProbe(scope: ProbeScope): ProbeFinding[] {
   });
 
   // 6. getCoalescedEvents: real Chrome ships it on PointerEvent; stripped and
-  // headless-mangled builds drop it. Missing here is a real-input tell in reverse.
+  // headless-mangled builds drop it. But it is a secure-context API, and this
+  // extension drives plain HTTP pages too — where absence is expected, not a tell.
   if (scope.pointerEventHasCoalesced === undefined) {
     findings.push({
       check: 'coalesced-events',
@@ -162,14 +194,29 @@ export function runStealthProbe(scope: ProbeScope): ProbeFinding[] {
       anomalous: false,
       detail: 'the live probe always provides this; unknown only happens in a partial scope',
     });
+  } else if (scope.pointerEventHasCoalesced) {
+    findings.push({
+      check: 'coalesced-events',
+      observed: 'PointerEvent.getCoalescedEvents present',
+      anomalous: false,
+      detail: 'genuine desktop Chrome has coalesced events; stripped builds do not',
+    });
+  } else if (scope.isSecureContext === false) {
+    findings.push({
+      check: 'coalesced-events',
+      observed: 'PointerEvent.getCoalescedEvents missing on an insecure page (expected)',
+      anomalous: false,
+      detail: 'secure-context APIs may be absent over plain HTTP; absence there proves nothing',
+    });
   } else {
     findings.push({
       check: 'coalesced-events',
-      observed: scope.pointerEventHasCoalesced
-        ? 'PointerEvent.getCoalescedEvents present'
-        : 'PointerEvent.getCoalescedEvents MISSING',
-      anomalous: !scope.pointerEventHasCoalesced,
-      detail: 'genuine desktop Chrome has coalesced events; stripped builds do not',
+      observed: 'PointerEvent.getCoalescedEvents MISSING',
+      anomalous: true,
+      detail:
+        scope.isSecureContext === undefined
+          ? 'genuine desktop Chrome has coalesced events; provide isSecureContext to rule out plain HTTP'
+          : 'genuine desktop Chrome has coalesced events; stripped builds do not',
     });
   }
 
