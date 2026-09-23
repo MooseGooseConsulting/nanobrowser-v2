@@ -745,6 +745,12 @@ CHROME
       jq -n --arg task "$task" '{task: $task, results: [{name: "UI inspection did not run", ok: false, detail: "see inspection txt"}]}' >"$inspect_file"
     fi
     [ -f "$inspect_file" ] || echo 'null' >"$inspect_file"
+    # A panel that never opened must fail the task, not vanish into a null
+    # inspection the scorecard treats as passing: replace the null with an
+    # explicit failed check.
+    if [ -z "$panel_target" ]; then
+      jq -n --arg task "$task" '{task: $task, results: [{name: "panel opened for UI inspection", ok: false, detail: "openPanel failed; no UI inspection ran"}]}' >"$inspect_file"
+    fi
     jq -n --arg task "$task" --arg title "$(jq -r .title "$TJSON")" \
       --slurpfile verdict "$OUT/$task-verdict.json" \
       --slurpfile inspect "$inspect_file" \

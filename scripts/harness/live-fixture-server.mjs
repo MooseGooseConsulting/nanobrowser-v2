@@ -147,6 +147,8 @@ const ESCALATION_PAGE = `<!doctype html>
       document.getElementById('escalation-status').textContent = event.isTrusted
         ? ${JSON.stringify(ESCALATION_TRUSTED)}
         : ${JSON.stringify(ESCALATION_REJECTED)};
+      // Beacon the verdict can see: only a genuinely trusted click reaches here.
+      if (event.isTrusted) fetch('/api/escalation-accepted', { method: 'POST' }).catch(() => {});
     });
   </script>
 </body>
@@ -367,7 +369,11 @@ const server = http.createServer(async (req, res) => {
     } catch {
       return json(400, { ok: false, error: 'invalid JSON' });
     }
-    if (body.user === LOGIN_USER && body.password === LOGIN_PASSWORD) return json(200, { ok: true, text: LOGIN_POST });
+    // Record the outcome where the verdict can see it: the generic hits line
+    // above carries no response data, so tool success alone cannot prove login.
+    const accepted = body.user === LOGIN_USER && body.password === LOGIN_PASSWORD;
+    hits.write(JSON.stringify({ at: Date.now(), method: 'POST', path: '/api/login', ok: accepted }) + '\n');
+    if (accepted) return json(200, { ok: true, text: LOGIN_POST });
     return json(200, { ok: false, error: 'Unknown username or password.' });
   }
   if (req.method === 'GET' && url.pathname === '/redaction') return html(REDACTION_PAGE);

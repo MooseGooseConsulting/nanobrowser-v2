@@ -77,6 +77,9 @@ function expect(taskId, label, events, wantPass, extra = {}) {
   };
   const goodEvents = good();
   expect('ebay', 'good', goodEvents, true, { pageListings: PAGE_LISTINGS });
+  expect('ebay', 'no-discovery', goodEvents.filter((e) =>
+    !((e.kind === 'tool.call' || e.kind === 'tool.result') && (e.call?.name === 'list_userscripts' || e.result?.name === 'list_userscripts'))),
+    false, { pageListings: PAGE_LISTINGS });
   expect('ebay', 'hallucinated-title', goodEvents.map((e) =>
     e.kind === 'tool.call' && e.call.name === 'done'
       ? { ...e, call: { ...e.call, args: { summary: JSON.stringify([{ title: 'No Such Camera', price: 'US $1.00' }]) } } }
@@ -161,6 +164,11 @@ function expect(taskId, label, events, wantPass, extra = {}) {
   expect('userscript_debug', 'done-without-fixed-value', goodEvents.map((e) =>
     e.kind === 'tool.call' && e.call.name === 'done' ? { ...e, call: { ...e.call, args: { summary: JSON.stringify({ value: 'wrong' }) } } } : e),
     false);
+  // The fixed text in a note is not the fix: the value field must carry it.
+  expect('userscript_debug', 'value-in-note', goodEvents.map((e) =>
+    e.kind === 'tool.call' && e.call.name === 'done'
+      ? { ...e, call: { ...e.call, args: { summary: JSON.stringify({ value: 'wrong', note: EXPECTED.debug.fixedValue }) } } } : e),
+    false);
   expect('userscript_debug', 'first-run-ok', goodEvents.map((e) =>
     e.kind === 'tool.result' && e.result.name === 'run_userscript' && e.result.ok === false
       ? { ...e, result: { ...e.result, ok: true, summary: '"fixed-abc"' } }
@@ -227,6 +235,11 @@ function expect(taskId, label, events, wantPass, extra = {}) {
     e.kind === 'tool.call' && e.call.name === 'done'
       ? { ...e, call: { ...e.call, args: { summary: JSON.stringify({ file: 'other.csv', downloaded: true }) } } } : e),
     false, { downloadMatches: ['/tmp/x/report.csv'] });
+  // A bare-URL download takes the chrome.downloads path and leaves the ref-click path untested.
+  expect('download', 'url-target', goodEvents.map((e) =>
+    e.kind === 'tool.call' && e.call.name === 'download'
+      ? { ...e, call: { ...e.call, args: { target: 'http://fixture/download/report.csv' } } } : e),
+    false, { downloadMatches: ['/tmp/x/report.csv'] });
 }
 
 /* ---------------------------------------------------------------- escalation */
@@ -243,7 +256,8 @@ function expect(taskId, label, events, wantPass, extra = {}) {
     ];
   };
   const goodEvents = good();
-  expect('escalation', 'good', goodEvents, true);
+  expect('escalation', 'good', goodEvents, true, { hits: [{ at: 1, method: 'POST', path: '/api/escalation-accepted', ua: '' }] });
+  expect('escalation', 'no-beacon', goodEvents, false, { hits: [] });
   expect('escalation', 'never-escalated', goodEvents.filter((e) => !(e.kind === 'input.fidelity' && e.fidelity === 'escalated')), false);
   expect('escalation', 'rejected-summary', goodEvents.map((e) =>
     e.kind === 'tool.call' && e.call.name === 'done'
@@ -296,7 +310,8 @@ function expect(taskId, label, events, wantPass, extra = {}) {
     ];
   };
   const goodEvents = good();
-  expect('login', 'good', goodEvents, true);
+  expect('login', 'good', goodEvents, true, { hits: [{ at: 1, method: 'POST', path: '/api/login', ok: true, ua: '' }] });
+  expect('login', 'login-rejected', goodEvents, false, { hits: [{ at: 1, method: 'POST', path: '/api/login', ok: false, ua: '' }] });
   expect('login', 'refused-to-log-in', goodEvents.map((e) => (e.kind === 'run.ended' ? ended('blocked', 'login wall', 2) : e)), false);
   expect('login', 'missing-flag', goodEvents.map((e) =>
     e.kind === 'tool.call' && e.call.name === 'done'

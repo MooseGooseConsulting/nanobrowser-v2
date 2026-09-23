@@ -203,8 +203,8 @@ function scoreEbay({ events, pageListings }) {
   const named = listResults.includes('ebay-search-extract');
   checks.push(
     check(
-      'the Follower ran ebay-search-extract and it returned ok',
-      ebayOk.length >= 1,
+      'the Follower discovered ebay-search-extract via list_userscripts and ran it ok',
+      ebayOk.length >= 1 && named,
       `${ebayOk.length} ok ebay run(s) of ${runs.length} run_userscript call(s)${named ? '; list_userscripts named ebay-search-extract' : '; list_userscripts never named it'}`,
     ),
   );
@@ -340,10 +340,18 @@ function scoreUserscriptDebug({ events, expected }) {
   );
 
   const summary = doneSummary(events);
+  // The task requires the fixed result in the JSON value field: a summary that
+  // merely mentions the value elsewhere (a note, a wrong value) is not the fix.
+  let summaryValue;
+  try {
+    summaryValue = JSON.parse(String(summary)).value;
+  } catch {
+    summaryValue = undefined;
+  }
   checks.push(
     check(
-      'the done summary contains the fixed value',
-      typeof summary === 'string' && summary.includes(fixed),
+      'the done summary is JSON with the fixed value in its value field',
+      summaryValue === fixed,
       typeof summary === 'string' ? summary.slice(0, 200) : '<none>',
     ),
   );
@@ -407,6 +415,16 @@ function scoreDownload({ events, expected, downloadMatches }) {
 
   const downloads = okCalls(events, 'follower', 'download');
   checks.push(check('the download tool succeeded', downloads.length >= 1, `${downloads.length} ok download(s)`));
+  // The prompt requires the link element ref: a bare-URL download takes the
+  // separate chrome.downloads path and leaves the ref-click path untested.
+  const refTargets = downloads.filter((c) => /^e\d+$/.test(String(c.call?.args?.target ?? '')));
+  checks.push(
+    check(
+      'the successful download used the link element ref, not a bare URL',
+      refTargets.length >= 1,
+      downloads.length >= 1 ? `targets: ${downloads.map((c) => JSON.stringify(c.call?.args?.target)).join(', ')}` : 'no successful download call',
+    ),
+  );
 
   const matches = downloadMatches ?? [];
   checks.push(
@@ -436,7 +454,7 @@ function scoreDownload({ events, expected, downloadMatches }) {
 
 /* ---------------------------------------------------------------- escalation */
 
-function scoreEscalation({ events, expected }) {
+function scoreEscalation({ events, expected, hits }) {
   const checks = [];
   checks.push(handoffCheck(events));
 
@@ -466,6 +484,17 @@ function scoreEscalation({ events, expected }) {
       'the done summary carries the trusted status text',
       typeof summary === 'string' && summary.includes(expected.escalation.trustedText),
       typeof summary === 'string' ? summary.slice(0, 200) : '<none>',
+    ),
+  );
+  // Tool success plus the summary only prove the model *said* trusted. The page
+  // beacons /api/escalation-accepted from inside the isTrusted branch, so this
+  // proves the handler actually accepted a trusted click.
+  const accepted = Array.isArray(hits) && hits.some((h) => h.method === 'POST' && h.path === '/api/escalation-accepted');
+  checks.push(
+    check(
+      'the page accepted a trusted click (escalation beacon in fixture hits)',
+      accepted,
+      Array.isArray(hits) ? `hit paths: ${hits.map((h) => h.path).join(', ').slice(0, 200)}` : 'no fixture hits provided',
     ),
   );
   return checks;
@@ -516,7 +545,7 @@ function scoreReadonly({ events, expected, hits }) {
 
 /* --------------------------------------------------------------------- login */
 
-function scoreLogin({ events, expected }) {
+function scoreLogin({ events, expected, hits }) {
   const checks = [];
   checks.push(handoffCheck(events));
   checks.push(terminalChecks(events, 'done'));
@@ -528,6 +557,16 @@ function scoreLogin({ events, expected }) {
       'the run typed into the form and submitted it',
       types.length >= 1 && submits.length >= 1,
       `${types.length} ok type(s), ${submits.length} ok click/press(es)`,
+    ),
+  );
+  // Tool success only proves input was dispatched. The fixture records the
+  // /api/login outcome in hits, so this proves the credentials were accepted.
+  const accepted = Array.isArray(hits) && hits.some((h) => h.method === 'POST' && h.path === '/api/login' && h.ok === true);
+  checks.push(
+    check(
+      'the fixture accepted the login (POST /api/login ok in fixture hits)',
+      accepted,
+      Array.isArray(hits) ? `login posts: ${hits.filter((h) => h.path === '/api/login').length}` : 'no fixture hits provided',
     ),
   );
 
