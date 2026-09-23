@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { click, getBox, hover, press, scroll, select, type } from '@/src/page/actions';
+import { click, getBox, hover, press, resetPointerForTests, scroll, select, type } from '@/src/page/actions';
 import { resolveRef, snapshot } from '@/src/page/snapshot';
 
 /**
@@ -30,6 +30,9 @@ function recorder(target: EventTarget, types: string[]): string[] {
 
 beforeEach(() => {
   document.body.innerHTML = '';
+  // The pointer is module state (where the last click landed); without this,
+  // arrival-path moves from one test leak into the next test's cortège.
+  resetPointerForTests();
 });
 
 const CLICK_TYPES = [
@@ -56,17 +59,91 @@ describe('click', () => {
     expect(seen).toEqual(CLICK_TYPES);
   });
 
-  it('dispatches at the box centre in viewport coordinates', () => {
+  it('lands inside the box but never dead-center (center is a bot tell)', () => {
     document.body.innerHTML = '<button>Go</button>';
     const button = document.querySelector('button') as HTMLButtonElement;
     button.getBoundingClientRect = () =>
       ({ x: 100, y: 200, width: 80, height: 40, top: 200, left: 100, right: 180, bottom: 240, toJSON: () => ({}) }) as DOMRect;
-    let point: { clientX: number; clientY: number } | null = null;
+    const points: { clientX: number; clientY: number }[] = [];
     button.addEventListener('click', (e) => {
-      point = { clientX: (e as MouseEvent).clientX, clientY: (e as MouseEvent).clientY };
+      points.push({ clientX: (e as MouseEvent).clientX, clientY: (e as MouseEvent).clientY });
     });
-    click(refOf('button'));
-    expect(point).toEqual({ clientX: 140, clientY: 220 });
+    const ref = refOf('button');
+    for (let i = 0; i < 50; i++) click(ref);
+    expect(points).toHaveLength(50);
+    for (const point of points) {
+      expect(point.clientX).toBeGreaterThanOrEqual(100);
+      expect(point.clientX).toBeLessThanOrEqual(180);
+      expect(point.clientY).toBeGreaterThanOrEqual(200);
+      expect(point.clientY).toBeLessThanOrEqual(240);
+    }
+    // The jitter is uniform over a non-degenerate range, so 50 draws never all
+    // land on the exact centre the old code always aimed at.
+    expect(points.some((p) => p.clientX !== 140 || p.clientY !== 220)).toBe(true);
+  });
+
+  it('arrives along a path on a moved pointer instead of teleporting', () => {
+    document.body.innerHTML = '<button>Go</button>';
+    const button = document.querySelector('button') as HTMLButtonElement;
+    const rectAt = (x: number, y: number) =>
+      ({ x, y, width: 100, height: 50, top: y, left: x, right: x + 100, bottom: y + 50, toJSON: () => ({}) }) as DOMRect;
+    button.getBoundingClientRect = () => rectAt(500, 500);
+    const ref = refOf('button');
+    click(ref);
+    // The box jumps across the viewport; the next click must walk there.
+    button.getBoundingClientRect = () => rectAt(100, 100);
+    const seen: string[] = [];
+    for (const t of ['pointermove', 'mousemove', 'pointerdown']) {
+      button.addEventListener(t, () => seen.push(t));
+    }
+    click(ref);
+    const downAt = seen.indexOf('pointerdown');
+    expect(downAt).toBeGreaterThan(0);
+    const movesBefore = seen.slice(0, downAt).filter((t) => t === 'pointermove' || t === 'mousemove');
+    // Arrival path samples plus the hover pair — strictly more than a teleport's one pair.
+    expect(movesBefore.length).toBeGreaterThan(2);
+  });
+
+  it('offsets screenX/screenY by the window origin instead of echoing clientX', () => {
+    document.body.innerHTML = '<button>Go</button>';
+    const button = document.querySelector('button') as HTMLButtonElement;
+    const origX = (window as unknown as { screenX: number }).screenX;
+    const origY = (window as unknown as { screenY: number }).screenY;
+    Object.defineProperty(window, 'screenX', { value: 100, configurable: true });
+    Object.defineProperty(window, 'screenY', { value: 50, configurable: true });
+    try {
+      let observed: { clientX: number; clientY: number; screenX: number; screenY: number } | null = null;
+      button.addEventListener('click', (e) => {
+        const me = e as MouseEvent;
+        observed = { clientX: me.clientX, clientY: me.clientY, screenX: me.screenX, screenY: me.screenY };
+      });
+      click(refOf('button'));
+      expect(observed).not.toBeNull();
+      expect(observed!.screenX - observed!.clientX).toBe(100);
+      expect(observed!.screenY - observed!.clientY).toBe(50);
+    } finally {
+      Object.defineProperty(window, 'screenX', { value: origX, configurable: true });
+      Object.defineProperty(window, 'screenY', { value: origY, configurable: true });
+    }
+  });
+
+  it('refuses the click when another element covers both the jittered point and the center', () => {
+    document.body.innerHTML = '<button>Go</button><div>cover</div>';
+    const cover = document.querySelector('div') as HTMLElement;
+    const ref = refOf('button');
+    const had = 'elementFromPoint' in document;
+    const orig = (document as unknown as { elementFromPoint?: unknown }).elementFromPoint;
+    (document as unknown as { elementFromPoint: unknown }).elementFromPoint = () => cover;
+    try {
+      // `cover` is a sibling the button does not contain, so neither aim point verifies.
+      expect(click(ref)).toEqual({
+        ok: false,
+        error: 'element is occluded at its click point by another element',
+      });
+    } finally {
+      if (had) (document as unknown as { elementFromPoint: unknown }).elementFromPoint = orig;
+      else delete (document as unknown as { elementFromPoint?: unknown }).elementFromPoint;
+    }
   });
 
   it('sets realistic pointer fields: non-zero id, mouse type, primary, pressure while down', () => {

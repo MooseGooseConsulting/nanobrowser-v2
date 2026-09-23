@@ -20,6 +20,7 @@
  * docs/research/trusted-input-and-stealth.md §hygiene rules 4, 5, 7 and 12.
  */
 import { resolveRef } from './snapshot';
+import { jitterInBox, planPath } from '../input/humanize';
 
 export interface ActionResult {
   ok: boolean;
@@ -99,9 +100,29 @@ interface Point {
   clientY: number;
 }
 
-function centerOf(el: Element): Point {
-  const r = rectOf(el);
-  return { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 };
+/**
+ * Last pointer position this module dispatched at, in viewport coordinates. Lets a
+ * click arrive along a path instead of teleporting. Plain module state: no listener,
+ * no timer, nothing attached to the page.
+ */
+let lastPoint: Point | null = null;
+
+/** Test seam: forget where the pointer was, so the next click has no path to walk. */
+export function resetPointerForTests(): void {
+  lastPoint = null;
+}
+
+function screenOf(
+  w: (Window & typeof globalThis) | null,
+  point: Point,
+): { screenX: number; screenY: number } {
+  // window.screenX/screenY is the viewport origin in screen pixels. jsdom reports 0
+  // and real browsers the window offset; Wayland reports 0, which is also correct
+  // there (no global screen coordinates exist). Either way this beats the old
+  // `screenX = clientX`, which was a teleporting-window tell on X11.
+  const ox = typeof w?.screenX === 'number' ? w.screenX : 0;
+  const oy = typeof w?.screenY === 'number' ? w.screenY : 0;
+  return { screenX: point.clientX + ox, screenY: point.clientY + oy };
 }
 
 /**
@@ -110,7 +131,12 @@ function centerOf(el: Element): Point {
  */
 const POINTER_ID = 1;
 
-function pointerInit(point: Point, buttons: number, pressure: number): PointerEventInit {
+function pointerInit(
+  point: Point,
+  buttons: number,
+  pressure: number,
+  screen: { screenX: number; screenY: number },
+): PointerEventInit {
   return {
     bubbles: true,
     cancelable: true,
@@ -121,8 +147,8 @@ function pointerInit(point: Point, buttons: number, pressure: number): PointerEv
     buttons,
     clientX: point.clientX,
     clientY: point.clientY,
-    screenX: point.clientX,
-    screenY: point.clientY,
+    screenX: screen.screenX,
+    screenY: screen.screenY,
     pointerId: POINTER_ID,
     pointerType: 'mouse',
     isPrimary: true,
@@ -132,7 +158,12 @@ function pointerInit(point: Point, buttons: number, pressure: number): PointerEv
   };
 }
 
-function mouseInit(point: Point, buttons: number, detail: number): MouseEventInit {
+function mouseInit(
+  point: Point,
+  buttons: number,
+  detail: number,
+  screen: { screenX: number; screenY: number },
+): MouseEventInit {
   return {
     bubbles: true,
     cancelable: true,
@@ -142,8 +173,8 @@ function mouseInit(point: Point, buttons: number, detail: number): MouseEventIni
     buttons,
     clientX: point.clientX,
     clientY: point.clientY,
-    screenX: point.clientX,
-    screenY: point.clientY,
+    screenX: screen.screenX,
+    screenY: screen.screenY,
   };
 }
 
@@ -162,20 +193,96 @@ function dispatch(el: Element, event: Event): void {
 }
 
 /** The pointer-enter half of a hover, shared by `hover()` and `click()`. */
-function dispatchHover(el: HTMLElement, point: Point): void {
-  dispatch(el, pointerEvent('pointerover', pointerInit(point, 0, 0)));
-  dispatch(el, pointerEvent('pointerenter', { ...pointerInit(point, 0, 0), bubbles: false }));
-  dispatch(el, new MouseEvent('mouseover', mouseInit(point, 0, 0)));
-  dispatch(el, new MouseEvent('mouseenter', { ...mouseInit(point, 0, 0), bubbles: false }));
-  dispatch(el, pointerEvent('pointermove', pointerInit(point, 0, 0)));
-  dispatch(el, new MouseEvent('mousemove', mouseInit(point, 0, 0)));
+function dispatchHover(
+  el: HTMLElement,
+  point: Point,
+  screen: { screenX: number; screenY: number },
+): void {
+  dispatch(el, pointerEvent('pointerover', pointerInit(point, 0, 0, screen)));
+  dispatch(el, pointerEvent('pointerenter', { ...pointerInit(point, 0, 0, screen), bubbles: false }));
+  dispatch(el, new MouseEvent('mouseover', mouseInit(point, 0, 0, screen)));
+  dispatch(el, new MouseEvent('mouseenter', { ...mouseInit(point, 0, 0, screen), bubbles: false }));
+  dispatch(el, pointerEvent('pointermove', pointerInit(point, 0, 0, screen)));
+  dispatch(el, new MouseEvent('mousemove', mouseInit(point, 0, 0, screen)));
 }
 
 /**
- * Full click cortège in spec order, at the element's box centre in viewport coordinates.
+ * Where this action lands: a jittered point inside the box (never dead-center),
+ * verified with `elementFromPoint` to actually hit the element.
+ *
+ * Verification degrades honestly: DOMs without hit testing (`elementFromPoint`
+ * missing, throwing, or returning null — jsdom included) have nothing to verify
+ * against, so the jittered point stands. A real occlusion gets one retry at the box
+ * center; if that is occluded too the action is refused rather than dispatched at
+ * something the agent did not aim at.
+ */
+function actionPoint(el: HTMLElement): { point: Point } | { error: string } {
+  const r = rectOf(el);
+  const j = jitterInBox(r);
+  const tries = [
+    { clientX: j.x, clientY: j.y },
+    { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 },
+  ];
+  const doc = el.ownerDocument;
+  const canVerify = !!doc && typeof doc.elementFromPoint === 'function';
+  for (const point of tries) {
+    if (!canVerify) return { point };
+    let hit: Element | null = null;
+    try {
+      hit = doc.elementFromPoint(point.clientX, point.clientY);
+    } catch {
+      hit = null;
+    }
+    if (!hit) return { point };
+    if (el.contains(hit)) return { point };
+  }
+  return { error: 'element is occluded at its click point by another element' };
+}
+
+/** Whatever is actually under `point`: the honest target for a mid-path move. */
+function hitTarget(el: HTMLElement, point: Point): Element {
+  const doc = el.ownerDocument;
+  try {
+    if (doc && typeof doc.elementFromPoint === 'function') {
+      const hit = doc.elementFromPoint(point.clientX, point.clientY);
+      if (hit) return hit as Element;
+    }
+  } catch {
+    // Hit testing unavailable; fall through to the action's own element.
+  }
+  return el;
+}
+
+/**
+ * Walk the pointer from wherever it last was to `point` along a humanized path,
+ * dispatching a move pair per sample at whatever is actually under each sample.
+ *
+ * Positions only: this module is synchronous by design (no timer may survive a
+ * call, R-02), so the path's timestamps are unrealizable here. Temporal realism —
+ * holds, inter-key delays, paced moves — belongs to the debugger tier, which sleeps
+ * for real. What the in-page tier can honestly do is arrive along a curve at a
+ * non-center point, with hover states firing along the way, instead of teleporting.
+ */
+function arrive(el: HTMLElement, w: (Window & typeof globalThis) | null, point: Point): void {
+  const from = lastPoint ?? point;
+  lastPoint = point;
+  const path = planPath({ x: from.clientX, y: from.clientY }, { x: point.clientX, y: point.clientY });
+  for (const p of path.slice(1)) {
+    const mid = { clientX: p.x, clientY: p.y };
+    const target = hitTarget(el, mid);
+    const screen = screenOf(w, mid);
+    dispatch(target, pointerEvent('pointermove', pointerInit(mid, 0, 0, screen)));
+    dispatch(target, new MouseEvent('mousemove', mouseInit(mid, 0, 0, screen)));
+  }
+}
+
+/**
+ * Full click cortège in spec order, at a jittered, occlusion-checked point in the
+ * element's box — arrived at along a humanized path, never teleported to center.
  *
  * `pointerover → pointerenter → mouseover → mouseenter → pointermove → mousemove →
  *  pointerdown → mousedown → focus → pointerup → mouseup → click`
+ * (with zero or more extra move pairs along the arrival path before it).
  *
  * `pressure` is 0.5 while the button is down and 0 while it is up (ranked-leak row 6);
  * `buttons` is consistent across the sequence.
@@ -185,19 +292,24 @@ export function click(ref: string): ActionResult {
   if ('error' in found) return fail(found.error);
   const el = found.el;
   ensureVisible(el);
-  const point = centerOf(el);
+  const placed = actionPoint(el);
+  if ('error' in placed) return fail(placed.error);
+  const point = placed.point;
+  const w = view(el);
+  const screen = screenOf(w, point);
 
-  dispatchHover(el, point);
-  dispatch(el, pointerEvent('pointerdown', pointerInit(point, 1, 0.5)));
-  dispatch(el, new MouseEvent('mousedown', mouseInit(point, 1, 1)));
+  arrive(el, w, point);
+  dispatchHover(el, point, screen);
+  dispatch(el, pointerEvent('pointerdown', pointerInit(point, 1, 0.5, screen)));
+  dispatch(el, new MouseEvent('mousedown', mouseInit(point, 1, 1, screen)));
   try {
     el.focus({ preventScroll: true });
   } catch {
     // Non-focusable elements throw or no-op; the click still stands.
   }
-  dispatch(el, pointerEvent('pointerup', pointerInit(point, 0, 0)));
-  dispatch(el, new MouseEvent('mouseup', mouseInit(point, 0, 1)));
-  dispatch(el, new MouseEvent('click', mouseInit(point, 0, 1)));
+  dispatch(el, pointerEvent('pointerup', pointerInit(point, 0, 0, screen)));
+  dispatch(el, new MouseEvent('mouseup', mouseInit(point, 0, 1, screen)));
+  dispatch(el, new MouseEvent('click', mouseInit(point, 0, 1, screen)));
   return { ok: true };
 }
 
@@ -206,7 +318,11 @@ export function hover(ref: string): ActionResult {
   const found = element(ref);
   if ('error' in found) return fail(found.error);
   ensureVisible(found.el);
-  dispatchHover(found.el, centerOf(found.el));
+  const placed = actionPoint(found.el);
+  if ('error' in placed) return fail(placed.error);
+  const w = view(found.el);
+  arrive(found.el, w, placed.point);
+  dispatchHover(found.el, placed.point, screenOf(w, placed.point));
   return { ok: true };
 }
 
