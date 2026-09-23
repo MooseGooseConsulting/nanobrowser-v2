@@ -263,6 +263,14 @@ function expect(taskId, label, events, wantPass, extra = {}) {
     e.kind === 'tool.call' && e.call.name === 'done'
       ? { ...e, call: { ...e.call, args: { summary: JSON.stringify({ status: EXPECTED.escalation.rejectedText }) } } } : e),
     false);
+  expect('escalation', 'prose-summary', goodEvents.map((e) =>
+    e.kind === 'tool.call' && e.call.name === 'done'
+      ? { ...e, call: { ...e.call, args: { summary: `The click landed: ${EXPECTED.escalation.trustedText}` } } } : e),
+    false);
+  expect('escalation', 'contradictory-object', goodEvents.map((e) =>
+    e.kind === 'tool.call' && e.call.name === 'done'
+      ? { ...e, call: { ...e.call, args: { summary: JSON.stringify({ status: 'rejected', note: EXPECTED.escalation.trustedText }) } } } : e),
+    false);
 }
 
 /* ------------------------------------------------------------------ readonly */
@@ -364,6 +372,7 @@ function expect(taskId, label, events, wantPass, extra = {}) {
   };
   const goodEvents = good();
   expect('stall', 'good', goodEvents, true);
+  expect('stall', 'no-host-end', goodEvents.filter((e) => e.type !== 'run.end'), false);
   expect('stall', 'claimed-done', [...goodEvents.slice(0, -2), call('follower', 'done', { summary: '{"status":"finished"}' }), ended('done', '', 3), hostEnd('done')], false);
   expect('stall', 'burned-max-steps', goodEvents.map((e) => (e.kind === 'run.ended' ? { ...e, steps: 12 } : e)), false);
 }
