@@ -283,9 +283,10 @@ describe('click', () => {
       Object.defineProperty(iframe.contentWindow, 'screenX', { value: origX, configurable: true });
       Object.defineProperty(iframe.contentWindow, 'screenY', { value: origY, configurable: true });
     }
-    // Frame-local point + iframe offset + window origin.
-    expect(observed!.screenX - observed!.clientX).toBe(150);
-    expect(observed!.screenY - observed!.clientY).toBe(110);
+    // Frame-local point + iframe offset + window origin. Close-to, not exact:
+    // coordinate arithmetic in floats can round-trip as 110.00000000000001.
+    expect(observed!.screenX - observed!.clientX).toBeCloseTo(150, 9);
+    expect(observed!.screenY - observed!.clientY).toBeCloseTo(110, 9);
   });
 
   it('offsets screenX/screenY by the window origin instead of echoing clientX', () => {
@@ -829,8 +830,9 @@ describe('triage: arrival telemetry and aim honesty', () => {
       Object.defineProperty(iframe.contentWindow, 'screenX', { value: origX, configurable: true });
       Object.defineProperty(iframe.contentWindow, 'screenY', { value: origY, configurable: true });
     }
-    // Frame-local point + iframe offset + border + window origin.
-    expect(observed!.screenX - observed!.clientX).toBe(152);
-    expect(observed!.screenY - observed!.clientY).toBe(112);
+    // Frame-local point + iframe offset + border + window origin (close-to:
+    // float round-trip, see the test above).
+    expect(observed!.screenX - observed!.clientX).toBeCloseTo(152, 9);
+    expect(observed!.screenY - observed!.clientY).toBeCloseTo(112, 9);
   });
 });
