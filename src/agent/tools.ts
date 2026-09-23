@@ -15,6 +15,7 @@ import * as z from 'zod';
 import { tool } from '@langchain/core/tools';
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { FollowerSignal } from '@/src/messaging/contract';
+import type { ObserveMode } from '@/src/storage';
 import { allowedInReadOnly } from './policy';
 
 /** Zod mirror of the contract's {@link FollowerSignal} (R-03, verbatim vocabulary). */
@@ -170,7 +171,8 @@ export const TERMINAL_TOOLS: Record<string, 'done' | 'blocked'> = {
 /**
  * Tools that only read. Their success is not evidence the page changed, so it does
  * not reset the repeat-failure counter in `src/agent/graph.ts`. Everything else that
- * succeeds counts as progress.
+ * succeeds counts as progress. `wait` is here too: pausing performs no action, so a
+ * failure alternating with waits is still the same futile loop.
  */
 export const READ_TOOL_NAMES: ReadonlySet<string> = new Set([
   'snapshot',
@@ -178,6 +180,7 @@ export const READ_TOOL_NAMES: ReadonlySet<string> = new Set([
   'extract_text',
   'get_box',
   'list_userscripts',
+  'wait',
 ]);
 
 export interface PageToolset {
@@ -528,42 +531,64 @@ export interface LeaderReads {
   extractText(maxChars?: number, startChar?: number): Promise<string>;
 }
 
-/** The Leader's read-only observation subset, bound alongside {@link planTool}. */
-export function createLeaderReadTools(page: LeaderReads): StructuredToolInterface[] {
-  return [
-    tool(async () => (await page.snapshot()).text, {
-      name: 'leader_snapshot',
-      description:
-        'Read the page as text once, to check what actually happened before re-planning. ' +
-        'This pulls evidence for the plan; it does not act. At most 2 reads per turn.',
-      schema: z.object({}),
-    }),
-    tool(
-      async () => {
-        const shot = await page.screenshot();
-        return `screenshot ${shot.width}x${shot.height}`;
-      },
-      {
-        name: 'leader_screenshot',
+/**
+ * The Leader's read-only observation subset, bound alongside {@link planTool}.
+ *
+ * Filtered by the run's observe mode like the Follower's own observations: a `dom`
+ * run must not send screenshots anywhere, and a `pixels` run must not send DOM
+ * text. Absent mode binds everything (callers that predate the filter).
+ */
+export function createLeaderReadTools(
+  page: LeaderReads,
+  options: { observe?: ObserveMode } = {},
+): StructuredToolInterface[] {
+  const observe = options.observe ?? 'both';
+  const tools: StructuredToolInterface[] = [];
+  if (observe !== 'pixels') {
+    tools.push(
+      tool(async () => (await page.snapshot()).text, {
+        name: 'leader_snapshot',
         description:
-          'Look at the visible page once, to check what actually happened before re-planning. ' +
+          'Read the page as text once, to check what actually happened before re-planning. ' +
           'This pulls evidence for the plan; it does not act. At most 2 reads per turn.',
         schema: z.object({}),
-      },
-    ),
-    tool(async ({ maxChars, startChar }) => page.extractText(maxChars, startChar), {
-      name: 'leader_extract_text',
-      description:
-        'Read the page as plain text once, to check what actually happened before re-planning. ' +
-        'This pulls evidence for the plan; it does not act. At most 2 reads per turn.',
-      schema: z.object({
-        maxChars: z.number().int().min(1).max(60_000).optional()
-          .describe('Character cap on the returned text. Default 20000, max 60000.'),
-        startChar: z.number().int().min(0).optional()
-          .describe('Start reading from this offset.'),
       }),
-    }),
-  ];
+    );
+  }
+  if (observe !== 'dom') {
+    tools.push(
+      tool(
+        async () => {
+          const shot = await page.screenshot();
+          return `screenshot ${shot.width}x${shot.height}`;
+        },
+        {
+          name: 'leader_screenshot',
+          description:
+            'Look at the visible page once, to check what actually happened before re-planning. ' +
+            'This pulls evidence for the plan; it does not act. At most 2 reads per turn.',
+          schema: z.object({}),
+        },
+      ),
+    );
+  }
+  if (observe !== 'pixels') {
+    tools.push(
+      tool(async ({ maxChars, startChar }) => page.extractText(maxChars, startChar), {
+        name: 'leader_extract_text',
+        description:
+          'Read the page as plain text once, to check what actually happened before re-planning. ' +
+          'This pulls evidence for the plan; it does not act. At most 2 reads per turn.',
+        schema: z.object({
+          maxChars: z.number().int().min(1).max(60_000).optional()
+            .describe('Character cap on the returned text. Default 20000, max 60000.'),
+          startChar: z.number().int().min(0).optional()
+            .describe('Start reading from this offset.'),
+        }),
+      }),
+    );
+  }
+  return tools;
 }
 
 /* ------------------------------------------------------------------------- */

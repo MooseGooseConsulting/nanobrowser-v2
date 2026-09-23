@@ -197,7 +197,7 @@ export function startRun(options: StartRunOptions): RunHandle {
       ended = {
         kind: 'run.ended',
         status,
-        message: ENDED_MESSAGE[status],
+        message: (snapshot.values.endNote as string | null) ?? ENDED_MESSAGE[status],
         steps: snapshot.values.stepCount ?? 0,
         at: Date.now(),
       };

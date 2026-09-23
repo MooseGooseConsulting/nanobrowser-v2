@@ -108,7 +108,7 @@ export const LEADER_SYSTEM = [
   'You decompose the objective into a short ordered list of concrete subgoals and hand one at a time to the Follower.',
   'You are called again whenever the Follower finishes a subgoal, gets stuck, or after a fixed number of its steps.',
   'When called again, revise the plan against what actually happened. Keep what worked. Do not repeat a subgoal that is already done.',
-  'Before re-planning you may pull evidence with leader_snapshot, leader_screenshot or leader_extract_text ' +
+  'Before re-planning you may pull evidence with your read tools ' +
     '(at most 2 reads per turn) to check what actually happened.',
   'Pulling evidence is not acting: reads never change the page, and the Follower remains the only role that acts.',
   'The Follower can read long lists as plain text, write and run a script against the page, and save a file; it will call blocked rather than sign in anywhere, so never plan a subgoal that requires logging in.',
@@ -157,6 +157,38 @@ function textOf(message: AIMessage): string {
 function parseSignal(value: unknown): FollowerSignal | undefined {
   const parsed = FollowerSignalSchema.safeParse(value);
   return parsed.success ? parsed.data : undefined;
+}
+
+/**
+ * Answers every tool call past the first so the transcript stays valid:
+ * OpenAI-compatible providers reject an assistant message whose call ids lack
+ * results. Both roles act once per turn by design, so extras are refused with
+ * an instruction to re-issue, never run.
+ */
+function answerExtraCalls(
+  config: Emitter,
+  role: Role,
+  extra: NonNullable<AIMessage['tool_calls']>,
+  fallbackPrefix: string,
+  messages: BaseMessage[],
+): void {
+  extra.forEach((call, i) => {
+    const callId = call.id ?? `${fallbackPrefix}-extra-${i}`;
+    const refusal = 'only the first tool call per turn is answered; re-issue this call next turn if it still matters.';
+    emit(config, {
+      kind: 'tool.call',
+      role,
+      call: { callId, name: call.name, args: (call.args ?? {}) as Record<string, unknown> },
+      at: now(),
+    });
+    emit(config, {
+      kind: 'tool.result',
+      role,
+      result: { callId, name: call.name, ok: false, summary: refusal, durationMs: 0 },
+      at: now(),
+    });
+    messages.push(new ToolMessage({ tool_call_id: callId, name: call.name, content: refusal }));
+  });
 }
 
 /* ------------------------------------------------------------------------- */
@@ -231,17 +263,33 @@ const LEADER_NO_VISION_NOTE =
 function findLastImageMessage(messages: BaseMessage[]): number {
   for (let i = messages.length - 1; i >= 0; i--) {
     const content = messages[i]!.content;
-    if (
-      Array.isArray(content) &&
-      content.some((block) => {
-        const type = (block as { type?: unknown }).type;
-        return type === 'image' || type === 'image_url';
-      })
-    ) {
-      return i;
-    }
+    if (Array.isArray(content) && content.some(isImageBlock)) return i;
   }
   return -1;
+}
+
+/** Whether a content block is an image payload (either spelling the codebase emits). */
+function isImageBlock(block: unknown): boolean {
+  if (typeof block === 'string') return false;
+  const type = (block as { type?: unknown }).type;
+  return type === 'image' || type === 'image_url';
+}
+
+/**
+ * Persisted leader history keeps a screenshot's text but drops its pixels: history
+ * appends every turn and every replan resends it all, so retained data URLs would
+ * accumulate stale full images in context and checkpoint despite the per-turn cap.
+ * Only the human observation blocks the leader node itself appended are rebuilt;
+ * tool traffic (ids matter) passes through untouched.
+ */
+function stripImageBlocks(message: BaseMessage): BaseMessage {
+  if (!(message instanceof HumanMessage) || !Array.isArray(message.content)) return message;
+  if (!message.content.some(isImageBlock)) return message;
+  const kept = message.content.filter((block) => !isImageBlock(block));
+  return new HumanMessage({
+    content:
+      kept.length > 0 ? kept : '[earlier leader screenshot: pixels dropped from history]',
+  });
 }
 
 const leader: GraphNode<typeof AgentState, AgentContext> = async (state, config) => {
@@ -265,12 +313,16 @@ const leader: GraphNode<typeof AgentState, AgentContext> = async (state, config)
         'Write the plan and its subgoals. Call set_plan.',
       ].join('\n');
 
-  const human = new HumanMessage(situation);
   // The Leader's read-only observation subset (M4): evidence pulls, not actions.
-  // Built from the same page port the Follower drives, bound next to set_plan.
-  const leaderReads = createLeaderReadTools(ctx.page);
+  // Built from the same page port the Follower drives, filtered by the run's
+  // observe mode, bound next to set_plan. The availability line keeps the model
+  // from reaching for a read its mode withholds.
+  const leaderReads = createLeaderReadTools(ctx.page, { observe: ctx.observe });
   const readByName = new Map(leaderReads.map((t) => [t.name, t]));
   const bound = ctx.leaderModel.bindTools?.([...leaderReads, planTool]) ?? ctx.leaderModel;
+  const human = new HumanMessage(
+    `${situation}\nEvidence reads available: ${leaderReads.map((t) => t.name).join(', ') || '(none)'}.`,
+  );
 
   const messages: BaseMessage[] = [human];
   let plan = state.plan;
@@ -313,7 +365,14 @@ const leader: GraphNode<typeof AgentState, AgentContext> = async (state, config)
       emit(config, { kind: 'model.text', role: 'leader', text, at: now() });
     }
 
-    const call = (response.tool_calls ?? [])[0];
+    const calls = response.tool_calls ?? [];
+    if (calls.length === 0) break;
+    const [call, ...extras] = calls;
+    // Every extra is answered after the first call is processed below, so the log
+    // reads action-then-refusals and every emitted id still has its result.
+    const answerExtras = (): void => {
+      answerExtraCalls(config, 'leader', extras, `leader-${state.stepCount}-${lap}`, messages);
+    };
     if (!call) break;
     const callId = call.id ?? `leader-${state.stepCount}-${lap}`;
 
@@ -346,6 +405,7 @@ const leader: GraphNode<typeof AgentState, AgentContext> = async (state, config)
       });
       messages.push(new ToolMessage({ tool_call_id: callId, name: call.name, content: result }));
       planned = true;
+      answerExtras();
     } else if (readByName.has(call.name)) {
       emit(config, {
         kind: 'tool.call',
@@ -367,6 +427,7 @@ const leader: GraphNode<typeof AgentState, AgentContext> = async (state, config)
           at: now(),
         });
         messages.push(new ToolMessage({ tool_call_id: callId, name: call.name, content: refusal }));
+        answerExtras();
         continue;
       }
       readsUsed += 1;
@@ -383,6 +444,7 @@ const leader: GraphNode<typeof AgentState, AgentContext> = async (state, config)
             at: now(),
           });
           messages.push(new ToolMessage({ tool_call_id: callId, name: call.name, content: refusal }));
+          answerExtras();
           continue;
         }
         // Pixels cannot ride in a ToolMessage (capped text), so the screenshot
@@ -416,6 +478,7 @@ const leader: GraphNode<typeof AgentState, AgentContext> = async (state, config)
           });
           messages.push(new ToolMessage({ tool_call_id: callId, name: call.name, content: result }));
         }
+        answerExtras();
         continue;
       }
       let ok = true;
@@ -433,10 +496,29 @@ const leader: GraphNode<typeof AgentState, AgentContext> = async (state, config)
         at: now(),
       });
       messages.push(new ToolMessage({ tool_call_id: callId, name: call.name, content: result }));
+      answerExtras();
     } else {
-      // Not the plan and not a read (a Follower tool name, say): leave it for
-      // the prose fallback below rather than executing another role's action.
-      break;
+      // Not the plan and not a read (a Follower tool name, say): answer the call
+      // id so the transcript stays valid, and let the next lap try again rather
+      // than executing another role's action. The lap bound still ends the turn.
+      const refusal =
+        `unknown leader tool ${JSON.stringify(call.name)}: the Leader plans with set_plan and reads ` +
+        `with ${[...readByName.keys()].join(', ') || 'no read tools in this observe mode'}. Only the Follower acts.`;
+      const started = now();
+      emit(config, {
+        kind: 'tool.call',
+        role: 'leader',
+        call: { callId, name: call.name, args: call.args },
+        at: now(),
+      });
+      emit(config, {
+        kind: 'tool.result',
+        role: 'leader',
+        result: { callId, name: call.name, ok: false, summary: refusal, durationMs: now() - started },
+        at: now(),
+      });
+      messages.push(new ToolMessage({ tool_call_id: callId, name: call.name, content: refusal }));
+      answerExtras();
     }
   }
 
@@ -460,7 +542,7 @@ const leader: GraphNode<typeof AgentState, AgentContext> = async (state, config)
   });
 
   return {
-    leaderMessages: messages,
+    leaderMessages: messages.map(stripImageBlocks),
     plan,
     subgoals,
     currentSubgoal,
@@ -534,7 +616,8 @@ const follower: GraphNode<typeof AgentState, AgentContext> = async (state, confi
   if (text) emit(config, { kind: 'model.text', role, text, at: now() });
 
   const messages: BaseMessage[] = [human, response];
-  const call = (response.tool_calls ?? [])[0];
+  const calls = response.tool_calls ?? [];
+  const [call, ...extras] = calls;
 
   let signal: FollowerSignal = 'CONTINUE';
   let note = '';
@@ -542,6 +625,7 @@ const follower: GraphNode<typeof AgentState, AgentContext> = async (state, confi
   let repeatFailureKey: string | null = state.repeatFailureKey;
   let repeatFailureTurns = state.repeatFailureTurns;
   let failureText = '';
+  let endNote: string | null = state.endNote;
 
   if (!call) {
     // No action taken. Hand control back rather than burning steps.
@@ -621,6 +705,10 @@ const follower: GraphNode<typeof AgentState, AgentContext> = async (state, confi
     }
   }
 
+  // Answered after the acted call so the log reads action-then-refusals; every
+  // emitted id still has its result before the next model call.
+  answerExtraCalls(config, role, extras, `follower-${stepN}`, messages);
+
   if (status === 'running' && signal === 'BLOCKED') status = 'blocked';
 
   // A Follower that answers in prose never touches the page, so the Leader replans
@@ -632,6 +720,7 @@ const follower: GraphNode<typeof AgentState, AgentContext> = async (state, confi
     note =
       `the follower returned no tool call ${idleFollowerTurns} turns running; ` +
       'it is answering in prose instead of acting. Try a model that reliably calls tools.';
+    endNote = note;
   }
 
   if (status === 'running' && repeatFailureTurns >= MAX_REPEAT_FAILURE_TURNS) {
@@ -640,6 +729,7 @@ const follower: GraphNode<typeof AgentState, AgentContext> = async (state, confi
       `the follower repeated the same failing action ${repeatFailureTurns} times` +
       `${call ? ` (${call.name})` : ''}: ${summarize(failureText, 160)} No successful action happened ` +
       'between attempts. Try a different tool or subgoal, or call blocked.';
+    endNote = note;
   }
 
   if (status === 'running' && stepN >= ctx.maxSteps) status = 'max-steps';
@@ -668,6 +758,7 @@ const follower: GraphNode<typeof AgentState, AgentContext> = async (state, confi
     repeatFailureTurns,
     lastSignal: signal,
     status,
+    endNote,
   };
 };
 

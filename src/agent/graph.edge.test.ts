@@ -199,6 +199,8 @@ describe('a follower that never calls a tool', () => {
     const signals = pick(events, 'follower.signal');
     expect(signals.at(-1)?.note).toContain('no tool call');
     expect(signals.at(-1)?.note).toContain('reliably calls tools');
+    // The terminal event carries the same diagnosis, not the generic mapping.
+    expect(ended.message).toContain('no tool call');
   });
 
   // Idle runs of MAX-1 prose turns either side of one click. A counter that

@@ -44,7 +44,7 @@ function messageHistory(): ReducedValue<BaseMessage[], unknown> {
 }
 
 export const AgentState = new StateSchema({
-  /** The planner's own transcript. Never sees raw page observations. */
+  /** The planner's own transcript. Sees the page only through its capped read tools. */
   leaderMessages: messageHistory(),
   /** The navigator's own transcript. Holds observations and tool results. */
   followerMessages: messageHistory(),
@@ -86,6 +86,12 @@ export const AgentState = new StateSchema({
   repeatFailureTurns: z.number().int().min(0).default(0),
   lastSignal: FollowerSignalSchema.nullable().default(null),
   status: RunStatusSchema.default('running'),
+  /**
+   * Why an errored run stopped, in the run card's own words. Set alongside the
+   * error status (idle stall, repeat loop) so `run.ended.message` names the
+   * reason instead of the generic mapping. Null for every other outcome.
+   */
+  endNote: z.string().nullable().default(null),
 });
 
 export type AgentStateValue = typeof AgentState.State;

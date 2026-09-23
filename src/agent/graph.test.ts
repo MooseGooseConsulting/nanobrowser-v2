@@ -268,6 +268,7 @@ describe('role isolation', () => {
     const { leader, follower } = await harness({
       planningInterval: 2,
       maxSteps: 6,
+      observe: 'both',
       follower: (call) =>
         call.index < 3
           ? { kind: 'tool', name: 'click', args: { ref: 'e1', signal: 'CONTINUE' } }
@@ -499,6 +500,7 @@ describe('leader observation reads (M4)', () => {
   it('delivers a leader screenshot as pixels, with the text summary in the run log', async () => {
     const { events, leader, page } = await harness({
       maxSteps: 2,
+      observe: 'both',
       follower: finishQuickly,
       leader: (call) =>
         call.index === 0
@@ -510,7 +512,8 @@ describe('leader observation reads (M4)', () => {
             },
     });
 
-    expect(page.calls.filter((c) => c.name === 'screenshot')).toHaveLength(1);
+    // One leader pull plus the follower's own observe on its turn (observe 'both').
+    expect(page.calls.filter((c) => c.name === 'screenshot')).toHaveLength(2);
     expect(leaderResults(events, 'leader_screenshot')).toMatchObject([{ result: { ok: true } }]);
     // The second lap's input carries the image block the text summary points at.
     const seen = JSON.stringify(leader.calls[1]?.messages.map((m) => m.content));
@@ -522,6 +525,7 @@ describe('leader observation reads (M4)', () => {
     const planArgs = { plan: 'do it blind', subgoals: ['open the page'], currentSubgoal: 0 };
     const { events, leader, page } = await harness({
       maxSteps: 2,
+      observe: 'both',
       follower: finishQuickly,
       leader: (call) => {
         const seen = JSON.stringify(call.messages.map((m) => m.content));
@@ -532,7 +536,8 @@ describe('leader observation reads (M4)', () => {
       },
     });
 
-    expect(page.calls.filter((c) => c.name === 'screenshot')).toHaveLength(1);
+    // One leader pull plus the follower's own observe on its turn (observe 'both').
+    expect(page.calls.filter((c) => c.name === 'screenshot')).toHaveLength(2);
     expect(pick(events, 'leader.plan')).toHaveLength(1);
     // The failed pixels were swapped for a note, not left to fail every replan.
     const history = JSON.stringify(leader.calls.map((c) => c.messages.map((m) => m.content)));
@@ -542,6 +547,7 @@ describe('leader observation reads (M4)', () => {
   it('bars further screenshots once the Leader has failed on pixels', async () => {
     const { events, page } = await harness({
       maxSteps: 2,
+      observe: 'both',
       follower: finishQuickly,
       leader: (call) => {
         const seen = JSON.stringify(call.messages.map((m) => m.content));
@@ -550,11 +556,164 @@ describe('leader observation reads (M4)', () => {
       },
     });
 
-    // One fetch; the retry is refused without touching the page again.
-    expect(page.calls.filter((c) => c.name === 'screenshot')).toHaveLength(1);
+    // One fetch; the retry is refused without touching the page again
+    // (the second screenshot is the follower's own observe in 'both' mode).
+    expect(page.calls.filter((c) => c.name === 'screenshot')).toHaveLength(2);
     const results = leaderResults(events, 'leader_screenshot');
     expect(results.map((e) => e.result.ok)).toEqual([true, false, false]);
     expect(results[1]?.result.summary).toContain('cannot see images');
+  });
+
+  it('answers every call id when the Leader batches two reads in one turn', async () => {
+    const { events } = await harness({
+      maxSteps: 2,
+      follower: finishQuickly,
+      leader: (call) =>
+        call.index === 0
+          ? {
+              kind: 'tools',
+              calls: [
+                { name: 'leader_snapshot', args: {} },
+                { name: 'leader_snapshot', args: {} },
+              ],
+            }
+          : {
+              kind: 'tool',
+              name: 'set_plan',
+              args: { plan: 'p', subgoals: ['s'], currentSubgoal: 0 },
+            },
+    });
+
+    // First read executed, second refused with a re-issue note — never silently
+    // dropped, which would corrupt the transcript on the next model call.
+    const results = leaderResults(events, 'leader_snapshot');
+    expect(results.map((e) => e.result.ok)).toEqual([true, false]);
+    expect(results[1]?.result.summary).toContain('re-issue');
+    const callIds = leaderCalls(events, 'leader_snapshot').map((e) => e.call.callId).sort();
+    expect(results.map((e) => e.result.callId).sort()).toEqual(callIds);
+  });
+
+  it('answers an unknown leader tool with an error and keeps the turn going', async () => {
+    const { events } = await harness({
+      maxSteps: 2,
+      follower: finishQuickly,
+      leader: (call) =>
+        call.index === 0
+          ? { kind: 'tool', name: 'click', args: { ref: 'e1' } }
+          : {
+              kind: 'tool',
+              name: 'set_plan',
+              args: { plan: 'p', subgoals: ['s'], currentSubgoal: 0 },
+            },
+    });
+
+    const results = leaderResults(events, 'click');
+    expect(results).toHaveLength(1);
+    expect(results[0]?.result.ok).toBe(false);
+    expect(results[0]?.result.summary).toContain('unknown leader tool');
+    expect(pick(events, 'leader.plan')).toHaveLength(1);
+  });
+
+  it('drops screenshot pixels from persisted leader history across replans', async () => {
+    const planArgs = { plan: 'p', subgoals: ['s'], currentSubgoal: 0 };
+    const { leader } = await harness({
+      maxSteps: 4,
+      observe: 'both',
+      planningInterval: 1,
+      follower: (call) =>
+        call.index < 3
+          ? { kind: 'tool', name: 'snapshot', args: {} }
+          : { kind: 'tool', name: 'done', args: { summary: 'done' } },
+      leader: (call) =>
+        call.index % 2 === 0
+          ? { kind: 'tool', name: 'leader_screenshot', args: {} }
+          : { kind: 'tool', name: 'set_plan', args: planArgs },
+    });
+
+    // The live screenshot rode along exactly once, on the turn that took it...
+    const early = JSON.stringify(leader.calls[1]?.messages.map((m) => m.content));
+    expect(early).toContain('image');
+    // ...and no later turn's opening input resends it: persisted history keeps
+    // the dims text (the proof the pull happened) without the pixels.
+    expect(leader.calls.length).toBeGreaterThan(2);
+    for (let i = 2; i < leader.calls.length; i += 2) {
+      const seen = JSON.stringify(leader.calls[i]?.messages.map((m) => m.content));
+      expect(seen).not.toContain('"image"');
+      expect(seen).toContain('Leader screenshot of the visible page');
+    }
+  });
+
+  it('withholds screenshots from the Leader in dom mode', async () => {
+    const { events, leader } = await harness({
+      maxSteps: 2,
+      observe: 'dom',
+      follower: finishQuickly,
+      leader: (call) =>
+        call.index === 0
+          ? { kind: 'tool', name: 'leader_screenshot', args: {} }
+          : {
+              kind: 'tool',
+              name: 'set_plan',
+              args: { plan: 'p', subgoals: ['s'], currentSubgoal: 0 },
+            },
+    });
+
+    expect(leader.calls[0]?.tools).toEqual(
+      expect.arrayContaining(['leader_snapshot', 'leader_extract_text', 'set_plan']),
+    );
+    expect(leader.calls[0]?.tools).not.toContain('leader_screenshot');
+    expect(leaderResults(events, 'leader_screenshot').map((e) => e.result.ok)).toEqual([false]);
+    expect(pick(events, 'leader.plan')).toHaveLength(1);
+  });
+
+  it('withholds DOM text from the Leader in pixels mode', async () => {
+    const { leader } = await harness({
+      maxSteps: 2,
+      observe: 'pixels',
+      follower: finishQuickly,
+      leader: (call) =>
+        call.index === 0
+          ? { kind: 'tool', name: 'leader_snapshot', args: {} }
+          : {
+              kind: 'tool',
+              name: 'set_plan',
+              args: { plan: 'p', subgoals: ['s'], currentSubgoal: 0 },
+            },
+    });
+
+    expect(leader.calls[0]?.tools).toEqual(
+      expect.arrayContaining(['leader_screenshot', 'set_plan']),
+    );
+    expect(leader.calls[0]?.tools).not.toContain('leader_snapshot');
+    expect(leader.calls[0]?.tools).not.toContain('leader_extract_text');
+  });
+
+  it('acts on the first call and refuses the rest when the Follower batches', async () => {
+    const { events, ended, page } = await harness({
+      maxSteps: 4,
+      follower: (call) =>
+        call.index === 0
+          ? {
+              kind: 'tools',
+              calls: [
+                { name: 'snapshot', args: {} },
+                { name: 'click', args: { ref: 'e1' } },
+              ],
+            }
+          : { kind: 'tool', name: 'done', args: { summary: 'done' } },
+    });
+
+    // One action per step: the snapshot ran, the click never touched the page.
+    expect(page.calls.filter((c) => c.name === 'click')).toHaveLength(0);
+    const followerResults = pick(events, 'tool.result').filter((e) => e.role === 'follower');
+    expect(followerResults.map((e) => e.result.ok)).toEqual([true, false, true]);
+    // Every follower call id has its result: the transcript stays valid.
+    const callIds = pick(events, 'tool.call')
+      .filter((e) => e.role === 'follower')
+      .map((e) => e.call.callId)
+      .sort();
+    expect(followerResults.map((e) => e.result.callId).sort()).toEqual(callIds);
+    expect(ended).toMatchObject({ status: 'done' });
   });
 
   it('does not let the follower call the leader reads', async () => {

@@ -17,7 +17,7 @@ import { getConfig } from '@/src/storage';
 import { resolveUserscript, runUserscript, seedDefaults } from '@/src/userscripts';
 import { RunManager, chromeTabsPort, createWorker, installErrorForwarding } from '@/src/runtime';
 import { sessionReplayStore, sessionUserscriptValueStore } from '@/src/runtime/durability';
-import { setLastRunId } from '@/src/ui/state/lastRun';
+import { getLastRunId, setLastRunId } from '@/src/ui/state/lastRun';
 
 export default defineBackground(() => {
   // Chrome does not start an MV3 service worker on browser launch unless the worker
@@ -86,6 +86,7 @@ export default defineBackground(() => {
     host,
     runManager,
     getConfig,
+    getLastRunId,
     extensionVersion: chrome.runtime.getManifest().version,
   });
 

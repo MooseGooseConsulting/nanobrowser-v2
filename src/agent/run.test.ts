@@ -111,6 +111,9 @@ describe('repeat-failure stall detection (M2)', () => {
 
     // Stops after 2 failing steps, long before the step budget.
     expect(ended).toMatchObject({ kind: 'run.ended', status: 'error', steps: 2 });
+    expect(ended.message).toContain(
+      'the follower repeated the same failing action 2 times (bogus_tool): no such tool: bogus_tool',
+    );
     const signals = events.filter((e) => e.kind === 'follower.signal');
     expect(signals.at(-1)).toMatchObject({ signal: 'CONTINUE' });
     expect((signals.at(-1) as Extract<RunEvent, { kind: 'follower.signal' }>).note).toContain(
@@ -151,6 +154,19 @@ describe('repeat-failure stall detection (M2)', () => {
       follower: (call) =>
         call.index === 1
           ? { kind: 'tool', name: 'snapshot', args: {} }
+          : { kind: 'tool', name: 'bogus_tool', args: {} },
+    });
+
+    expect(ended).toMatchObject({ kind: 'run.ended', status: 'error', steps: 3 });
+  });
+
+  it('does not let waits break the repeat chain either: waiting is not progress', async () => {
+    const { ended } = await harness({
+      maxSteps: 10,
+      planningInterval: 10,
+      follower: (call) =>
+        call.index === 1
+          ? { kind: 'tool', name: 'wait', args: { ms: 100 } }
           : { kind: 'tool', name: 'bogus_tool', args: {} },
     });
 

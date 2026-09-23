@@ -234,9 +234,11 @@ export class RunManager {
    *
    * A restored log with no terminal event is a run that died with the old
    * worker: it gets one clean `run.ended{error}` naming the restart, published
-   * like any other event so the panel, the host log and the store agree. The
-   * alternative — silently resuming a graph against a tab that may have moved
-   * on — would be an invented continuation.
+   * like any other event so the panel, the host log and the store agree, plus the
+   * `run.end` frame nb-run exits on (devRun's `end()` died with the old worker,
+   * so without this an unattended run would stream its terminal event and then
+   * hang). The alternative — silently resuming a graph against a tab that may
+   * have moved on — would be an invented continuation.
    */
   async restoreReplay(runId: RunId): Promise<void> {
     if (this.#ring.has(runId)) return;
@@ -249,13 +251,14 @@ export class RunManager {
     const last = stored.at(-1);
     if (last?.kind === 'run.ended') return;
     const now = this.#deps.now ?? Date.now;
-    this.#publish(runId, {
-      kind: 'run.ended',
-      status: 'error',
-      message: 'the extension restarted mid-run; showing the partial log up to the restart',
-      steps: stepsIn(stored),
-      at: now(),
-    });
+    const message = 'the extension restarted mid-run; showing the partial log up to the restart';
+    const steps = stepsIn(stored);
+    this.#publish(runId, { kind: 'run.ended', status: 'error', message, steps, at: now() });
+    try {
+      this.#deps.host.appendRunLog(runId, { type: 'run.end', runId, status: 'error', message, steps, at: now() });
+    } catch (error) {
+      console.warn('[nanobrowser] could not publish the restarted run end', error);
+    }
   }
 
   async start(options: StartOptions): Promise<StartResult> {

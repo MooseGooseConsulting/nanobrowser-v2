@@ -55,23 +55,31 @@ export function decisionFor(category: PolicyCategory, configured: OptionalPolicy
 
 /**
  * Best-effort static scan deciding whether a userscript is safe to run in a
- * read-only run (#13: "no DOM writes / form submits / fetch-POST").
+ * read-only run (#13: "no DOM writes / form submits / fetch-POST" and the obvious
+ * siblings: text/value assignment, node removal, requestSubmit, PUT/PATCH/DELETE).
  *
  * Advisory, not a guarantee — hence the name: exotic widgets and renamed
  * harnesses slip past any regex, and a plain GET fetch (like the bundled i03
  * probe's self-read) stays allowed because reading is what this mode is for.
+ * Assignment patterns exclude `==`/`===` so comparing a property still passes.
  * When the source is unavailable the caller must refuse, not guess.
  */
 export function isReadOnlyScript(code: string): { ok: boolean; reason?: string } {
   const patterns: Array<[RegExp, string]> = [
-    [/\.innerHTML\s*=/, 'assigns innerHTML'],
-    [/\.outerHTML\s*=/, 'assigns outerHTML'],
+    [/\.innerHTML\s*=(?!=)/, 'assigns innerHTML'],
+    [/\.outerHTML\s*=(?!=)/, 'assigns outerHTML'],
+    [/\.textContent\s*=(?!=)/, 'assigns textContent'],
+    [/\.innerText\s*=(?!=)/, 'assigns innerText'],
+    [/\.outerText\s*=(?!=)/, 'assigns outerText'],
+    [/\.value\s*=(?!=)/, 'assigns a value'],
     [/document\.write\s*\(/, 'calls document.write'],
     [/\.submit\s*\(/, 'submits a form'],
+    [/requestSubmit\s*\(/, 'submits a form'],
     [/\.click\s*\(/, 'clicks an element'],
+    [/\.remove\s*\(/, 'removes an element'],
     [/dispatchEvent\s*\(/, 'dispatches an event'],
     [/execCommand\s*\(/, 'runs execCommand'],
-    [/method\s*:\s*['"]POST/i, 'POSTs over fetch'],
+    [/method\s*:\s*['"](POST|PUT|PATCH|DELETE)/i, 'writes over fetch'],
     [/XMLHttpRequest/, 'uses XMLHttpRequest'],
     [/localStorage|sessionStorage|indexedDB/, 'writes web storage'],
   ];

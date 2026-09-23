@@ -42,12 +42,25 @@ describe('isReadOnlyScript (#13 advisory scan)', () => {
       'await fetch("/api", { method: "POST", body });',
       'localStorage.setItem("k", "v");',
       'new XMLHttpRequest();',
+      'node.textContent = "x";',
+      'node.innerText = "x";',
+      'input.value = "x";',
+      'node.remove();',
+      'form.requestSubmit();',
+      'await fetch("/api/1", { method: "DELETE" });',
+      'await fetch("/api/1", { method: "PUT", body });',
     ];
     for (const code of cases) {
       const result = isReadOnlyScript(code);
       expect(result.ok).toBe(false);
       expect(result.reason).toContain('read-only run');
     }
+  });
+
+  it('still passes reads and comparisons shaped like writes', () => {
+    expect(isReadOnlyScript('return el.textContent === "ready";')).toEqual({ ok: true });
+    expect(isReadOnlyScript('if (el.innerHTML == "") return null;')).toEqual({ ok: true });
+    expect(isReadOnlyScript('return form.querySelector("input");')).toEqual({ ok: true });
   });
 });
 

@@ -268,7 +268,11 @@ describe('RunManager.restoreReplay (M6)', () => {
     expect((replayed.at(-1) as { message: string }).message).toContain('restarted');
     // Published like any other event: panels, host log and store agree.
     expect(events.at(-1)).toEqual(['run-1', replayed.at(-1)]);
-    expect(hostLog.at(-1)).toEqual(['run-1', replayed.at(-1)]);
+    expect(hostLog.at(-2)).toEqual(['run-1', replayed.at(-1)]);
+    // Plus the run.end frame nb-run exits on: devRun's end() died with the worker.
+    expect(hostLog.at(-1)?.[0]).toBe('run-1');
+    expect(hostLog.at(-1)?.[1]).toMatchObject({ type: 'run.end', status: 'error', steps: 3 });
+    expect((hostLog.at(-1)?.[1] as { message: string }).message).toContain('restarted');
   });
 
   it('restoreReplay is a no-op for buffered runs, finished restores, and unknown runs', async () => {
