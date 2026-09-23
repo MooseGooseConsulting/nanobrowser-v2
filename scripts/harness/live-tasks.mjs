@@ -74,8 +74,7 @@ function downloadPrompt() {
 function escalationPrompt() {
   return [
     'Click the "Confirm" button on this page.',
-    'If the page says the click was rejected as synthetic or untrusted, keep trying with the tools you have until the status says the click landed as trusted.',
-    'When the status says trusted, call done with a summary that is only JSON {"status": "<the exact status text>"}, ' + `${DONE_ONLY}.`,
+    'When the status says the click landed as trusted, call done with a summary that is only JSON {"status": "<the exact status text>"}, ' + `${DONE_ONLY}.`,
   ].join(' ');
 }
 
@@ -151,8 +150,8 @@ export function buildTask(id, expected, baseUrl, models = {}) {
       };
     case 'escalation':
       return {
-        id, title: 'Escalation (isTrusted-gated click)', url: `${baseUrl}/escalation`, prompt: escalationPrompt(),
-        options: { ...common, maxSteps: 15 }, expectedStatus: 'done', requiredTool: 'click',
+        id, title: 'Trusted input (isTrusted-gated click)', url: `${baseUrl}/escalation`, prompt: escalationPrompt(),
+        options: { ...common, inputFidelity: 'escalated', maxSteps: 15 }, expectedStatus: 'done', requiredTool: 'click',
       };
     case 'readonly':
       return {

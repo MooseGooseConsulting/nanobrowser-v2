@@ -106,6 +106,10 @@ function expect(taskId, label, events, wantPass, extra = {}) {
       }
       : e),
     false, { pageListings: PAGE_LISTINGS });
+  expect('ebay', 'ext-errors', goodEvents, false, {
+    pageListings: PAGE_LISTINGS,
+    extLogText: '{"level":"info","message":"ok"}\n{"level":"error","source":"worker","message":"boom","at":1}\n',
+  });
   expect('ebay', 'no-handoff', goodEvents.filter((e) => e.kind !== 'handoff'), false, { pageListings: PAGE_LISTINGS });
 }
 
@@ -205,6 +209,10 @@ function expect(taskId, label, events, wantPass, extra = {}) {
   expect('download', 'download-failed', goodEvents.map((e) =>
     e.kind === 'tool.result' && e.result.name === 'download' ? { ...e, result: { ...e.result, ok: false, summary: 'download failed' } } : e),
     false, { downloadMatches: ['/tmp/x/report.csv'] });
+  expect('download', 'wrong-filename', goodEvents.map((e) =>
+    e.kind === 'tool.call' && e.call.name === 'done'
+      ? { ...e, call: { ...e.call, args: { summary: JSON.stringify({ file: 'other.csv', downloaded: true }) } } } : e),
+    false, { downloadMatches: ['/tmp/x/report.csv'] });
 }
 
 /* ---------------------------------------------------------------- escalation */
@@ -214,7 +222,6 @@ function expect(taskId, label, events, wantPass, extra = {}) {
     const c = call('follower', 'click', { ref: 'e2' });
     return [
       started(), handoff('leader', 'follower'),
-      { kind: 'input.fidelity', fidelity: 'in-page', attached: false, at: tick() },
       { kind: 'input.fidelity', fidelity: 'escalated', attached: true, at: tick() },
       c, result('follower', c, true, 'clicked e2'),
       call('follower', 'done', { summary: JSON.stringify({ status: EXPECTED.escalation.trustedText }) }),

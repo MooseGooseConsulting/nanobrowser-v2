@@ -42,14 +42,42 @@ describe('DopplerSecretProvider.get', () => {
     });
   });
 
-  it('resolves null with the exec error as the reason, distinct from "not available"', async () => {
-    execFileMock.mockImplementation((_cmd, _args, _opts, cb) => cb(new Error('doppler: not logged in'), ''));
+  it('resolves null with a categorical reason, never echoing the child error text', async () => {
+    // Node folds the child's stderr into err.message, so the message is untrusted
+    // input: it must not reach the reason (host.log, nb-status) even when it looks
+    // like a helpful diagnostic.
+    execFileMock.mockImplementation((_cmd, _args, _opts, cb) =>
+      cb(Object.assign(new Error('doppler: not logged in'), { code: 1 }), ''),
+    );
     const { DopplerSecretProvider } = await loadSecrets();
 
     const lookup = await new DopplerSecretProvider().get('OPENROUTER_API_KEY');
     expect(lookup.value).toBeNull();
     expect(lookup.reason).toContain('OPENROUTER_API_KEY');
-    expect(lookup.reason).toContain('doppler: not logged in');
+    expect(lookup.reason).toContain('exited with code 1');
+    expect(lookup.reason).not.toContain('not logged in');
+  });
+
+  it('keeps secret-shaped stderr out of the reason', async () => {
+    const err = Object.assign(new Error('Command failed: doppler leaked dp.ct.supersecretmaterial'), { code: 1 });
+    execFileMock.mockImplementation((_cmd, _args, _opts, cb) => cb(err, ''));
+    const { DopplerSecretProvider } = await loadSecrets();
+
+    const lookup = await new DopplerSecretProvider().get('OPENROUTER_API_KEY');
+    expect(lookup.value).toBeNull();
+    expect(lookup.reason).not.toContain('dp.ct.supersecretmaterial');
+    expect(lookup.reason).toContain('exited with code 1');
+  });
+
+  it('names a kill distinctly, with the signal when the child reports one', async () => {
+    const err = Object.assign(new Error('doppler timed out'), { killed: true, signal: 'SIGTERM', code: null });
+    execFileMock.mockImplementation((_cmd, _args, _opts, cb) => cb(err, ''));
+    const { DopplerSecretProvider } = await loadSecrets();
+
+    const lookup = await new DopplerSecretProvider().get('OPENROUTER_API_KEY');
+    expect(lookup.value).toBeNull();
+    expect(lookup.reason).toContain('killed by signal SIGTERM');
+    expect(lookup.reason).not.toContain('timed out');
   });
 
   it('resolves null with a reason on empty or whitespace-only stdout', async () => {
@@ -119,7 +147,7 @@ describe('DopplerSecretProvider.get', () => {
 
     const lookup = await new DopplerSecretProvider().get('OPENROUTER_API_KEY');
     expect(lookup.value).toBeNull();
-    expect(lookup.reason).toContain('exit code 1');
+    expect(lookup.reason).toContain('exited with code 1');
   });
 
   it('shells out to doppler with the secret name and the project/config from env, as an argument array', async () => {

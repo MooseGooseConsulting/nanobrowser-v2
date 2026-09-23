@@ -19,6 +19,11 @@ export interface SecretLookup {
 
 export interface SecretProvider {
   readonly name: string;
+  /**
+   * Looks up one secret. A null value carries a reason that lands in host.log
+   * and nb-status — so reasons must be categorical (exit codes, signals, shapes),
+   * never child-process output or anything secret-shaped. See `describeDopplerError`.
+   */
   get(name: string): Promise<SecretLookup>;
 }
 
@@ -41,17 +46,26 @@ export function parseSecretToken(stdout: unknown): { ok: true; token: string } |
   return { ok: true, token: trimmed };
 }
 
-/** Exec errors are distinct from "not logged in": maxBuffer, timeout, and exit codes each say so. */
+/**
+ * Names a Doppler exec failure without repeating anything the child wrote. Node folds
+ * the child's stderr into `err.message`, so the message is untrusted input that could
+ * carry secret material into the reason (which lands in host.log and nb-status) —
+ * only categorical fields (exit code, signal, errno, maxBuffer) are ever relayed.
+ */
 function describeDopplerError(err: unknown): string {
-  const code = (err as { code?: unknown })?.code;
-  const message = err instanceof Error ? err.message : String(err);
-  if (code === 'ERR_CHILD_PROCESS_STDOUT_MAXBUFFER' || message.includes('maxBuffer')) {
+  const { code, signal, killed } = err as { code?: unknown; signal?: unknown; killed?: unknown };
+  if (code === 'ERR_CHILD_PROCESS_STDOUT_MAXBUFFER') {
     return 'stdout exceeded 1 MiB maxBuffer (output too large to be a key)';
   }
-  const clean = message.trim().replace(/\s+/g, ' ');
-  if (typeof code === 'number') return `exit code ${code}: ${clean}`;
-  if (typeof code === 'string' && code.length > 0 && !clean.includes(code)) return `${code}: ${clean}`;
-  return clean || 'unknown exec error';
+  if (code === 'ENOENT') return 'doppler binary not found on PATH';
+  if (killed === true) {
+    return `doppler killed${typeof signal === 'string' && signal ? ` by signal ${signal}` : ''} (no key read)`;
+  }
+  if (typeof code === 'number') {
+    return `doppler exited with code ${code}${typeof signal === 'string' && signal ? ` (signal ${signal})` : ''}`;
+  }
+  if (typeof code === 'string' && code.length > 0) return `doppler failed (${code})`;
+  return 'doppler failed';
 }
 
 const DOPPLER_PROJECT = process.env.NANOBROWSER_DOPPLER_PROJECT || 'ai-automation';

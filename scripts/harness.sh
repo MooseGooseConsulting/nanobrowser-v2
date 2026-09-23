@@ -697,10 +697,8 @@ CHROME
       bad "no persisted run log for runId=${run_id:-<none>}"; : >"$runlog"
     fi
 
-    if [ "$task" = "readonly" ] && [ -n "$panel_target" ]; then
-      node "$HARNESS/ui-inspect.mjs" --mode toggle --ws "$ws" --target "$panel_target" \
-        --toggle read-only --on false >"$OUT/$task-toggle-off.json" 2>&1 || true
-    fi
+    # NOTE: the read-only toggle stays on through the verdict and UI inspection
+    # below (the inspection requires it on); it is reset after aggregation.
 
     tail -n +"$((hits_total + 1))" "$WORK/fixture-live/hits.jsonl" >"$OUT/$task-hits.jsonl" 2>/dev/null || true
     tail -n +"$((host_lines + 1))" "$D/home/.local/share/nanobrowser/host.log" >"$OUT/$task-host.log" 2>/dev/null || : >"$OUT/$task-host.log"
@@ -748,6 +746,13 @@ CHROME
         passed: ([$verdict[0][] | .ok] | all) and (if $inspect[0] then ([$inspect[0].results[] | .ok] | all) else true end),
         checks: ($verdict[0] + (if $inspect[0] then [$inspect[0].results[] | {name: ("ui: " + .name), ok, detail}] else [] end))}' \
       >>"$OUT/results.jsonl"
+
+    # Reset after aggregation so the next task starts from a full run — and after
+    # the inspection above, which requires the toggle still on for this task.
+    if [ "$task" = "readonly" ] && [ -n "$panel_target" ]; then
+      node "$HARNESS/ui-inspect.mjs" --mode toggle --ws "$ws" --target "$panel_target" \
+        --toggle read-only --on false >"$OUT/$task-toggle-off.json" 2>&1 || true
+    fi
   done
 
   CURRENT_PHASE=live
