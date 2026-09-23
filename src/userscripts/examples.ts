@@ -12,8 +12,13 @@
 import type { Userscript } from '@/src/messaging';
 import { DEFAULT_PROBE_GLOBALS, buildProbeCode } from './i03';
 
-/** A bundled example, before the catalog stamps an id and `updatedAt` on it. */
-export type UserscriptSeed = Omit<Userscript, 'id' | 'updatedAt'>;
+/** A bundled example, before the catalog stamps `updatedAt` on it.
+ *
+ * The `id` is pinned, not generated: the Follower prompt names each available
+ * userscript by id, and that prompt is part of the cassette key, so a random id
+ * per install would make a cassette recorded in one profile miss in another.
+ * Stable ids are what make "record once, replay anywhere" true. */
+export type UserscriptSeed = Omit<Userscript, 'updatedAt'>;
 
 /**
  * Reads the Hyperagent thread list and reports each thread's title and status
@@ -76,6 +81,7 @@ return {
 `;
 
 export const HYPERAGENT_OBSERVE: UserscriptSeed = {
+  id: 'bundled-hyperagent-observe',
   name: 'hyperagent-observe',
   matches: ['*://hyperagent.com/*', '*://www.hyperagent.com/*'],
   code: HYPERAGENT_OBSERVE_CODE,
@@ -210,6 +216,7 @@ return results;
 `;
 
 export const EBAY_SEARCH_EXTRACT: UserscriptSeed = {
+  id: 'bundled-ebay-search-extract',
   name: 'ebay-search-extract',
   matches: ['*://www.ebay.com/sch/*', '*://ebay.com/sch/*'],
   code: EBAY_SEARCH_EXTRACT_CODE,
@@ -239,6 +246,7 @@ export const EBAY_SEARCH_EXTRACT: UserscriptSeed = {
  * probe issues no request at all.
  */
 export const I03_PAGE_ACCESS: UserscriptSeed = {
+  id: 'bundled-i03-page-access',
   name: 'i03-page-access',
   matches: ['*://*/*'],
   code: buildProbeCode(DEFAULT_PROBE_GLOBALS, false),

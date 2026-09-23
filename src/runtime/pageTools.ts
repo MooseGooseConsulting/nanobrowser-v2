@@ -40,12 +40,15 @@ import {
   type GetBox,
   type InputTier,
   type PageDriverLike,
+  type PressOptions,
   type RefInputTier,
 } from '@/src/input';
 import type { RunEvent, Userscript, UserscriptRunResult } from '@/src/messaging';
 import type { InputFidelity, ObserveMode } from '@/src/storage';
 import { toRunEvents } from '@/src/userscripts/debug';
 import type { AgentWriteResult } from '@/src/userscripts/authoring';
+import type { UserscriptValueStore } from './durability';
+import { isReadOnlyScript } from '@/src/agent/policy';
 
 /** The slice of {@link PageDriver} the runtime uses. `PageDriver` satisfies it structurally. */
 export interface RuntimeDriver {
@@ -244,18 +247,24 @@ export class EscalatableInput {
    * A coordinate tier types into whatever has focus, so it must click the field
    * first (documented on `RunInput.typeText`). The in-page tier addresses the
    * element directly and needs no such click.
+   *
+   * The `type` tool contract is replace-by-default, and the in-page tier keeps
+   * it by clearing first. A coordinate tier has no clear step, so the escalated
+   * path selects all before typing — the same contract through trusted keys.
    */
   async typeText(ref: ElementRef, text: string): Promise<void> {
     if (this.#fidelity === 'escalated' && this.#escalated) {
       await this.#escalated.click(ref);
+      // Ctrl+A: the Linux select-all (a macOS port would send Meta instead).
+      await this.#escalated.press(null, 'a', { modifiers: { ctrl: true } });
       await this.#escalated.typeText(ref, text);
       return;
     }
     await this.#inPage.typeText(ref, text);
   }
 
-  async press(ref: ElementRef | null, key: string): Promise<void> {
-    await this.#active().press(ref, key);
+  async press(ref: ElementRef | null, key: string, opts?: PressOptions): Promise<void> {
+    await this.#active().press(ref, key, opts);
   }
 
   /** Scroll one element into view. */
@@ -324,6 +333,23 @@ export interface CreatePageToolsOptions {
   runId?: string;
   /** Absent means `save_file` only writes to the Downloads folder, not the host. */
   saveArtifact?: SaveArtifact;
+  /**
+   * Durable last-userscript value (M6). The closure below stays the fast path;
+   * this is written on every successful run and read when the closure is empty
+   * (a service-worker restart). Absent means closure only, as before.
+   */
+  userscriptValueStore?: UserscriptValueStore;
+  /**
+   * Read-only run mode (#13). The Follower toolset already drops the acting
+   * tools; this refuses them anyway so a shape drift can never silently act.
+   */
+  readOnly?: boolean;
+  /**
+   * Whole-catalog userscript resolution for the read-only preflight. Separate
+   * from the run's starting-URL-filtered list: a read-only run may navigate
+   * and then run a script matching its destination.
+   */
+  resolveUserscript?: (idOrName: string) => Promise<Userscript | undefined>;
 }
 
 /** Cap on the JSON echoed in `run_userscript`'s own return string (not what's retained). */
@@ -374,10 +400,9 @@ export function formatUserscriptList(scripts: Userscript[]): string {
   return [`${scripts.length} saved userscript${scripts.length === 1 ? '' : 's'} (id | name | runs on | author):`, ...rows].join('\n');
 }
 
-/** {@link PageTools} plus `hover`, which the port does not name but the tiers support. */
-export interface RuntimePageTools extends PageTools {
-  hover(ref: string): Promise<string>;
-}
+/** {@link PageTools} as built for one run by {@link createPageTools}. A plain alias:
+ * the port already names `hover`, so nothing here redeclares it. */
+export type RuntimePageTools = PageTools;
 
 const realSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -395,6 +420,34 @@ export function createPageTools(options: CreatePageToolsOptions): RuntimePageToo
   const sleep = options.sleep ?? realSleep;
   const now = options.now ?? Date.now;
   const maxNodes = options.maxNodes ?? snapshotBudget(observe);
+  const readOnly = options.readOnly ?? false;
+
+  function refuseIfReadOnly(what: string): void {
+    if (readOnly) {
+      throw new Error(
+        `read-only run: ${what} is unavailable; read, navigate, run a read-only userscript, or save instead`,
+      );
+    }
+  }
+
+  /** A userscript may run read-only only when its source passes the advisory scan (#13). */
+  async function assertReadOnlyScript(scriptId: string): Promise<void> {
+    // Resolved from the whole catalog, deliberately NOT from the run's filtered
+    // list: that list is closed over the starting tab's URL, while a read-only run
+    // may navigate and then run a script matching its destination. Execution stays
+    // URL-gated — the runner refuses scripts whose matches reject the live tab.
+    if (!options.resolveUserscript) {
+      throw new Error(
+        `read-only run: cannot verify userscript ${scriptId} is read-only (no catalog in this run): refusing to run it`,
+      );
+    }
+    const script = await options.resolveUserscript(scriptId);
+    if (!script) {
+      throw new Error(`read-only run: unknown userscript ${scriptId}: refusing to run what cannot be verified`);
+    }
+    const check = isReadOnlyScript(script.code);
+    if (!check.ok) throw new Error(`read-only run: ${scriptId} ${check.reason}`);
+  }
 
   // R-09/save_file: the full, untruncated result of the most recent successful
   // run_userscript call. Kept in the closure (not echoed through the tool's own
@@ -430,22 +483,33 @@ export function createPageTools(options: CreatePageToolsOptions): RuntimePageToo
       return res.text;
     },
 
+    async getBox(ref) {
+      const res = await driver.getBox(tabId, ref);
+      if (!res.ok || !res.box) throw new Error(res.error ?? `no box for ${ref}`);
+      const { x, y, width, height } = res.box;
+      return { x, y, width, height };
+    },
+
     async click(ref) {
+      refuseIfReadOnly('click');
       await input.click(ref);
       return `clicked ${ref}`;
     },
 
     async hover(ref) {
+      refuseIfReadOnly('hover');
       await input.hover(ref);
       return `hovered ${ref}`;
     },
 
     async type(ref, text) {
+      refuseIfReadOnly('type');
       await input.typeText(ref, text);
       return `typed ${text.length} characters into ${ref}`;
     },
 
     async press(key) {
+      refuseIfReadOnly('press');
       await input.press(null, key);
       return `pressed ${key}`;
     },
@@ -471,6 +535,7 @@ export function createPageTools(options: CreatePageToolsOptions): RuntimePageToo
     },
 
     async select(ref, value) {
+      refuseIfReadOnly('select');
       // No CDP `Input` command sets a <select>'s value, so this is the page tier
       // on both fidelities: the trusted tier has nothing to offer here.
       const res = await driver.select(tabId, ref, value);
@@ -485,6 +550,7 @@ export function createPageTools(options: CreatePageToolsOptions): RuntimePageToo
     },
 
     async download(target) {
+      refuseIfReadOnly('download');
       if (/^https?:\/\//i.test(target)) {
         const res = await driver.download(target);
         if (!res.ok) throw new Error(res.error ?? 'download failed');
@@ -496,6 +562,7 @@ export function createPageTools(options: CreatePageToolsOptions): RuntimePageToo
     },
 
     async runUserscript(scriptId) {
+      if (readOnly) await assertReadOnlyScript(scriptId);
       const result = await runUserscript(scriptId, tabId);
       for (const event of toRunEvents(result, now)) emit(event);
       const logged = formatUserscriptConsole(result.console);
@@ -510,6 +577,11 @@ export function createPageTools(options: CreatePageToolsOptions): RuntimePageToo
       }
       lastUserscriptValue = result.value;
       hasLastUserscriptValue = true;
+      // Durable copy for a restart mid-run (M6). Fire-and-forget: the value is
+      // already safe in the closure; a slow store must not stall the run.
+      void options.userscriptValueStore?.save(result.value).catch((error: unknown) => {
+        console.warn('[nanobrowser] could not persist the last userscript value', error);
+      });
       const full = result.value === undefined ? '(no value)' : JSON.stringify(result.value);
       const value =
         full.length > RUN_USERSCRIPT_RESULT_MAX_CHARS
@@ -524,6 +596,7 @@ export function createPageTools(options: CreatePageToolsOptions): RuntimePageToo
     },
 
     async writeUserscript(request) {
+      refuseIfReadOnly('write_userscript');
       if (!options.writeUserscript) {
         throw new Error('writing userscripts is not available in this run');
       }
@@ -543,6 +616,22 @@ export function createPageTools(options: CreatePageToolsOptions): RuntimePageToo
     async saveFile(filename, content, fromLastUserscript) {
       let body = content;
       if (fromLastUserscript) {
+        if (!hasLastUserscriptValue && options.userscriptValueStore) {
+          // The closure is empty but a store exists: this tool instance was
+          // born in a restart. Adopt the durable value when there is one.
+          const stored = await options.userscriptValueStore.load().catch((error: unknown) => {
+            console.warn('[nanobrowser] could not load the last userscript value', error);
+            return { found: false as const };
+          });
+          if (stored.found) {
+            lastUserscriptValue = stored.value;
+            hasLastUserscriptValue = true;
+          } else {
+            throw new Error(
+              'the last userscript value was lost to a restart: re-run the script, then save again',
+            );
+          }
+        }
         if (!hasLastUserscriptValue) throw new Error('no userscript has run yet in this session: nothing to save');
         body = JSON.stringify(lastUserscriptValue, null, 2) ?? String(lastUserscriptValue);
       }

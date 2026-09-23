@@ -23,6 +23,7 @@ import type { RunEndedEvent, RunHandle, StartRunOptions } from '@/src/agent/run'
 import type { ExtLogEntry } from './errorLog';
 import { RunManager } from './runManager';
 import type { RuntimeDriver } from './pageTools';
+import { memoryStores, type ReplayStore } from './durability';
 import {
   applyRunOptions,
   createWorker,
@@ -170,6 +171,8 @@ function harness(
     handleUserscript?: Parameters<typeof createWorker>[0]['handleUserscript'];
     tabUrl?: string;
     reloadExtension?: () => void;
+    getLastRunId?: () => Promise<string | null>;
+    replayStore?: ReplayStore;
   } = {},
 ): Harness {
   const host = new FakeHost();
@@ -186,6 +189,7 @@ function harness(
     runUserscript: async (scriptId) => ({ scriptId, ok: true, console: [], durationMs: 0 }),
     start: scripted.start,
     newRunId: () => 'run-1',
+    ...(options.replayStore ? { replayStore: options.replayStore } : {}),
   });
 
   const worker = createWorker({
@@ -196,6 +200,7 @@ function harness(
     now: () => now.value,
     ...(options.handleUserscript ? { handleUserscript: options.handleUserscript } : {}),
     ...(options.reloadExtension ? { reloadExtension: options.reloadExtension } : {}),
+    ...(options.getLastRunId ? { getLastRunId: options.getLastRunId } : {}),
   });
 
   return {
@@ -317,6 +322,46 @@ describe('createWorker: runs', () => {
     expect(h.host.log.every((entry) => entry.runId === 'run-1')).toBe(true);
   });
 
+  it('refuses pixels for a known text-only follower named by the panel, instead of running blind', async () => {
+    const h = harness();
+    const panel = h.connect();
+    panel.send('run.start', {
+      prompt: 'go',
+      config: { ...config, observe: 'pixels' },
+      followerVision: false,
+    });
+    await settle();
+
+    const ended = panel
+      .received('run.event')
+      .map((p) => (p as { event: RunEvent }).event)
+      .find((e) => e.kind === 'run.ended');
+    expect(ended).toMatchObject({ kind: 'run.ended', status: 'error', steps: 0 });
+    expect((ended as { message: string }).message).toContain('cannot see images');
+  });
+
+  it('restores the last run at startup so an unattended run terminates without a panel', async () => {
+    const stores = memoryStores();
+    await stores.replay.save('run-9', [
+      { kind: 'run.started', runId: 'run-9', prompt: 'go', config, tabId: 3, url: 'https://example.test/', at: 1 },
+      { kind: 'step', n: 1, role: 'follower', at: 2 },
+    ]);
+    const h = harness({ getLastRunId: async () => 'run-9', replayStore: stores.replay });
+    await settle();
+    await settle();
+
+    // The interrupted run got its clean terminal event plus the run.end frame
+    // nb-run exits on — no panel ever connected.
+    const kinds = h.host.log.map((entry) => {
+      const event = entry.event as { kind?: string; type?: string };
+      return event.kind ?? event.type;
+    });
+    expect(kinds).toEqual(['run.ended', 'run.end']);
+    expect(h.host.log[0]?.event).toMatchObject({ status: 'error' });
+    expect(h.host.log[1]?.event).toMatchObject({ type: 'run.end', status: 'error' });
+    expect(h.runManager.replay('run-9').map((e) => e.kind)).toEqual(['run.started', 'step', 'run.ended']);
+  });
+
   it('replays the buffered log for a reopened panel', async () => {
     const h = harness();
     const first = h.connect();
@@ -331,6 +376,51 @@ describe('createWorker: runs', () => {
     const replay = reopened.received('runlog.replay')[0] as { runId: string; events: RunEvent[] };
     expect(replay.runId).toBe('run-1');
     expect(replay.events.map((e) => e.kind)).toEqual(['run.started', 'input.fidelity', 'step', 'run.ended']);
+  });
+
+  it('replays the durable log after a worker restart, ending the interrupted run cleanly (M6)', async () => {
+    const stores = memoryStores();
+    await stores.replay.save('run-9', [
+      {
+        kind: 'run.started',
+        runId: 'run-9',
+        prompt: 'go',
+        config,
+        tabId: 3,
+        url: 'https://example.test/',
+        at: 1,
+      },
+      { kind: 'step', n: 1, role: 'follower', at: 2 },
+    ]);
+
+    // A brand-new manager with an empty ring: everything it knows comes from the store.
+    const host = new FakeHost();
+    const restarted = new RunManager({
+      driver: fakeDriver(),
+      tabs: { activeTab: async () => ({ id: 3, url: 'https://example.test/' }), get: async () => ({ id: 3, url: 'https://example.test/' }) },
+      host,
+      createModel: (model) => new FakeChatModel({ label: model }),
+      runUserscript: async (scriptId) => ({ scriptId, ok: true, console: [], durationMs: 0 }),
+      replayStore: stores.replay,
+    });
+    const worker = createWorker({ host, runManager: restarted, getConfig: async () => config });
+
+    const [workerSide, panelSide] = createFakePortPair();
+    const channel = createChannel<unknown, unknown>(panelSide);
+    const sent: Envelope<unknown>[] = [];
+    channel.onMessage((envelope) => sent.push(envelope));
+    worker.connect(workerSide);
+    channel.send('runlog.replay', { runId: 'run-9' });
+    await settle();
+
+    const replay = sent.filter((e) => e.type === 'runlog.replay').map((e) => e.payload)[0] as {
+      runId: string;
+      events: RunEvent[];
+    };
+    expect(replay.runId).toBe('run-9');
+    expect(replay.events.map((e) => e.kind)).toEqual(['run.started', 'step', 'run.ended']);
+    expect(replay.events.at(-1)).toMatchObject({ status: 'error' });
+    expect((replay.events.at(-1) as { message: string }).message).toContain('restarted');
   });
 
   it('delegates pause, resume and abort to the live run', async () => {

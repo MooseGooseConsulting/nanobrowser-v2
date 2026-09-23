@@ -108,7 +108,7 @@ export interface UserscriptRunResult {
 
 /** Side panel -> service worker. `type` on the wire is the key. */
 export interface PanelToWorker {
-  'run.start': { prompt: string; config: Config };
+  'run.start': { prompt: string; config: Config; followerVision?: boolean };
   'run.pause': { runId: RunId };
   'run.resume': { runId: RunId };
   'run.abort': { runId: RunId };
