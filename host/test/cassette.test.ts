@@ -175,4 +175,18 @@ describe('CassetteStore', () => {
     await expect(fs.access(path.join(dir, 'escaped.json'))).rejects.toThrow();
     expect(await store.read('../escaped')).toBeNull();
   });
+
+  it('never follows a planted symlink inside the directory, on write or read', async () => {
+    const inner = path.join(dir, 'cassettes');
+    await fs.mkdir(inner, { recursive: true });
+    const outside = path.join(dir, 'victim.txt');
+    await fs.writeFile(outside, 'untouched', 'utf8');
+    await fs.symlink(outside, path.join(inner, 'planted.json'));
+
+    const store = new CassetteStore(inner);
+    const entry = { key: 'planted', url: 'chat/completions', model: 'm', status: 200, headers: {}, chunks: [] };
+    await expect(store.write(entry)).rejects.toThrow(/non-regular file/);
+    expect(await fs.readFile(outside, 'utf8')).toBe('untouched');
+    expect(await store.read('planted')).toBeNull();
+  });
 });

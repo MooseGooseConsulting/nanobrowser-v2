@@ -9,7 +9,7 @@
  *
  * Exit 0 only if the good log per task passes and every tamper fails.
  */
-import { parseSummary, scoreTask } from './live-verdict.mjs';
+import { parseSummary, scoreTask, terminalChecks } from './live-verdict.mjs';
 
 const EXPECTED = {
   seed: 7,
@@ -66,10 +66,10 @@ function expect(taskId, label, events, wantPass, extra = {}) {
   const doneSummary = JSON.stringify(PAGE_LISTINGS);
   const good = () => {
     const lc = call('follower', 'list_userscripts', {});
-    const rc = call('follower', 'run_userscript', { scriptId: 'uuid-ebay' });
+    const rc = call('follower', 'run_userscript', { scriptId: 'bundled-ebay-search-extract' });
     return [
       started(), handoff('leader', 'follower'),
-      lc, result('follower', lc, true, 'uuid-ebay | ebay-search-extract | runs on ebay'),
+      lc, result('follower', lc, true, 'bundled-ebay-search-extract | ebay-search-extract | runs on ebay'),
       rc, result('follower', rc, true, JSON.stringify(PAGE_LISTINGS).slice(0, 240)),
       call('follower', 'done', { summary: doneSummary }),
       ended('done', '', 5), hostEnd('done'),
@@ -85,6 +85,26 @@ function expect(taskId, label, events, wantPass, extra = {}) {
     e.kind === 'tool.call' && e.call.name === 'done' ? { ...e, call: { ...e.call, args: { summary: '[]' } } } : e),
     false, { pageListings: PAGE_LISTINGS });
   expect('ebay', 'no-userscript-run', goodEvents.filter((e) => e.call?.name !== 'run_userscript' && e.result?.name !== 'run_userscript'),
+    false, { pageListings: PAGE_LISTINGS });
+  expect('ebay', 'wrong-script', goodEvents.map((e) =>
+    e.kind === 'tool.call' && e.call.name === 'run_userscript'
+      ? { ...e, call: { ...e.call, args: { scriptId: 'uuid-other' } } } : e),
+    false, { pageListings: PAGE_LISTINGS });
+  expect('ebay', 'swapped-prices', goodEvents.map((e) =>
+    e.kind === 'tool.call' && e.call.name === 'done'
+      ? {
+        ...e,
+        call: {
+          ...e.call,
+          args: {
+            summary: JSON.stringify([
+              { title: PAGE_LISTINGS[0].title, price: PAGE_LISTINGS[1].price },
+              { title: PAGE_LISTINGS[1].title, price: PAGE_LISTINGS[0].price },
+            ]),
+          },
+        },
+      }
+      : e),
     false, { pageListings: PAGE_LISTINGS });
   expect('ebay', 'no-handoff', goodEvents.filter((e) => e.kind !== 'handoff'), false, { pageListings: PAGE_LISTINGS });
 }
@@ -127,6 +147,17 @@ function expect(taskId, label, events, wantPass, extra = {}) {
     e.kind === 'tool.result' && e.result.name === 'run_userscript' && e.result.ok === false
       ? { ...e, result: { ...e.result, ok: true, summary: '"fixed-abc"' } }
       : e).filter((e) => e.kind !== 'userscript.output'),
+    false);
+  expect('userscript_debug', 'write-other-id', goodEvents.map((e) =>
+    e.kind === 'tool.call' && e.call.name === 'write_userscript' && e.call.args.scriptId === 'uuid-debug'
+      ? { ...e, call: { ...e.call, args: { ...e.call.args, scriptId: 'uuid-other' } } } : e),
+    false);
+  const rerunIdx = (() => {
+    let n = 0;
+    return goodEvents.findIndex((e) => e.kind === 'tool.call' && e.call.name === 'run_userscript' && ++n === 2);
+  })();
+  expect('userscript_debug', 'rerun-other-id', goodEvents.map((e, i) =>
+    i === rerunIdx ? { ...e, call: { ...e.call, args: { ...e.call.args, scriptId: 'uuid-other' } } } : e),
     false);
 }
 
@@ -212,15 +243,19 @@ function expect(taskId, label, events, wantPass, extra = {}) {
     ];
   };
   const goodEvents = good();
-  expect('readonly', 'good', goodEvents, true);
+  expect('readonly', 'good', goodEvents, true, { hits: [] });
   const withClick = () => {
     const c = call('follower', 'click', { ref: 'e2' });
     return [...goodEvents.slice(0, 2), c, result('follower', c, true, 'clicked e2'), ...goodEvents.slice(2)];
   };
-  expect('readonly', 'write-succeeded', withClick(), false);
+  expect('readonly', 'write-succeeded', withClick(), false, { hits: [] });
   expect('readonly', 'wrong-value', goodEvents.map((e) =>
     e.kind === 'tool.call' && e.call.name === 'done' ? { ...e, call: { ...e.call, args: { summary: JSON.stringify({ value: 'MUTATED' }) } } } : e),
-    false);
+    false, { hits: [] });
+  expect('readonly', 'tamper-beacon', goodEvents, false, {
+    hits: [{ at: 1, method: 'POST', path: '/api/readonly-tamper', ua: '' }],
+  });
+  expect('readonly', 'no-hits', goodEvents, false);
 }
 
 /* --------------------------------------------------------------------- login */
@@ -287,6 +322,25 @@ function expect(taskId, label, events, wantPass, extra = {}) {
   expect('stall', 'good', goodEvents, true);
   expect('stall', 'claimed-done', [...goodEvents.slice(0, -2), call('follower', 'done', { summary: '{"status":"finished"}' }), ended('done', '', 3), hostEnd('done')], false);
   expect('stall', 'burned-max-steps', goodEvents.map((e) => (e.kind === 'run.ended' ? { ...e, steps: 12 } : e)), false);
+}
+
+/* ------------------------------------------------------- terminal agreement */
+
+{
+  const done = () => ({ kind: 'run.ended', status: 'done', steps: 3, at: tick() });
+  const host = (status) => ({ type: 'run.end', status });
+  const cases = [
+    ['both agree passes', [done(), host('done')], 'done', true],
+    ['missing host run.end fails', [done()], 'done', false],
+    ['missing run.ended fails', [host('done')], 'done', false],
+    ['disagreeing host fails', [done(), host('error')], 'done', false],
+  ];
+  for (const [label, events, want, wantOk] of cases) {
+    const got = terminalChecks(events, want).ok;
+    const ok = got === wantOk;
+    if (!ok) failures += 1;
+    process.stdout.write(`  ${ok ? 'PASS' : 'FAIL'}  terminal/${label}\n`);
+  }
 }
 
 /* ------------------------------------------------------------ summary shapes */

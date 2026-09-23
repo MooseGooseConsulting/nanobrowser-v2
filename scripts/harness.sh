@@ -158,7 +158,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-[ "$LIVE_ONLY" = "1" ] && [ "$SCRIPTED_ONLY" = "1" ] && { echo "harness: --live-only and --scripted-only contradict" >&2; exit 2; }
+[ "$LIVE" = "1" ] && [ "$SCRIPTED_ONLY" = "1" ] && { echo "harness: --live/--live-only and --scripted-only contradict" >&2; exit 2; }
 
 for bin in node jq agent-browser timeout; do
   command -v "$bin" >/dev/null || { echo "harness: $bin is required" >&2; exit 2; }
@@ -493,6 +493,10 @@ run_live() {
     ok "live verdicts accept good synthetic logs and reject tampers ($(grep -c '^  PASS' "$OUT/selftest.txt") checks)"
   else
     cat "$OUT/selftest.txt"; bad "live verdict self-test failed (see $OUT/selftest.txt)"
+    # Fail closed: untrusted scorers must not spend the real key and network on
+    # tasks whose verdicts would be meaningless. The recorded failure still fails
+    # the harness; the summary below reports the tier as unfinished.
+    return
   fi
 
   step "live fixture"
@@ -504,6 +508,8 @@ run_live() {
 
   local known task
   known="$(node "$HARNESS/live-tasks.mjs" --list | tr '\n' ' ')"
+  # An empty task list would run zero tasks and score 0/0 as a pass; refuse it here.
+  [ -n "${LIVE_TASKS//[ ,]/}" ] || { echo "harness: --live-tasks names no task; refusing a 0-task live tier" >&2; exit 2; }
   for task in ${LIVE_TASKS//,/ }; do
     [[ " $known " == *" $task "* ]] || { echo "harness: unknown live task $task (known: $known)" >&2; exit 2; }
   done

@@ -20,6 +20,7 @@
  *   /files/report.csv  the download target; bytes are fixed by the seed
  *   /escalation     button whose handler reports event.isTrusted
  *   /readonly       a value to report plus inputs a read-only run must not touch
+ *   /api/readonly-tamper  POST beacon the readonly page fires on any input/change/drift
  *   /login          form posting to /api/login; success reveals the post-login text
  *   /api/login      POST {user, password} -> {ok, text?}
  *   /redaction      a prefilled password input plus a public value to report
@@ -170,6 +171,25 @@ const READONLY_PAGE = `<!doctype html>
     document.getElementById('mutate').addEventListener('click', () => {
       document.getElementById('readonly-value').textContent = 'MUTATED';
     });
+    // Tamper beacon for the readonly verdict: any input, committed change, or drift
+    // of the served baseline POSTs once. Polling (not just events) because a script
+    // assigning .value directly fires nothing.
+    (() => {
+      const valueEl = document.getElementById('readonly-value');
+      const notesEl = document.getElementById('notes');
+      const baseline = { text: valueEl.textContent, notes: notesEl.value };
+      let sent = false;
+      const beacon = () => {
+        if (sent) return;
+        sent = true;
+        fetch('/api/readonly-tamper', { method: 'POST' }).catch(() => {});
+      };
+      window.addEventListener('input', beacon, true);
+      window.addEventListener('change', beacon, true);
+      setInterval(() => {
+        if (valueEl.textContent !== baseline.text || notesEl.value !== baseline.notes) beacon();
+      }, 250);
+    })();
   </script>
 </body>
 </html>
@@ -338,6 +358,7 @@ const server = http.createServer(async (req, res) => {
   }
   if (req.method === 'GET' && url.pathname === '/escalation') return html(ESCALATION_PAGE);
   if (req.method === 'GET' && url.pathname === '/readonly') return html(READONLY_PAGE);
+  if (req.method === 'POST' && url.pathname === '/api/readonly-tamper') return json(200, { ok: true });
   if (req.method === 'GET' && url.pathname === '/login') return html(LOGIN_PAGE);
   if (req.method === 'POST' && url.pathname === '/api/login') {
     let body = {};

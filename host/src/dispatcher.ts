@@ -105,10 +105,18 @@ export class Dispatcher {
           this.#deps.onRunEvent?.(m.runId, m.event);
           this.#deps.send({ type: 'runlog.ack', ...(m.id ? { id: m.id } : {}), runId: m.runId, ok: true });
         };
-        const tail = (this.#runLogTails.get(m.runId) ?? Promise.resolve()).then(append);
-        this.#runLogTails.set(m.runId, tail);
-        await tail;
-        if (this.#runLogTails.get(m.runId) === tail) this.#runLogTails.delete(m.runId);
+        // The stored tail is guarded: if this append throws (a subscriber or a dead
+        // socket), the caller still sees the rejection, but the chain itself stays
+        // healthy so later appends are not silently skipped behind a rejected link.
+        const prev = this.#runLogTails.get(m.runId) ?? Promise.resolve();
+        const run = prev.then(append, append);
+        const guarded = run.catch(() => {});
+        this.#runLogTails.set(m.runId, guarded);
+        try {
+          await run;
+        } finally {
+          if (this.#runLogTails.get(m.runId) === guarded) this.#runLogTails.delete(m.runId);
+        }
         return;
       }
 

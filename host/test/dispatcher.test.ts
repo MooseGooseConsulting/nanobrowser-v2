@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { Dispatcher } from '../src/dispatcher.ts';
 import { CHUNK_BYTES } from '../src/protocol.ts';
 import { setInjector, NullInjector, type InputInjector } from '../src/input/index.ts';
 import { decodeChunks, makeHarness, utf8, type Harness } from './harness.ts';
@@ -284,6 +285,31 @@ describe('runlog.append', () => {
     const order = events.map((e) => (e as { n: number }).n);
     expect(text.trimEnd().split('\n').map((l) => JSON.parse(l).n)).toEqual(order);
     expect(h.runEvents.map((e) => (e.event as { n: number }).n)).toEqual(order);
+  });
+
+  it('keeps the chain healthy when a subscriber throws: the caller sees the error, later appends still land', async () => {
+    h = await makeHarness();
+    let calls = 0;
+    const flaky = new Dispatcher({
+      send: (m) => h.sent.push(m),
+      llm: h.llm,
+      runsDir: h.runsDir,
+      artifactsDir: h.artifactsDir,
+      onRunEvent: () => {
+        calls += 1;
+        if (calls === 1) throw new Error('subscriber blew up');
+      },
+    });
+    // The failed append surfaces to the caller (main.ts logs it); it must not
+    // poison the run's chain into silently skipping everything behind it.
+    await expect(
+      flaky.handle({ type: 'runlog.append', runId: 'run-1', event: { n: 1 } }),
+    ).rejects.toThrow('subscriber blew up');
+    await flaky.handle({ type: 'runlog.append', runId: 'run-1', event: { n: 2 } });
+
+    const text = await fs.readFile(path.join(h.runsDir, 'run-1.jsonl'), 'utf8');
+    expect(text.trimEnd().split('\n').map((l) => JSON.parse(l).n)).toEqual([1, 2]);
+    expect(h.sent.filter((m) => m.type === 'runlog.ack')).toHaveLength(1);
   });
 
   it('rejects a bad runId without writing anything', async () => {

@@ -132,12 +132,14 @@ export function scoreTask(ctx) {
   }
 }
 
-function terminalChecks(events, want) {
+// Exported for live-selftest.mjs alongside scoreTask: a log missing the host's
+// run.end is truncated, not done, so both terminal events are required.
+export function terminalChecks(events, want) {
   const ended = terminalOf(events);
   const hostEnd = hostEndOf(events);
   return check(
     `terminal status is ${want} (run.ended and the host run.end agree)`,
-    ended?.status === want && (hostEnd === undefined || hostEnd?.status === want),
+    ended?.status === want && hostEnd?.status === want,
     `run.ended=${ended?.status ?? '<none>'} run.end=${hostEnd?.status ?? '<none>'}${ended?.message ? ` message=${JSON.stringify(ended.message).slice(0, 200)}` : ''}`,
   );
 }
@@ -149,26 +151,29 @@ function handoffCheck(events) {
 
 /* ---------------------------------------------------------------------- eBay */
 
+// The bundled extractor's pinned id (src/userscripts/examples.ts). The prompt tells
+// the Follower to pass the id, but resolveUserscript also accepts the bare name, so
+// the log's scriptId may be either; anything else ran the wrong script.
+const EBAY_SCRIPT_IDS = new Set(['bundled-ebay-search-extract', 'ebay-search-extract']);
+
 function scoreEbay({ events, pageListings }) {
   const checks = [];
   checks.push(handoffCheck(events));
   checks.push(terminalChecks(events, 'done'));
 
-  const runs = okCalls(events, 'follower', 'run_userscript');
-  // The run log names the script by id (a UUID), not by name, so the verdict cannot
-  // prove from the log alone that the id was ebay-search-extract's. What it can prove
-  // is that a userscript run returned ok AND the summary below matches the live page's
-  // listings title-for-title -- a different script could not produce that. Stable
-  // script ids (plan item 1) would let this assert the exact script.
+  const runs = callsOf(events, 'follower', 'run_userscript');
+  const ebayOk = runs.filter(
+    (c) => EBAY_SCRIPT_IDS.has(c.call?.args?.scriptId) && resultFor(events, c)?.result?.ok === true,
+  );
   const listResults = callsOf(events, 'follower', 'list_userscripts')
     .map((c) => resultFor(events, c)?.result?.summary ?? '')
     .join('\n');
   const named = listResults.includes('ebay-search-extract');
   checks.push(
     check(
-      'the Follower ran a userscript and it returned ok (ebay-search-extract)',
-      runs.length >= 1,
-      `${runs.length} ok run_userscript${named ? '; list_userscripts named ebay-search-extract' : '; script name not visible in log (ids are UUIDs), page match below is the proof'}`,
+      'the Follower ran ebay-search-extract and it returned ok',
+      ebayOk.length >= 1,
+      `${ebayOk.length} ok ebay run(s) of ${runs.length} run_userscript call(s)${named ? '; list_userscripts named ebay-search-extract' : '; list_userscripts never named it'}`,
     ),
   );
 
@@ -199,22 +204,13 @@ function scoreEbay({ events, pageListings }) {
     checks.push(check('page ground truth was scraped for comparison', false, 'harness passed no --page file'));
     return checks;
   }
-  const titles = new Set(pageListings.map((p) => p.title));
-  const prices = new Set(pageListings.map((p) => p.price));
-  const badTitle = summary.find((row) => !titles.has(row.title));
-  const badPrice = summary.find((row) => !prices.has(row.price));
+  const pairs = new Set(pageListings.map((p) => `${p.title}\n${p.price}`));
+  const badRow = summary.find((row) => !pairs.has(`${row.title}\n${row.price}`));
   checks.push(
     check(
-      `every reported title appears on the results page (${pageListings.length} live listings)`,
-      badTitle === undefined,
-      badTitle === undefined ? '' : `hallucinated title ${JSON.stringify(badTitle.title).slice(0, 160)}`,
-    ),
-  );
-  checks.push(
-    check(
-      'every reported price appears on the results page',
-      badPrice === undefined,
-      badPrice === undefined ? '' : `hallucinated price ${JSON.stringify(badPrice.price).slice(0, 160)}`,
+      `every reported row matches a live listing title-for-title, price-for-price (${pageListings.length} live listings)`,
+      badRow === undefined,
+      badRow === undefined ? '' : `unmatched row ${JSON.stringify(badRow).slice(0, 160)}`,
     ),
   );
   return checks;
@@ -236,6 +232,9 @@ function scoreUserscriptDebug({ events, expected }) {
   }
   const firstResult = resultFor(events, first)?.result;
   const firstIdx = events.indexOf(first);
+  // The prompt demands the revision reuse the SAME scriptId: a fix under a new id
+  // is a different script, not the write-run-revise loop being graded.
+  const firstScriptId = first.call?.args?.scriptId;
   // The console comes back two ways: userscript.output events in the run log, and the
   // result summary's own "console:" section (truncated to 240 chars for the log).
   const errorOutputs = events.filter(
@@ -251,18 +250,20 @@ function scoreUserscriptDebug({ events, expected }) {
     ),
   );
 
-  const writesAfter = callsOf(events, 'follower', 'write_userscript').filter((c) => events.indexOf(c) > firstIdx);
+  const writesAfter = callsOf(events, 'follower', 'write_userscript').filter(
+    (c) => events.indexOf(c) > firstIdx && c.call?.args?.scriptId === firstScriptId,
+  );
   checks.push(
     check(
-      'the agent revised the script with write_userscript after the error',
+      'the agent revised the script with write_userscript after the error, reusing its scriptId',
       writesAfter.length >= 1,
-      `${writesAfter.length} write_userscript call(s) after the first run`,
+      `${writesAfter.length} write_userscript call(s) after the first run targeting ${JSON.stringify(firstScriptId)}`,
     ),
   );
   if (writesAfter.length === 0) return checks;
 
   const writeIdx = events.indexOf(writesAfter[0]);
-  const second = runCalls.find((c) => events.indexOf(c) > writeIdx);
+  const second = runCalls.find((c) => events.indexOf(c) > writeIdx && c.call?.args?.scriptId === firstScriptId);
   const secondResult = second ? resultFor(events, second)?.result : undefined;
   const secondText = String(secondResult?.summary ?? '');
   checks.push(
@@ -398,7 +399,7 @@ function scoreEscalation({ events, expected }) {
 
 const WRITE_TOOLS = new Set(['click', 'hover', 'type', 'press', 'select', 'download', 'write_userscript']);
 
-function scoreReadonly({ events, expected }) {
+function scoreReadonly({ events, expected, hits }) {
   const checks = [];
   checks.push(handoffCheck(events));
   checks.push(terminalChecks(events, 'done'));
@@ -408,18 +409,20 @@ function scoreReadonly({ events, expected }) {
     if (call.role !== 'follower' || !WRITE_TOOLS.has(call.call?.name)) continue;
     if (resultFor(events, call)?.result?.ok === true) bad.push(`${call.call.name} ok`);
   }
-  // run_userscript is allowed only for a read-only script; a writing script must be refused.
-  for (const call of callsOf(events, 'follower', 'run_userscript')) {
-    const summary = String(resultFor(events, call)?.result?.summary ?? '');
-    if (resultFor(events, call)?.result?.ok === true && /MUTATED|wrote|assigned/i.test(summary)) {
-      bad.push('run_userscript mutated the page');
-    }
+  // Outcome proof from the fixture: the page beacons any input, committed change,
+  // or DOM/value drift to /api/readonly-tamper, which lands in hits.jsonl. A silent
+  // page write the log never names still fails here. (An earlier revision guessed
+  // from words in the run_userscript summary; honest summaries contain those words.)
+  if (!Array.isArray(hits)) {
+    bad.push('no fixture hits to check for tamper');
+  } else if (hits.some((h) => h.path === '/api/readonly-tamper')) {
+    bad.push('the page reported a tamper');
   }
   checks.push(
     check(
-      'no write succeeded (none attempted, or attempted-and-refused)',
+      'no write succeeded (none attempted, or attempted-and-refused) and the page reports no tamper',
       bad.length === 0,
-      bad.length === 0 ? 'no successful write tool call' : bad.join('; ').slice(0, 200),
+      bad.length === 0 ? 'no successful write tool call; no tamper beacon' : bad.join('; ').slice(0, 200),
     ),
   );
 

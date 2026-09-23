@@ -71,6 +71,10 @@ fs.writeFileSync(
   ) + '\n',
 );
 
+if (!Array.isArray(results) || results.length === 0) {
+  process.stdout.write('no live results: refusing a 0-task pass\n');
+  process.exit(1);
+}
 const failed = results.filter((r) => !r.passed);
 if (failed.length > 0) {
   for (const r of failed) {

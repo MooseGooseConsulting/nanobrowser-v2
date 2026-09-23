@@ -124,7 +124,9 @@ export class CassetteStore {
 
   async read(key: string): Promise<CassetteEntry | null> {
     try {
-      return JSON.parse(await fs.readFile(this.fileFor(key), 'utf8')) as CassetteEntry;
+      const file = this.fileFor(key);
+      if (!(await isPlainFileOrAbsent(file))) return null;
+      return JSON.parse(await fs.readFile(file, 'utf8')) as CassetteEntry;
     } catch {
       return null;
     }
@@ -132,6 +134,22 @@ export class CassetteStore {
 
   async write(entry: CassetteEntry): Promise<void> {
     await fs.mkdir(this.#dir, { recursive: true });
-    await fs.writeFile(this.fileFor(entry.key), JSON.stringify(entry, null, 2) + '\n', 'utf8');
+    const file = this.fileFor(entry.key);
+    if (!(await isPlainFileOrAbsent(file))) {
+      throw new Error(
+        `refusing cassette write to a non-regular file: ${JSON.stringify(entry.key.slice(0, 80))}`,
+      );
+    }
+    await fs.writeFile(file, JSON.stringify(entry, null, 2) + '\n', 'utf8');
   }
+}
+
+/**
+ * True when `file` is absent or a plain file. A symlink inside the cassette
+ * directory is never followed: a planted link would otherwise redirect a write
+ * outside the directory or serve foreign bytes as a replayed response.
+ */
+async function isPlainFileOrAbsent(file: string): Promise<boolean> {
+  const st = await fs.lstat(file).catch(() => null);
+  return st === null || st.isFile();
 }
