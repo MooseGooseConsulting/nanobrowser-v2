@@ -26,9 +26,11 @@ const baseConfig: Config = {
 
 interface HarnessOptions {
   follower: (call: FakeCall) => FakeTurn;
+  leader?: (call: FakeCall) => FakeTurn;
   planningInterval?: number;
   maxSteps?: number;
   observe?: ObserveMode;
+  readOnly?: boolean;
   subgoals?: string[];
 }
 
@@ -46,11 +48,13 @@ async function harness(options: HarnessOptions): Promise<HarnessResult> {
   const subgoals = options.subgoals ?? ['open the page', 'read the page'];
   const leader = new FakeChatModel({
     label: 'leader',
-    respond: () => ({
-      kind: 'tool',
-      name: 'set_plan',
-      args: { plan: 'do it in two moves', subgoals, currentSubgoal: 0 },
-    }),
+    respond:
+      options.leader ??
+      (() => ({
+        kind: 'tool',
+        name: 'set_plan',
+        args: { plan: 'do it in two moves', subgoals, currentSubgoal: 0 },
+      })),
   });
   const follower = new FakeChatModel({ label: 'follower', respond: options.follower });
 
@@ -61,6 +65,7 @@ async function harness(options: HarnessOptions): Promise<HarnessResult> {
       planningInterval: options.planningInterval ?? baseConfig.planningInterval,
       maxSteps: options.maxSteps ?? baseConfig.maxSteps,
       observe: options.observe ?? baseConfig.observe,
+      ...(options.readOnly !== undefined ? { readOnly: options.readOnly } : {}),
     },
     tools: page,
     models: { leader, follower },
@@ -290,7 +295,12 @@ describe('role isolation', () => {
     expect(followerTools).not.toContain('set_plan');
 
     // Each role is bound only to its own tools.
-    expect(leader.boundTools).toEqual(['set_plan']);
+    expect(leader.boundTools).toEqual([
+      'leader_snapshot',
+      'leader_screenshot',
+      'leader_extract_text',
+      'set_plan',
+    ]);
     expect(follower.boundTools).toContain('click');
     expect(follower.boundTools).not.toContain('set_plan');
   });
@@ -429,5 +439,124 @@ describe('the Follower authoring its own userscript (R-09/R-10, O-03)', () => {
     // run, and the console the next edit would be based on.
     expect(toolMessages.find((m) => m.name === 'write_userscript')?.content).toContain('sc-9');
     expect(toolMessages.find((m) => m.name === 'run_userscript')?.content).toContain('[log] found 2');
+  });
+});
+
+describe('leader observation reads (M4)', () => {
+  const finishQuickly = (): FakeTurn => ({ kind: 'tool', name: 'done', args: { summary: 'done' } });
+
+  function leaderCalls(events: RunEvent[], name: string) {
+    return pick(events, 'tool.call').filter((e) => e.role === 'leader' && e.call.name === name);
+  }
+
+  function leaderResults(events: RunEvent[], name: string) {
+    return pick(events, 'tool.result').filter((e) => e.role === 'leader' && e.result.name === name);
+  }
+
+  it('lets the leader pull a snapshot before planning, logged as a leader tool call', async () => {
+    const { events, ended, page } = await harness({
+      maxSteps: 2,
+      follower: finishQuickly,
+      leader: (call) =>
+        call.index === 0
+          ? { kind: 'tool', name: 'leader_snapshot', args: {} }
+          : {
+              kind: 'tool',
+              name: 'set_plan',
+              args: { plan: 'do it in two moves', subgoals: ['open the page'], currentSubgoal: 0 },
+            },
+    });
+
+    // The read really reached the page: one leader pull plus the follower's own
+    // observe on its turn (observe 'dom').
+    expect(page.calls.filter((c) => c.name === 'snapshot')).toHaveLength(2);
+    expect(leaderCalls(events, 'leader_snapshot')).toHaveLength(1);
+    expect(leaderResults(events, 'leader_snapshot')).toMatchObject([{ result: { ok: true } }]);
+    // And the turn still ended in a plan, not in a second follower.
+    expect(pick(events, 'leader.plan')).toHaveLength(1);
+    expect(ended).toMatchObject({ status: 'done' });
+  });
+
+  it('caps leader reads per replan and refuses past the cap instead of executing', async () => {
+    const { events, page } = await harness({
+      maxSteps: 2,
+      follower: finishQuickly,
+      // A model that only ever reads: never plans, never stops asking.
+      leader: () => ({ kind: 'tool', name: 'leader_snapshot', args: {} }),
+    });
+
+    // Two reads executed; the rest refused without touching the page again
+    // (3 snapshots total: 2 leader pulls + the follower's own observe).
+    expect(page.calls.filter((c) => c.name === 'snapshot')).toHaveLength(3);
+    expect(leaderCalls(events, 'leader_snapshot')).toHaveLength(4);
+    const results = leaderResults(events, 'leader_snapshot');
+    expect(results.map((e) => e.result.ok)).toEqual([true, true, false, false]);
+    expect(results[2]?.result.summary).toContain('observation budget spent');
+    // The turn still ended (prose fallback) and the run moved on to the follower.
+    expect(pick(events, 'leader.plan')).toHaveLength(1);
+  });
+
+  it('delivers a leader screenshot as pixels, with the text summary in the run log', async () => {
+    const { events, leader, page } = await harness({
+      maxSteps: 2,
+      follower: finishQuickly,
+      leader: (call) =>
+        call.index === 0
+          ? { kind: 'tool', name: 'leader_screenshot', args: {} }
+          : {
+              kind: 'tool',
+              name: 'set_plan',
+              args: { plan: 'do it in two moves', subgoals: ['open the page'], currentSubgoal: 0 },
+            },
+    });
+
+    expect(page.calls.filter((c) => c.name === 'screenshot')).toHaveLength(1);
+    expect(leaderResults(events, 'leader_screenshot')).toMatchObject([{ result: { ok: true } }]);
+    // The second lap's input carries the image block the text summary points at.
+    const seen = JSON.stringify(leader.calls[1]?.messages.map((m) => m.content));
+    expect(seen).toContain('Leader screenshot');
+    expect(seen).toContain('image');
+  });
+
+  it('does not let the follower call the leader reads', async () => {
+    const { ended } = await harness({
+      maxSteps: 4,
+      follower: (call) =>
+        call.index === 0
+          ? { kind: 'tool', name: 'leader_snapshot', args: {} }
+          : { kind: 'tool', name: 'done', args: { summary: 'done' } },
+    });
+
+    // The unknown-tool failure is not a repeat loop: the next turn finishes.
+    expect(ended).toMatchObject({ status: 'done', steps: 2 });
+  });
+});
+
+describe('read-only runs (M9 #13)', () => {
+  it('tells the follower read-only mode is on, and only then', async () => {
+    for (const readOnly of [true, false] as const) {
+      const { follower } = await harness({
+        maxSteps: 1,
+        ...(readOnly ? { readOnly: true } : {}),
+        follower: () => ({ kind: 'tool', name: 'done', args: { summary: 'done' } }),
+      });
+      const first = follower.calls[0]!;
+      const text = JSON.stringify(first.messages.map((m) => m.content));
+      expect(text.includes('Read-only mode is on')).toBe(readOnly);
+    }
+  });
+
+  it('a read-only follower that tries to click learns the tool does not exist', async () => {
+    // Belt and braces with the runtime refusal: the tool is not bound, so the
+    // call fails as unknown-tool — and one failure is not a repeat loop.
+    const { ended } = await harness({
+      maxSteps: 4,
+      readOnly: true,
+      follower: (call) =>
+        call.index === 0
+          ? { kind: 'tool', name: 'click', args: { ref: 'e1' } }
+          : { kind: 'tool', name: 'done', args: { summary: 'done' } },
+    });
+    expect(ended).toMatchObject({ status: 'done', steps: 2 });
   });
 });

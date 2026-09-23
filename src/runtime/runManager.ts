@@ -14,6 +14,8 @@
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import type { BaseCheckpointSaver } from '@langchain/langgraph-checkpoint';
 import { startRun as defaultStartRun, type RunEndedEvent, type RunHandle } from '@/src/agent/run';
+import { validateObserveForVision } from '@/src/agent/grounding';
+import { stepsIn, type ReplayStore, type UserscriptValueStore } from './durability';
 import type { RunEvent, RunId, Userscript } from '@/src/messaging';
 import type { WriteUserscriptRequest } from '@/src/agent/tools';
 import type { Config, ModelSource } from '@/src/storage';
@@ -126,6 +128,18 @@ export interface RunManagerDeps {
   checkpointer?: BaseCheckpointSaver;
   /** Persists `session:lastRunId` so a reopened panel can replay (R-07). */
   saveLastRunId?: (runId: RunId) => Promise<void>;
+  /**
+   * Durable replay ring (M6): every published event is also saved here, so a
+   * panel reopened after a service-worker restart replays the partial log.
+   * Absent means memory only, as before.
+   */
+  replayStore?: ReplayStore;
+  /**
+   * Durable last-userscript value per run (M6): `save_file(fromLastUserscript:
+   * true)` after a restart reads this instead of failing obscurely. Absent
+   * means the value lives only in the run's closure, as before.
+   */
+  userscriptValueStoreFor?: (runId: RunId) => UserscriptValueStore | undefined;
   newRunId?: () => RunId;
   now?: () => number;
   /** Events kept per run for `runlog.replay`. */
@@ -141,6 +155,12 @@ export interface StartOptions {
   tabId?: number;
   /** Supplied by the dev trigger, which subscribes by run id. */
   runId?: RunId;
+  /**
+   * Whether the Follower model can see images. Absent means unknown (runs that
+   * predate the flag proceed as today); explicitly false plus `pixels`/`both`
+   * is refused rather than run blind (M5 closes O-06).
+   */
+  followerVision?: boolean;
 }
 
 export interface StartResult {
@@ -206,6 +226,36 @@ export class RunManager {
     return [...(this.#ring.get(runId) ?? [])];
   }
 
+  /**
+   * Rehydrates one run's replay buffer after a service-worker restart (M6).
+   * A no-op when the buffer is already in memory or nothing was persisted.
+   *
+   * A restored log with no terminal event is a run that died with the old
+   * worker: it gets one clean `run.ended{error}` naming the restart, published
+   * like any other event so the panel, the host log and the store agree. The
+   * alternative — silently resuming a graph against a tab that may have moved
+   * on — would be an invented continuation.
+   */
+  async restoreReplay(runId: RunId): Promise<void> {
+    if (this.#ring.has(runId)) return;
+    const stored = await this.#deps.replayStore?.load(runId).catch((error: unknown) => {
+      console.warn('[nanobrowser] could not load persisted replay', error);
+      return undefined;
+    });
+    if (!stored) return;
+    this.#ring.set(runId, [...stored]);
+    const last = stored.at(-1);
+    if (last?.kind === 'run.ended') return;
+    const now = this.#deps.now ?? Date.now;
+    this.#publish(runId, {
+      kind: 'run.ended',
+      status: 'error',
+      message: 'the extension restarted mid-run; showing the partial log up to the restart',
+      steps: stepsIn(stored),
+      at: now(),
+    });
+  }
+
   async start(options: StartOptions): Promise<StartResult> {
     const now = this.#deps.now ?? Date.now;
     const runId = options.runId ?? (this.#deps.newRunId ?? (() => crypto.randomUUID()))();
@@ -231,6 +281,9 @@ export class RunManager {
         'no model selected: choose a Leader model and a Follower model in the side panel',
       );
     }
+
+    const visionRefusal = validateObserveForVision(config.observe, options.followerVision);
+    if (visionRefusal) return this.#refuse(runId, visionRefusal);
 
     // Ordering guarantee: `run.started` is the first event of every run. Anything
     // emitted while the run is being assembled (e.g. `input.fidelity` from the
@@ -268,6 +321,8 @@ export class RunManager {
     });
 
     const host = this.#deps.host;
+    const userscriptValueStore = this.#deps.userscriptValueStoreFor?.(runId);
+    const readOnly = config.readOnly ?? false;
     const tools = createPageTools({
       tabId: tab.id,
       driver: this.#deps.driver,
@@ -278,6 +333,8 @@ export class RunManager {
       writeUserscript: this.#deps.writeUserscript ?? ((request) => writeAgentUserscript(request)),
       emit,
       runId,
+      ...(readOnly ? { readOnly } : {}),
+      ...(userscriptValueStore ? { userscriptValueStore } : {}),
       ...(host.saveArtifact ? { saveArtifact: (filename: string, content: string) => host.saveArtifact!(runId, filename, content) } : {}),
       ...(this.#deps.now ? { now: this.#deps.now } : {}),
     });
@@ -425,6 +482,11 @@ export class RunManager {
     }
     buffer.push(event);
     if (buffer.length > size) buffer.splice(0, buffer.length - size);
+    // Fire-and-forget: a slow store must never stall the run, and a failed one
+    // must never lose the in-memory buffer. A snapshot copy, not the live array.
+    void this.#deps.replayStore?.save(runId, [...buffer]).catch((error: unknown) => {
+      console.warn('[nanobrowser] could not persist replay event', error);
+    });
   }
 }
 

@@ -67,6 +67,8 @@ export interface RunManagerPort {
   resume(runId: RunId): boolean;
   abort(runId: RunId): boolean;
   replay(runId: RunId): RunEvent[];
+  /** Rehydrates one run's replay buffer from the durable store (M6). No-op when already in memory. */
+  restoreReplay(runId: RunId): Promise<void>;
   navigateActiveTab(url: string): Promise<void>;
   resolveTabId(): Promise<number | undefined>;
   readonly activeRunId: RunId | undefined;
@@ -156,6 +158,7 @@ export function applyRunOptions(config: Config, options?: Record<string, unknown
   if (Number.isInteger(interval) && interval > 0) next.planningInterval = interval;
   const maxSteps = Number(options.maxSteps);
   if (Number.isInteger(maxSteps) && maxSteps > 0) next.maxSteps = maxSteps;
+  if (typeof options.readOnly === 'boolean') next.readOnly = options.readOnly;
   return next;
 }
 
@@ -232,6 +235,10 @@ export function createWorker(deps: WorkerDeps): Worker {
         return;
       case 'runlog.replay': {
         const { runId } = message.payload;
+        // After a service-worker restart the buffer lives only in the durable
+        // store (M6): restore first so the reopened panel replays the partial
+        // log instead of an empty one.
+        await deps.runManager.restoreReplay(runId);
         reply(channel, { type: 'runlog.replay', payload: { runId, events: deps.runManager.replay(runId) } });
         return;
       }

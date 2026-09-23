@@ -37,7 +37,7 @@ import {
 } from '@langchain/core/messages';
 import type { FollowerSignal, Role, RunEvent } from '@/src/messaging/contract';
 import { AgentContextSchema, AgentState, type AgentContext, type RunStatus } from './state';
-import { FollowerSignalSchema, TERMINAL_TOOLS, planTool, summarize, toolResultText } from './tools';
+import { FollowerSignalSchema, LEADER_READ_CAP, READ_TOOL_NAMES, TERMINAL_TOOLS, createLeaderReadTools, planTool, summarize, toolResultText } from './tools';
 
 /**
  * How many past Follower turns (a human observation plus the model's reply) are
@@ -68,11 +68,38 @@ export function trimFollowerHistory(
 /** Consecutive tool-call-less Follower turns before a run is called stalled. */
 export const MAX_IDLE_FOLLOWER_TURNS = 4;
 
+/** Identical failures of the same action before the run is called stuck. */
+export const MAX_REPEAT_FAILURE_TURNS = 2;
+
+/**
+ * Identity of one failed attempt: the tool name, its visible arguments with stable
+ * key order (the `signal`/`note` envelope is already stripped by the caller, so two
+ * attempts that differ only in their control note still match), and the error with
+ * digits normalized (durations and counts vary between identical failures).
+ * Capped so a `save_file` with a huge payload cannot bloat checkpointed state.
+ */
+export function actionKey(name: string, args: Record<string, unknown>, error: string): string {
+  const sorted = Object.fromEntries(
+    Object.entries(args).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+  );
+  let json: string;
+  try {
+    json = JSON.stringify(sorted) ?? '';
+  } catch {
+    json = String(sorted);
+  }
+  if (json.length > 500) json = `${json.slice(0, 500)}…len=${json.length}`;
+  return `${name}\n${json}\n${error.replace(/\d+/g, '#').slice(0, 200)}`;
+}
+
 export const LEADER_SYSTEM = [
   'You are the Leader of a two-role browser agent. You do not touch the page.',
   'You decompose the objective into a short ordered list of concrete subgoals and hand one at a time to the Follower.',
   'You are called again whenever the Follower finishes a subgoal, gets stuck, or after a fixed number of its steps.',
   'When called again, revise the plan against what actually happened. Keep what worked. Do not repeat a subgoal that is already done.',
+  'Before re-planning you may pull evidence with leader_snapshot, leader_screenshot or leader_extract_text ' +
+    '(at most 2 reads per turn) to check what actually happened.',
+  'Pulling evidence is not acting: reads never change the page, and the Follower remains the only role that acts.',
   'The Follower can read long lists as plain text, write and run a script against the page, and save a file; it will call blocked rather than sign in anywhere, so never plan a subgoal that requires logging in.',
   'Always answer by calling set_plan exactly once. Never write prose instead.',
 ].join(' ');
@@ -203,54 +230,153 @@ const leader: GraphNode<typeof AgentState, AgentContext> = async (state, config)
       ].join('\n');
 
   const human = new HumanMessage(situation);
-  const bound = ctx.leaderModel.bindTools?.([planTool]) ?? ctx.leaderModel;
-  const response = (await bound.invoke(
-    [new SystemMessage(LEADER_SYSTEM), ...state.leaderMessages, human],
-    config,
-  )) as AIMessage;
+  // The Leader's read-only observation subset (M4): evidence pulls, not actions.
+  // Built from the same page port the Follower drives, bound next to set_plan.
+  const leaderReads = createLeaderReadTools(ctx.page);
+  const readByName = new Map(leaderReads.map((t) => [t.name, t]));
+  const bound = ctx.leaderModel.bindTools?.([...leaderReads, planTool]) ?? ctx.leaderModel;
 
-  const text = textOf(response);
-  if (text) emit(config, { kind: 'model.text', role: 'leader', text, at: now() });
-
-  const messages: BaseMessage[] = [human, response];
+  const messages: BaseMessage[] = [human];
   let plan = state.plan;
   let subgoals = state.subgoals;
   let currentSubgoal = state.currentSubgoal;
+  let readsUsed = 0;
+  let planned = false;
+  let lastText = '';
 
-  const call = (response.tool_calls ?? [])[0];
-  if (call && call.name === planTool.name) {
-    const callId = call.id ?? `leader-${state.stepCount}`;
-    emit(config, {
-      kind: 'tool.call',
-      role: 'leader',
-      call: { callId, name: call.name, args: call.args },
-      at: now(),
-    });
-    const started = now();
-    let ok = true;
-    let result: string;
-    const args = call.args as { plan: string; subgoals: string[]; currentSubgoal?: number };
-    try {
-      result = toolResultText(await planTool.invoke(args, config));
-      plan = args.plan ?? plan;
-      subgoals = Array.isArray(args.subgoals) && args.subgoals.length ? args.subgoals : subgoals;
-      const picked = typeof args.currentSubgoal === 'number' ? args.currentSubgoal : 0;
-      currentSubgoal = Math.min(Math.max(picked, 0), Math.max(subgoals.length - 1, 0));
-    } catch (error) {
-      ok = false;
-      result = toolResultText(error instanceof Error ? error.message : String(error));
+  // Pull evidence, then plan. Each lap is one model round trip; the loop is
+  // bounded (reads plus room for the plan and one refusal) so a model that
+  // only ever reads still ends its turn instead of becoming a second Follower.
+  for (let lap = 0; lap < LEADER_READ_CAP + 2 && !planned; lap++) {
+    const response = (await bound.invoke(
+      [new SystemMessage(LEADER_SYSTEM), ...state.leaderMessages, ...messages],
+      config,
+    )) as AIMessage;
+    messages.push(response);
+
+    const text = textOf(response);
+    if (text) {
+      lastText = text;
+      emit(config, { kind: 'model.text', role: 'leader', text, at: now() });
     }
-    emit(config, {
-      kind: 'tool.result',
-      role: 'leader',
-      result: { callId, name: call.name, ok, summary: summarize(result), durationMs: now() - started },
-      at: now(),
-    });
-    messages.push(new ToolMessage({ tool_call_id: callId, name: call.name, content: result }));
-  } else {
+
+    const call = (response.tool_calls ?? [])[0];
+    if (!call) break;
+    const callId = call.id ?? `leader-${state.stepCount}-${lap}`;
+
+    if (call.name === planTool.name) {
+      emit(config, {
+        kind: 'tool.call',
+        role: 'leader',
+        call: { callId, name: call.name, args: call.args },
+        at: now(),
+      });
+      const started = now();
+      let ok = true;
+      let result: string;
+      const args = call.args as { plan: string; subgoals: string[]; currentSubgoal?: number };
+      try {
+        result = toolResultText(await planTool.invoke(args, config));
+        plan = args.plan ?? plan;
+        subgoals = Array.isArray(args.subgoals) && args.subgoals.length ? args.subgoals : subgoals;
+        const picked = typeof args.currentSubgoal === 'number' ? args.currentSubgoal : 0;
+        currentSubgoal = Math.min(Math.max(picked, 0), Math.max(subgoals.length - 1, 0));
+      } catch (error) {
+        ok = false;
+        result = toolResultText(error instanceof Error ? error.message : String(error));
+      }
+      emit(config, {
+        kind: 'tool.result',
+        role: 'leader',
+        result: { callId, name: call.name, ok, summary: summarize(result), durationMs: now() - started },
+        at: now(),
+      });
+      messages.push(new ToolMessage({ tool_call_id: callId, name: call.name, content: result }));
+      planned = true;
+    } else if (readByName.has(call.name)) {
+      emit(config, {
+        kind: 'tool.call',
+        role: 'leader',
+        call: { callId, name: call.name, args: call.args },
+        at: now(),
+      });
+      const started = now();
+      if (readsUsed >= LEADER_READ_CAP) {
+        // The cap is per replan: this turn's evidence budget is spent, and the
+        // refusal says what to do instead so a weak model can still finish.
+        const refusal =
+          `observation budget spent: at most ${LEADER_READ_CAP} reads per turn. ` +
+          'Call set_plan with your best plan now.';
+        emit(config, {
+          kind: 'tool.result',
+          role: 'leader',
+          result: { callId, name: call.name, ok: false, summary: refusal, durationMs: now() - started },
+          at: now(),
+        });
+        messages.push(new ToolMessage({ tool_call_id: callId, name: call.name, content: refusal }));
+        continue;
+      }
+      readsUsed += 1;
+      if (call.name === 'leader_screenshot') {
+        // Pixels cannot ride in a ToolMessage (capped text), so the screenshot
+        // arrives as an observation block like the Follower's — fetched once,
+        // logged as text, seen as an image.
+        try {
+          const shot = await ctx.page.screenshot();
+          const summary = `screenshot ${shot.width}x${shot.height}`;
+          emit(config, {
+            kind: 'tool.result',
+            role: 'leader',
+            result: { callId, name: call.name, ok: true, summary, durationMs: now() - started },
+            at: now(),
+          });
+          messages.push(new ToolMessage({ tool_call_id: callId, name: call.name, content: summary }));
+          messages.push(
+            new HumanMessage({
+              content: [
+                { type: 'text', text: `Leader screenshot of the visible page, ${shot.width} by ${shot.height} pixels.` },
+                { type: 'image', url: shot.dataUrl, mimeType: 'image/png' },
+              ],
+            }),
+          );
+        } catch (error) {
+          const result = toolResultText(error instanceof Error ? error.message : String(error));
+          emit(config, {
+            kind: 'tool.result',
+            role: 'leader',
+            result: { callId, name: call.name, ok: false, summary: summarize(result), durationMs: now() - started },
+            at: now(),
+          });
+          messages.push(new ToolMessage({ tool_call_id: callId, name: call.name, content: result }));
+        }
+        continue;
+      }
+      let ok = true;
+      let result: string;
+      try {
+        result = toolResultText(await readByName.get(call.name)!.invoke(call.args, config));
+      } catch (error) {
+        ok = false;
+        result = toolResultText(error instanceof Error ? error.message : String(error));
+      }
+      emit(config, {
+        kind: 'tool.result',
+        role: 'leader',
+        result: { callId, name: call.name, ok, summary: summarize(result), durationMs: now() - started },
+        at: now(),
+      });
+      messages.push(new ToolMessage({ tool_call_id: callId, name: call.name, content: result }));
+    } else {
+      // Not the plan and not a read (a Follower tool name, say): leave it for
+      // the prose fallback below rather than executing another role's action.
+      break;
+    }
+  }
+
+  if (!planned) {
     // Small models sometimes answer in prose. Take the text as the plan rather
     // than stalling the run.
-    plan = text || plan;
+    plan = lastText || plan;
     if (!subgoals.length) subgoals = [plan || ctx.objective];
     currentSubgoal = Math.min(currentSubgoal, Math.max(subgoals.length - 1, 0));
   }
@@ -295,6 +421,13 @@ const follower: GraphNode<typeof AgentState, AgentContext> = async (state, confi
         `Objective: ${ctx.objective}`,
         `Current subgoal: ${subgoal}`,
         `Step ${stepN} of at most ${ctx.maxSteps}.`,
+        ...(ctx.readOnly
+          ? [
+              'Read-only mode is on: act tools (click, hover, type, press, select, download, ' +
+                'write_userscript) are unavailable. Read, navigate, run read-only userscripts, and save — ' +
+                'or call blocked naming the unavailable action.',
+            ]
+          : []),
         scriptLine,
       ].join('\n'),
     },
@@ -339,9 +472,14 @@ const follower: GraphNode<typeof AgentState, AgentContext> = async (state, confi
   let signal: FollowerSignal = 'CONTINUE';
   let note = '';
   let status: RunStatus = 'running';
+  let repeatFailureKey: string | null = state.repeatFailureKey;
+  let repeatFailureTurns = state.repeatFailureTurns;
+  let failureText = '';
 
   if (!call) {
     // No action taken. Hand control back rather than burning steps.
+    // Prose turns deliberately leave the repeat-failure tracker alone: answering in
+    // prose between two identical failures does not make the retry any less futile.
     signal = 'RETURN_TO_LEADER';
     note = 'the follower produced no tool call';
   } else {
@@ -392,8 +530,27 @@ const follower: GraphNode<typeof AgentState, AgentContext> = async (state, confi
     } else if (!ok) {
       signal = parseSignal(declared) ?? 'CONTINUE';
       if (!note) note = 'tool call failed';
+      // Repeat-failure stall detection (M2): the same action failing identically with
+      // no successful page-changing action between attempts is a futile loop. Terminal
+      // tools already ended the run above, so reaching here means the run continues.
+      if (status === 'running') {
+        failureText = result;
+        const key = actionKey(call.name, visibleArgs, result);
+        if (key === repeatFailureKey) repeatFailureTurns += 1;
+        else {
+          repeatFailureKey = key;
+          repeatFailureTurns = 1;
+        }
+      }
     } else {
       signal = parseSignal(declared) ?? 'CONTINUE';
+      // A successful read is not progress against a failing action: the page did not
+      // change. Any other success clears the repeat chain (a retry after real progress
+      // is recovery, not a loop).
+      if (!READ_TOOL_NAMES.has(call.name)) {
+        repeatFailureKey = null;
+        repeatFailureTurns = 0;
+      }
     }
   }
 
@@ -408,6 +565,14 @@ const follower: GraphNode<typeof AgentState, AgentContext> = async (state, confi
     note =
       `the follower returned no tool call ${idleFollowerTurns} turns running; ` +
       'it is answering in prose instead of acting. Try a model that reliably calls tools.';
+  }
+
+  if (status === 'running' && repeatFailureTurns >= MAX_REPEAT_FAILURE_TURNS) {
+    status = 'error';
+    note =
+      `the follower repeated the same failing action ${repeatFailureTurns} times` +
+      `${call ? ` (${call.name})` : ''}: ${summarize(failureText, 160)} No successful action happened ` +
+      'between attempts. Try a different tool or subgoal, or call blocked.';
   }
 
   if (status === 'running' && stepN >= ctx.maxSteps) status = 'max-steps';
@@ -432,6 +597,8 @@ const follower: GraphNode<typeof AgentState, AgentContext> = async (state, confi
     stepCount: stepN,
     stepsSinceReplan,
     idleFollowerTurns,
+    repeatFailureKey,
+    repeatFailureTurns,
     lastSignal: signal,
     status,
   };

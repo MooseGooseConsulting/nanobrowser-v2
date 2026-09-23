@@ -23,6 +23,7 @@ import type { RunEndedEvent, RunHandle, StartRunOptions } from '@/src/agent/run'
 import type { ExtLogEntry } from './errorLog';
 import { RunManager } from './runManager';
 import type { RuntimeDriver } from './pageTools';
+import { memoryStores } from './durability';
 import {
   applyRunOptions,
   createWorker,
@@ -331,6 +332,51 @@ describe('createWorker: runs', () => {
     const replay = reopened.received('runlog.replay')[0] as { runId: string; events: RunEvent[] };
     expect(replay.runId).toBe('run-1');
     expect(replay.events.map((e) => e.kind)).toEqual(['run.started', 'input.fidelity', 'step', 'run.ended']);
+  });
+
+  it('replays the durable log after a worker restart, ending the interrupted run cleanly (M6)', async () => {
+    const stores = memoryStores();
+    await stores.replay.save('run-9', [
+      {
+        kind: 'run.started',
+        runId: 'run-9',
+        prompt: 'go',
+        config,
+        tabId: 3,
+        url: 'https://example.test/',
+        at: 1,
+      },
+      { kind: 'step', n: 1, role: 'follower', at: 2 },
+    ]);
+
+    // A brand-new manager with an empty ring: everything it knows comes from the store.
+    const host = new FakeHost();
+    const restarted = new RunManager({
+      driver: fakeDriver(),
+      tabs: { activeTab: async () => ({ id: 3, url: 'https://example.test/' }), get: async () => ({ id: 3, url: 'https://example.test/' }) },
+      host,
+      createModel: (model) => new FakeChatModel({ label: model }),
+      runUserscript: async (scriptId) => ({ scriptId, ok: true, console: [], durationMs: 0 }),
+      replayStore: stores.replay,
+    });
+    const worker = createWorker({ host, runManager: restarted, getConfig: async () => config });
+
+    const [workerSide, panelSide] = createFakePortPair();
+    const channel = createChannel<unknown, unknown>(panelSide);
+    const sent: Envelope<unknown>[] = [];
+    channel.onMessage((envelope) => sent.push(envelope));
+    worker.connect(workerSide);
+    channel.send('runlog.replay', { runId: 'run-9' });
+    await settle();
+
+    const replay = sent.filter((e) => e.type === 'runlog.replay').map((e) => e.payload)[0] as {
+      runId: string;
+      events: RunEvent[];
+    };
+    expect(replay.runId).toBe('run-9');
+    expect(replay.events.map((e) => e.kind)).toEqual(['run.started', 'step', 'run.ended']);
+    expect(replay.events.at(-1)).toMatchObject({ status: 'error' });
+    expect((replay.events.at(-1) as { message: string }).message).toContain('restarted');
   });
 
   it('delegates pause, resume and abort to the live run', async () => {

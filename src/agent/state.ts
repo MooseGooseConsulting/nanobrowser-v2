@@ -68,6 +68,22 @@ export const AgentState = new StateSchema({
    * graph can stop and say so rather than spending the whole step budget.
    */
   idleFollowerTurns: z.number().int().min(0).default(0),
+  /**
+   * Key of the most recent failed action (`name`, stable args, normalized error).
+   * Null when the last page-changing action succeeded or no action has failed yet.
+   */
+  repeatFailureKey: z.string().nullable().default(null),
+  /**
+   * Consecutive failures of `repeatFailureKey`.
+   *
+   * A model retrying a deterministically failing action burns the whole step budget
+   * reporting `max-steps` (seen live: the same refused `run_userscript` call retried
+   * verbatim, with prose turns in between, to exhaustion). Counted so the graph can
+   * stop and name the loop instead. Successful page reads do not reset this — looking
+   * at an unchanged page is not new information — but any successful page-changing
+   * action does.
+   */
+  repeatFailureTurns: z.number().int().min(0).default(0),
   lastSignal: FollowerSignalSchema.nullable().default(null),
   status: RunStatusSchema.default('running'),
 });
@@ -88,6 +104,8 @@ export const AgentContextSchema = z.object({
   maxSteps: z.number().int().min(1),
   /** R-08: the user's choice in the side panel. */
   observe: z.custom<ObserveMode>(),
+  /** M9 #13: read-only runs bind no acting tools and refuse them in depth. */
+  readOnly: z.boolean().default(false),
   leaderModel: z.custom<BaseChatModel>(),
   followerModel: z.custom<BaseChatModel>(),
   toolset: z.custom<PageToolset>(),

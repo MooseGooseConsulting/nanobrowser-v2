@@ -11,13 +11,21 @@
  *    was never hit by any scripted turn.
  * 3. The leader node's `currentSubgoal` clamp and its `planTool.invoke`
  *    failure branch were never exercised.
+ * 4. Issue #8: a tool call resetting the idle counter, and a schema-valid
+ *    Follower call that fails at the page layer.
  */
 import { describe, expect, it } from 'vitest';
 import { MemorySaver } from '@langchain/langgraph/web';
-import { HumanMessage } from '@langchain/core/messages';
+import { HumanMessage, type ToolMessage } from '@langchain/core/messages';
 import type { RunEvent } from '@/src/messaging/contract';
 import type { Config } from '@/src/storage';
-import { decideNext, trimFollowerHistory, FOLLOWER_HISTORY_TURNS, type RouteInputs } from './graph';
+import {
+  decideNext,
+  trimFollowerHistory,
+  FOLLOWER_HISTORY_TURNS,
+  MAX_IDLE_FOLLOWER_TURNS,
+  type RouteInputs,
+} from './graph';
 import { FakePageTools } from './tools';
 import { FakeChatModel, type FakeCall, type FakeTurn } from './models';
 import { startRun, type RunEndedEvent } from './run';
@@ -87,9 +95,10 @@ const subgoals = ['open the page', 'read the page'];
 function harness(options: {
   follower: (call: FakeCall) => FakeTurn;
   leaderRespond?: (call: FakeCall) => FakeTurn;
-}): Promise<{ events: RunEvent[]; ended: RunEndedEvent }> {
+  page?: FakePageTools;
+}): Promise<{ events: RunEvent[]; ended: RunEndedEvent; follower: FakeChatModel }> {
   const events: RunEvent[] = [];
-  const page = new FakePageTools();
+  const page = options.page ?? new FakePageTools();
   const leader = new FakeChatModel({
     label: 'leader',
     respond:
@@ -108,7 +117,7 @@ function harness(options: {
     runId: `test-${Math.random().toString(36).slice(2)}`,
   });
 
-  return handle.done.then((ended) => ({ events, ended }));
+  return handle.done.then((ended) => ({ events, ended, follower }));
 }
 
 function pick<K extends RunEvent['kind']>(events: RunEvent[], kind: K): Extract<RunEvent, { kind: K }>[] {
@@ -189,6 +198,74 @@ describe('a follower that never calls a tool', () => {
     const signals = pick(events, 'follower.signal');
     expect(signals.at(-1)?.note).toContain('no tool call');
     expect(signals.at(-1)?.note).toContain('reliably calls tools');
+  });
+
+  // Idle runs of MAX-1 prose turns either side of one click. A counter that
+  // accumulated instead of resetting would reach MAX on the first prose turn
+  // after the click.
+  const idleThenClickThenIdle = (idleAfter: number) => (call: FakeCall): FakeTurn => {
+    const before = MAX_IDLE_FOLLOWER_TURNS - 1;
+    if (call.index < before) return { kind: 'text', text: 'let me think about it' };
+    if (call.index === before) return { kind: 'tool', name: 'click', args: { ref: 'e1', signal: 'CONTINUE' } };
+    if (call.index <= before + idleAfter) return { kind: 'text', text: 'thinking again' };
+    return { kind: 'tool', name: 'done', args: { summary: 'found it' } };
+  };
+
+  it('resets the idle counter on a tool call instead of accumulating across it', async () => {
+    const { events, ended } = await harness({
+      follower: idleThenClickThenIdle(MAX_IDLE_FOLLOWER_TURNS - 1),
+    });
+
+    expect(ended.status).toBe('done');
+    expect(ended.steps).toBe(2 * MAX_IDLE_FOLLOWER_TURNS);
+    const notes = pick(events, 'follower.signal').map((s) => s.note);
+    expect(notes.some((n) => n.includes('turns running'))).toBe(false);
+  });
+
+  it('still trips after a reset, counting only the idle turns since the tool call', async () => {
+    const { events, ended } = await harness({
+      follower: idleThenClickThenIdle(MAX_IDLE_FOLLOWER_TURNS),
+    });
+
+    expect(ended.status).toBe('error');
+    expect(ended.steps).toBe(2 * MAX_IDLE_FOLLOWER_TURNS);
+    expect(pick(events, 'follower.signal').at(-1)?.note).toContain(
+      `no tool call ${MAX_IDLE_FOLLOWER_TURNS} turns running`,
+    );
+  });
+});
+
+describe('follower node: a schema-valid tool call that fails at the page layer', () => {
+  it('logs a failed tool.result, feeds the error back to the model, and keeps the run going', async () => {
+    const page = new FakePageTools();
+    page.click = async (ref) => {
+      (page.calls as Array<{ name: 'click'; args: unknown[] }>).push({ name: 'click', args: [ref] });
+      throw new Error(`stale ref ${ref}: the element is no longer in the page`);
+    };
+
+    const { events, ended, follower } = await harness({
+      page,
+      follower: (call) =>
+        call.index === 0
+          ? { kind: 'tool', name: 'click', args: { ref: 'e1', signal: 'CONTINUE' } }
+          : { kind: 'tool', name: 'done', args: { summary: 'found it' } },
+    });
+
+    // The args passed the schema: the page itself was asked to click.
+    expect(page.calls.filter((c) => c.name === 'click')).toEqual([{ name: 'click', args: ['e1'] }]);
+
+    const click = pick(events, 'tool.result').find((r) => r.role === 'follower' && r.result.name === 'click');
+    expect(click?.result.ok).toBe(false);
+    expect(click?.result.summary).toContain('stale ref e1');
+    expect(pick(events, 'follower.signal')[0]).toMatchObject({ signal: 'CONTINUE', note: 'tool call failed' });
+
+    const toolMessages = follower.calls.flatMap(
+      (call) => call.messages.filter((m) => m.type === 'tool') as ToolMessage[],
+    );
+    expect(toolMessages.find((m) => m.name === 'click')?.content).toContain('stale ref e1');
+
+    // One page failure is neither a crash nor a repeat loop.
+    expect(ended).toMatchObject({ status: 'done', steps: 2 });
   });
 });
 

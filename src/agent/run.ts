@@ -100,9 +100,10 @@ export function startRun(options: StartRunOptions): RunHandle {
     planningInterval: config.planningInterval,
     maxSteps: config.maxSteps,
     observe: config.observe,
+    readOnly: config.readOnly ?? false,
     leaderModel: models.leader,
     followerModel: models.follower,
-    toolset: createPageToolset(tools),
+    toolset: createPageToolset(tools, { readOnly: config.readOnly ?? false }),
     page: tools,
     availableUserscripts,
   };
