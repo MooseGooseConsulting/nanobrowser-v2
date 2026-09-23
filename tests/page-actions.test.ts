@@ -21,6 +21,16 @@ function refOf(selector: string): string {
   throw new Error(`no ref for ${selector}`);
 }
 
+/** `refOf` for an element no selector reaches (e.g. inside a shadow root). */
+function refOfElement(target: Element): string {
+  const text = snapshot({ maxNodes: 10000 }).text;
+  for (const match of text.matchAll(/\[ref=(e\d+)\]/g)) {
+    const ref = match[1] ?? '';
+    if (ref && resolveRef(ref) === target) return ref;
+  }
+  throw new Error('no ref for element');
+}
+
 /** Record every event type a set of elements sees, in dispatch order. */
 function recorder(target: EventTarget, types: string[]): string[] {
   const seen: string[] = [];
@@ -142,6 +152,56 @@ describe('click', () => {
       });
     } finally {
       if (had) (document as unknown as { elementFromPoint: unknown }).elementFromPoint = orig;
+      else delete (document as unknown as { elementFromPoint?: unknown }).elementFromPoint;
+    }
+  });
+
+  it('clicks into an open shadow root instead of mistaking the host for an occluder', () => {
+    document.body.innerHTML = '<div id="host"></div>';
+    const host = document.querySelector('#host') as HTMLElement;
+    const shadow = host.attachShadow({ mode: 'open' });
+    shadow.innerHTML = '<button>Go</button>';
+    const inner = shadow.querySelector('button') as HTMLElement;
+    const ref = refOfElement(inner);
+
+    // Document hit testing retargets to the host; the shadow root resolves inward.
+    const docTarget = document as unknown as { elementFromPoint: unknown };
+    const hadDoc = 'elementFromPoint' in document;
+    const origDoc = docTarget.elementFromPoint;
+    docTarget.elementFromPoint = () => host;
+    const shadowTarget = shadow as unknown as { elementFromPoint: unknown };
+    const hadShadow = 'elementFromPoint' in shadow;
+    const origShadow = shadowTarget.elementFromPoint;
+    shadowTarget.elementFromPoint = () => inner;
+    try {
+      expect(click(ref)).toEqual({ ok: true });
+    } finally {
+      if (hadDoc) docTarget.elementFromPoint = origDoc;
+      else delete (document as unknown as { elementFromPoint?: unknown }).elementFromPoint;
+      if (hadShadow) shadowTarget.elementFromPoint = origShadow;
+      else delete (shadow as unknown as { elementFromPoint?: unknown }).elementFromPoint;
+    }
+  });
+
+  it('accepts a host hit for a shadow-rooted target (the closed-root shape) rather than vetoing it', () => {
+    // A closed root is unreachable in jsdom (no chrome.dom.openOrClosedShadowRoot),
+    // so simulate exactly what the verifier sees there: the target's root is a
+    // ShadowRoot and the hit lands on its host.
+    document.body.innerHTML = '<button>Go</button><div id="h2"></div>';
+    const other = document.querySelector('#h2') as HTMLElement;
+    const root = other.attachShadow({ mode: 'open' });
+    const button = document.querySelector('button') as HTMLButtonElement;
+    const ref = refOf('button');
+    const docTarget = document as unknown as { elementFromPoint: unknown };
+    const hadDoc = 'elementFromPoint' in document;
+    const origDoc = docTarget.elementFromPoint;
+    docTarget.elementFromPoint = () => other;
+    const rootStub = vi.spyOn(button, 'getRootNode').mockReturnValue(root);
+    try {
+      expect(click(ref)).toEqual({ ok: true });
+    } finally {
+      rootStub.mockRestore();
+      if (hadDoc) docTarget.elementFromPoint = origDoc;
       else delete (document as unknown as { elementFromPoint?: unknown }).elementFromPoint;
     }
   });

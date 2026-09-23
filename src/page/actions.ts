@@ -227,16 +227,48 @@ function actionPoint(el: HTMLElement): { point: Point } | { error: string } {
   const canVerify = !!doc && typeof doc.elementFromPoint === 'function';
   for (const point of tries) {
     if (!canVerify) return { point };
-    let hit: Element | null = null;
-    try {
-      hit = doc.elementFromPoint(point.clientX, point.clientY);
-    } catch {
-      hit = null;
-    }
-    if (!hit) return { point };
-    if (el.contains(hit)) return { point };
+    if (hitConfirms(el, deepHit(doc, point.clientX, point.clientY))) return { point };
   }
   return { error: 'element is occluded at its click point by another element' };
+}
+
+/**
+ * Deepest element at the point, drilling through open shadow roots. Document hit
+ * testing retargets shadow-encased points to the host, so without the drill-down
+ * every shadow-DOM target would read as occluded by its own host. Never throws:
+ * null means unverifiable, and the caller treats that as a stand, not a refusal.
+ */
+function deepHit(doc: Document, x: number, y: number): Element | null {
+  let hit: Element | null;
+  try {
+    hit = doc.elementFromPoint(x, y);
+  } catch {
+    return null;
+  }
+  while (hit?.shadowRoot && typeof hit.shadowRoot.elementFromPoint === 'function') {
+    let inner: Element | null;
+    try {
+      inner = hit.shadowRoot.elementFromPoint(x, y);
+    } catch {
+      break;
+    }
+    if (!inner || inner === hit) break;
+    hit = inner;
+  }
+  return hit;
+}
+
+/**
+ * Whether `hit` confirms the action aims at `el`. No hit is no evidence either way,
+ * so the point stands. A closed shadow root is unreachable from the outside, so a
+ * hit on its host (or under it) is the best available evidence and also stands —
+ * refusing there would veto every closed-shadow interaction on principle.
+ */
+function hitConfirms(el: HTMLElement, hit: Element | null): boolean {
+  if (!hit) return true;
+  if (el.contains(hit)) return true;
+  const root = el.getRootNode();
+  return root instanceof ShadowRoot && (hit === root.host || root.host.contains(hit));
 }
 
 /** Whatever is actually under `point`: the honest target for a mid-path move. */
@@ -244,8 +276,8 @@ function hitTarget(el: HTMLElement, point: Point): Element {
   const doc = el.ownerDocument;
   try {
     if (doc && typeof doc.elementFromPoint === 'function') {
-      const hit = doc.elementFromPoint(point.clientX, point.clientY);
-      if (hit) return hit as Element;
+      const hit = deepHit(doc, point.clientX, point.clientY);
+      if (hit) return hit;
     }
   } catch {
     // Hit testing unavailable; fall through to the action's own element.

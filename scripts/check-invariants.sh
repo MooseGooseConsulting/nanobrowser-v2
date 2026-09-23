@@ -85,8 +85,9 @@ fi
 # 7. No fetch in the extension's own injected tier (src/page, injected-content).
 #    src/userscripts is exempt: agent/user-authored scripts are governed by the
 #    authoring rails (src/userscripts/authoring.ts), and the bundled i03 probe
-#    reads its own page over GET by design.
-FETCH_HITS="$(grep -rn --include='*.ts' -e '(^|[^a-zA-Z_.])fetch(' src/page entrypoints/injected-content.ts 2>/dev/null || true)"
+#    reads its own page over GET by design. Word-boundary match so window.fetch
+#    is caught too; prefetch/fetchData and bare mentions without a call are not.
+FETCH_HITS="$(grep -rn --include='*.ts' -e '\<fetch[[:space:]]*(' src/page entrypoints/injected-content.ts 2>/dev/null || true)"
 if [ -n "$FETCH_HITS" ]; then
   fail 'injected tier uses fetch'
   echo "$FETCH_HITS"
