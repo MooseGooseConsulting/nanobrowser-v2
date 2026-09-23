@@ -73,9 +73,10 @@ else
 fi
 
 # 6. No storage writes in page-context code. localStorage/sessionStorage/IndexedDB
-#    writes from injected code are observable page-side (storage events) and persist
-#    extension fingerprints past the run.
-STORE_HITS="$(grep -rn --include='*.ts' --include='*.tsx' --include='*.js' --include='*.jsx' -e 'localStorage' -e 'sessionStorage' -e 'indexedDB' $PAGE_CONTEXT 2>/dev/null || true)"
+#    writes and cookie assignments from injected code are observable page-side
+#    (storage events) and persist extension fingerprints past the run. Test files
+#    never ship to pages, so they are excluded from this scan.
+STORE_HITS="$(grep -rn --include='*.ts' --include='*.tsx' --include='*.js' --include='*.jsx' --exclude='*.test.ts' -e 'localStorage' -e 'sessionStorage' -e 'indexedDB' -e 'document\.cookie[[:space:]]*=' $PAGE_CONTEXT 2>/dev/null || true)"
 if [ -n "$STORE_HITS" ]; then
   fail 'page-context code touches web storage'
   echo "$STORE_HITS"

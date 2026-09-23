@@ -158,8 +158,12 @@ function frameOffset(doc: Document | null): { x: number; y: number } {
   try {
     while (current?.defaultView?.frameElement) {
       const rect = (current.defaultView.frameElement as Element).getBoundingClientRect();
-      x += rect.left;
-      y += rect.top;
+      // The child viewport starts inside the frame's border, not at the outer
+      // border-box origin — add clientLeft/clientTop (usually 0, nonzero with
+      // the browser's default iframe border, accumulating over nested frames).
+      const frameEl = current.defaultView.frameElement as Element;
+      x += rect.left + (frameEl.clientLeft || 0);
+      y += rect.top + (frameEl.clientTop || 0);
       current = (current.defaultView.frameElement as Element).ownerDocument ?? null;
     }
   } catch {
@@ -267,9 +271,9 @@ function pointerAt(
   buttons: number,
   pressure: number,
   screen: { screenX: number; screenY: number },
-  opts: { bubbles?: boolean; relatedTarget?: EventTarget | null } = {},
+  opts: { bubbles?: boolean; relatedTarget?: EventTarget | null; movement?: { mx: number; my: number } } = {},
 ): void {
-  const init = pointerInit(point, buttons, pressure, screen, movementFor(point, el.ownerDocument ?? null));
+  const init = pointerInit(point, buttons, pressure, screen, opts.movement ?? movementFor(point, el.ownerDocument ?? null));
   dispatch(
     el,
     pointerEvent(
@@ -293,9 +297,9 @@ function mouseAt(
   buttons: number,
   detail: number,
   screen: { screenX: number; screenY: number },
-  opts: { bubbles?: boolean; relatedTarget?: EventTarget | null } = {},
+  opts: { bubbles?: boolean; relatedTarget?: EventTarget | null; movement?: { mx: number; my: number } } = {},
 ): void {
-  const init = mouseInit(point, buttons, detail, screen, movementFor(point, el.ownerDocument ?? null));
+  const init = mouseInit(point, buttons, detail, screen, opts.movement ?? movementFor(point, el.ownerDocument ?? null));
   dispatch(
     el,
     new MouseEvent(
@@ -344,15 +348,19 @@ function dispatchHover(
  * Verification degrades honestly: DOMs without hit testing (`elementFromPoint`
  * missing or throwing — jsdom included) have nothing to verify against, so the
  * jittered point stands. A live document reporting nothing under the point means
- * outside its viewport. A real occlusion gets one retry at the box center; if that
- * is occluded too the action is refused rather than dispatched at something the
- * agent did not aim at.
+ * outside its viewport. A real occlusion gets one retry at a second jittered
+ * off-center point — never the deterministic box center this change exists to
+ * avoid; if that is occluded too the action is refused rather than dispatched
+ * at something the agent did not aim at.
  */
 function actionPoint(el: HTMLElement): { point: Point } | { error: string } {
   const r = rectOf(el);
   const j = jitterInBox(r);
-  const center = { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 };
-  const tries = [{ clientX: j.x, clientY: j.y }, center];
+  const j2 = jitterInBox(r);
+  const tries = [
+    { clientX: j.x, clientY: j.y },
+    { clientX: j2.x, clientY: j2.y },
+  ];
   const doc = el.ownerDocument;
   const canVerify = !!doc && typeof doc.elementFromPoint === 'function';
   let lastVerdict: AimVerdict = 'unverifiable';
@@ -473,6 +481,22 @@ function startPoint(
  * for real. What the in-page tier can honestly do is arrive along a curve at a
  * non-center point, with hover states firing along the way, instead of teleporting.
  */
+/**
+ * Ancestor chain of `el`, innermost first. Boundary events fire only for nodes
+ * actually exited or entered: moving from a button's padding onto an inner span
+ * never left the button, so no leave fires on it (hover-driven controls commonly
+ * close on leave — a spurious one can mutate or close the target mid-cortège).
+ */
+function ancestors(el: Element | null): Element[] {
+  const chain: Element[] = [];
+  let cur: Element | null = el;
+  while (cur) {
+    chain.push(cur);
+    cur = cur.parentElement;
+  }
+  return chain;
+}
+
 function arrive(
   el: HTMLElement,
   w: (Window & typeof globalThis) | null,
@@ -488,20 +512,37 @@ function arrive(
     const mid = { clientX: p.x, clientY: p.y };
     const target = hitTarget(el, mid);
     const screen = screenOf(w, doc, mid);
+    // One physical movement per sample: every event in this burst shares the
+    // delta from the previous sample, the way a real pointer report does. Letting
+    // each boundary event consume the delta instead would leave the final move
+    // reporting zero movement at changed coordinates.
+    const move = movementFor(mid, doc);
     if (prevTarget && target !== prevTarget) {
-      pointerAt(prevTarget, 'pointerout', mid, 0, 0, screen, { relatedTarget: target });
-      pointerAt(prevTarget, 'pointerleave', mid, 0, 0, screen, { bubbles: false, relatedTarget: target });
-      mouseAt(prevTarget, 'mouseout', mid, 0, 0, screen, { relatedTarget: target });
-      mouseAt(prevTarget, 'mouseleave', mid, 0, 0, screen, { bubbles: false, relatedTarget: target });
-      pointerAt(target, 'pointerover', mid, 0, 0, screen, { relatedTarget: prevTarget });
-      pointerAt(target, 'pointerenter', mid, 0, 0, screen, { bubbles: false, relatedTarget: prevTarget });
-      mouseAt(target, 'mouseover', mid, 0, 0, screen, { relatedTarget: prevTarget });
-      mouseAt(target, 'mouseenter', mid, 0, 0, screen, { bubbles: false, relatedTarget: prevTarget });
+      const prevChain = ancestors(prevTarget);
+      const prevSet = new Set(prevChain);
+      const nextChain = ancestors(target);
+      const common = nextChain.find((n) => prevSet.has(n)) ?? null;
+      // Nodes actually exited, innermost first; the common ancestor never left.
+      for (const node of prevChain) {
+        if (node === common) break;
+        pointerAt(node, 'pointerout', mid, 0, 0, screen, { movement: move, relatedTarget: target });
+        pointerAt(node, 'pointerleave', mid, 0, 0, screen, { bubbles: false, movement: move, relatedTarget: target });
+        mouseAt(node, 'mouseout', mid, 0, 0, screen, { movement: move, relatedTarget: target });
+        mouseAt(node, 'mouseleave', mid, 0, 0, screen, { bubbles: false, movement: move, relatedTarget: target });
+      }
+      // Nodes actually entered, outermost first.
+      const entered = (common ? nextChain.slice(0, nextChain.indexOf(common)) : nextChain).reverse();
+      for (const node of entered) {
+        pointerAt(node, 'pointerover', mid, 0, 0, screen, { movement: move, relatedTarget: prevTarget });
+        pointerAt(node, 'pointerenter', mid, 0, 0, screen, { bubbles: false, movement: move, relatedTarget: prevTarget });
+        mouseAt(node, 'mouseover', mid, 0, 0, screen, { movement: move, relatedTarget: prevTarget });
+        mouseAt(node, 'mouseenter', mid, 0, 0, screen, { bubbles: false, movement: move, relatedTarget: prevTarget });
+      }
       if (target === el) crossedIntoEl = true;
     }
     prevTarget = target;
-    pointerAt(target, 'pointermove', mid, 0, 0, screen);
-    mouseAt(target, 'mousemove', mid, 0, 0, screen);
+    pointerAt(target, 'pointermove', mid, 0, 0, screen, { movement: move });
+    mouseAt(target, 'mousemove', mid, 0, 0, screen, { movement: move });
   }
   return { lastTarget: prevTarget, crossedIntoEl };
 }

@@ -694,3 +694,143 @@ describe('getBox', () => {
     expect(getBox('e42')).toEqual({ ok: false, error: 'unknown or stale ref: e42' });
   });
 });
+
+describe('triage: arrival telemetry and aim honesty', () => {
+  const rectAt = (x: number, y: number, w = 100, h = 50) =>
+    ({ x, y, width: w, height: h, top: y, left: x, right: x + w, bottom: y + h, toJSON: () => ({}) }) as DOMRect;
+
+  function mockHit(fn: (x: number, y: number) => Element | null): void {
+    (document as unknown as { elementFromPoint: unknown }).elementFromPoint = fn;
+  }
+
+  function unmockHit(): void {
+    delete (document as unknown as { elementFromPoint?: unknown }).elementFromPoint;
+  }
+
+  it('shares one sample delta across the whole crossing burst, so the final move is honest', () => {
+    document.body.innerHTML = '<button id="a">A</button><button id="b">B</button>';
+    const a = document.querySelector('#a') as HTMLElement;
+    const b = document.querySelector('#b') as HTMLElement;
+    a.getBoundingClientRect = () => rectAt(100, 100);
+    b.getBoundingClientRect = () => rectAt(300, 100);
+    click(refOf('#a'));
+
+    // A continuous path from ~150 to ~350 must cross x=250.
+    mockHit((x: number) => (x < 250 ? a : b));
+    const moves: { x: number; dx: number }[] = [];
+    let overX: number | null = null;
+    b.addEventListener('pointerover', (e) => {
+      if (overX === null) overX = (e as PointerEvent).clientX;
+    });
+    const record = (e: Event) => {
+      const m = e as MouseEvent;
+      moves.push({ x: m.clientX, dx: m.movementX ?? 0 });
+    };
+    // One ordered stream across both elements: the moves before the burst land
+    // on `a`, so the sample delta is measured against the previous position.
+    for (const t of ['pointermove', 'mousemove']) {
+      a.addEventListener(t, record);
+      b.addEventListener(t, record);
+    }
+    try {
+      expect(click(refOf('#b'))).toEqual({ ok: true });
+    } finally {
+      unmockHit();
+    }
+    expect(overX).not.toBeNull();
+    const atBurst = moves.filter((m) => m.x === overX);
+    // pointermove + mousemove at the crossing sample: both carry the sample's
+    // real delta. Before the fix the burst consumed it and both read zero.
+    expect(atBurst).toHaveLength(2);
+    for (const m of atBurst) expect(m.dx).not.toBe(0);
+    const prev = [...moves.slice(0, moves.findIndex((m) => m.x === overX))].reverse().find((m) => m.x !== overX);
+    expect(prev).toBeDefined();
+    expect(atBurst[0]!.dx).toBeCloseTo(overX! - prev!.x, 9);
+  });
+
+  it('retries an occluded aim at a second off-center point, never dead-center', () => {
+    document.body.innerHTML = '<button>Go</button><div>cover</div>';
+    const button = document.querySelector('button') as HTMLButtonElement;
+    const cover = document.querySelector('div') as HTMLElement;
+    button.getBoundingClientRect = () => rectAt(100, 100);
+    // First verification sees the cover, every later probe sees the button:
+    // deterministic regardless of where the two jittered tries land.
+    let calls = 0;
+    mockHit(() => (++calls === 1 ? cover : button));
+    let observed: { x: number; y: number } | null = null;
+    button.addEventListener('mousedown', (e) => {
+      const m = e as MouseEvent;
+      observed = { x: m.clientX, y: m.clientY };
+    });
+    try {
+      expect(click(refOf('button'))).toEqual({ ok: true });
+    } finally {
+      unmockHit();
+    }
+    expect(calls).toBeGreaterThan(1);
+    expect(observed).not.toBeNull();
+    // Box center is (150, 125): the retry must not be the deterministic center.
+    expect(observed!.x).not.toBe(150);
+    expect(observed!.y).not.toBe(125);
+  });
+
+  it('emits no leave on ancestors when the path moves into a descendant', () => {
+    document.body.innerHTML = '<button id="a">A</button><button id="outer">O<span id="inner">I</span></button>';
+    const a = document.querySelector('#a') as HTMLElement;
+    const outer = document.querySelector('#outer') as HTMLElement;
+    const inner = document.querySelector('#inner') as HTMLElement;
+    a.getBoundingClientRect = () => rectAt(100, 100);
+    outer.getBoundingClientRect = () => rectAt(300, 100);
+    click(refOf('#a'));
+
+    // Path from ~150 to ~350 crosses x=250, from the outer button into its span.
+    mockHit((x: number) => (x < 250 ? outer : inner));
+    const seenOuter = recorder(outer, ['pointerout', 'pointerleave', 'mouseout', 'mouseleave']);
+    const seenInner = recorder(inner, ['pointerover', 'pointerenter', 'mouseover', 'mouseenter']);
+    try {
+      expect(click(refOf('#outer'))).toEqual({ ok: true });
+    } finally {
+      unmockHit();
+    }
+    // The pointer never left the outer button: no leave may fire on it, or a
+    // hover-driven control could close mid-cortège.
+    expect(seenOuter).not.toContain('pointerleave');
+    expect(seenOuter).not.toContain('mouseleave');
+    expect(seenOuter).not.toContain('pointerout');
+    expect(seenInner).toContain('pointerover');
+    expect(seenInner).toContain('pointerenter');
+  });
+
+  it('adds iframe borders to screen-coordinate offsets', () => {
+    document.body.innerHTML = '<iframe></iframe>';
+    const iframe = document.querySelector('iframe') as HTMLIFrameElement;
+    const idoc = iframe.contentDocument as Document;
+    idoc.body.innerHTML = '<button>Inner</button>';
+    const inner = idoc.querySelector('button') as HTMLButtonElement;
+    const rectAtLocal = (x: number, y: number) =>
+      ({ x, y, width: 100, height: 50, top: y, left: x, right: x + 100, bottom: y + 50, toJSON: () => ({}) }) as DOMRect;
+    iframe.getBoundingClientRect = () => rectAtLocal(50, 60);
+    inner.getBoundingClientRect = () => rectAtLocal(10, 20);
+    Object.defineProperty(iframe, 'clientLeft', { value: 2, configurable: true });
+    Object.defineProperty(iframe, 'clientTop', { value: 2, configurable: true });
+    const win = iframe.contentWindow as unknown as { screenX: number; screenY: number };
+    const origX = win.screenX;
+    const origY = win.screenY;
+    Object.defineProperty(iframe.contentWindow, 'screenX', { value: 100, configurable: true });
+    Object.defineProperty(iframe.contentWindow, 'screenY', { value: 50, configurable: true });
+    let observed: { clientX: number; clientY: number; screenX: number; screenY: number } | null = null;
+    inner.addEventListener('mousedown', (e) => {
+      const m = e as MouseEvent;
+      observed = { clientX: m.clientX, clientY: m.clientY, screenX: m.screenX, screenY: m.screenY };
+    });
+    try {
+      expect(click(refOfElement(inner))).toEqual({ ok: true });
+    } finally {
+      Object.defineProperty(iframe.contentWindow, 'screenX', { value: origX, configurable: true });
+      Object.defineProperty(iframe.contentWindow, 'screenY', { value: origY, configurable: true });
+    }
+    // Frame-local point + iframe offset + border + window origin.
+    expect(observed!.screenX - observed!.clientX).toBe(152);
+    expect(observed!.screenY - observed!.clientY).toBe(112);
+  });
+});
