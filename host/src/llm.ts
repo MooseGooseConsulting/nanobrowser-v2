@@ -267,8 +267,15 @@ export class LlmProxy {
           headers: outHeaders,
           chunks: recorded,
         };
-        await this.deps.cassettes.write(entry);
-        log('info', 'cassette recorded', { key, chunks: recorded.length });
+        try {
+          await this.deps.cassettes.write(entry);
+          log('info', 'cassette recorded', { key, chunks: recorded.length });
+        } catch (err) {
+          // The upstream response has already been delivered. Persistence is a
+          // best-effort recording concern and must not manufacture a second
+          // terminal message for the client.
+          log('warn', 'cassette recording failed', { key, error: (err as Error).message });
+        }
       }
     } catch (err) {
       const aborted = controller.signal.aborted;
