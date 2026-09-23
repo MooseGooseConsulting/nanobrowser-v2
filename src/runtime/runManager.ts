@@ -20,7 +20,7 @@ import type { RunEvent, RunId, Userscript } from '@/src/messaging';
 import type { WriteUserscriptRequest } from '@/src/agent/tools';
 import type { Config, ModelSource } from '@/src/storage';
 import type { InputTier } from '@/src/input';
-import { listUserscripts, matchesAny, seedDefaults, writeAgentUserscript } from '@/src/userscripts';
+import { listUserscripts, matchesAny, resolveUserscript, seedDefaults, writeAgentUserscript } from '@/src/userscripts';
 import type { AgentWriteResult } from '@/src/userscripts';
 import {
   EscalatableInput,
@@ -247,6 +247,9 @@ export class RunManager {
       return undefined;
     });
     if (!stored) return;
+    // Recheck after the await: two panels restoring the same run concurrently
+    // would otherwise each publish their own synthetic terminal event.
+    if (this.#ring.has(runId)) return;
     this.#ring.set(runId, [...stored]);
     const last = stored.at(-1);
     if (last?.kind === 'run.ended') return;
@@ -335,6 +338,9 @@ export class RunManager {
       observe: config.observe,
       runUserscript: this.#deps.runUserscript,
       listUserscripts: () => (this.#deps.listUserscriptCatalog ?? defaultListUserscriptsForAgent)(tab.url),
+      // Whole-catalog resolution for the read-only preflight: unlike the display
+      // list above, it must see scripts matching wherever the run navigated to.
+      resolveUserscript,
       writeUserscript: this.#deps.writeUserscript ?? ((request) => writeAgentUserscript(request)),
       emit,
       runId,

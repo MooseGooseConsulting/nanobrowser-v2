@@ -299,12 +299,18 @@ describe('follower history is bounded', () => {
 });
 
 describe('actionKey', () => {
-  it('matches identical attempts despite key order and varying digits', () => {
+  it('matches identical attempts despite key order and varying durations', () => {
     const a = actionKey('click', { ref: 'e1' }, 'stale ref after 12ms');
     const b = actionKey('click', { ref: 'e1' }, 'stale ref after 34ms');
     expect(a).toBe(b);
     expect(actionKey('type', { ref: 'e1', text: 'x' }, 'e')).toBe(
       actionKey('type', { text: 'x', ref: 'e1' }, 'e'),
+    );
+  });
+
+  it('treats other digit changes as different failures (429 is not 500)', () => {
+    expect(actionKey('snapshot', {}, 'request failed with status code 429')).not.toBe(
+      actionKey('snapshot', {}, 'request failed with status code 500'),
     );
   });
 

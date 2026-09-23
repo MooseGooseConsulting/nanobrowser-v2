@@ -75,9 +75,14 @@ export const MAX_REPEAT_FAILURE_TURNS = 2;
  * Identity of one failed attempt: the tool name, its visible arguments with stable
  * key order (the `signal`/`note` envelope is already stripped by the caller, so two
  * attempts that differ only in their control note still match), and the error with
- * digits normalized (durations and counts vary between identical failures).
+ * durations normalized (timeouts and waits vary between identical failures).
  * Capped so a `save_file` with a huge payload cannot bloat checkpointed state; the
  * digest keeps truncated keys distinct when large payloads share a prefix and length.
+ *
+ * Only durations normalize: any other digit change (HTTP 429 vs 500, counts, ports)
+ * is a different failure, and collapsing those would stop a run whose failure mode
+ * changed. Missing a loop whose counts vary is the tolerable direction — that is
+ * just the pre-detector behavior of burning budget, not a new false stop.
  */
 export function actionKey(name: string, args: Record<string, unknown>, error: string): string {
   const sorted = Object.fromEntries(
@@ -90,7 +95,12 @@ export function actionKey(name: string, args: Record<string, unknown>, error: st
     json = String(sorted);
   }
   if (json.length > 500) json = `${json.slice(0, 500)}…len=${json.length}#${hash32(json)}`;
-  return `${name}\n${json}\n${error.replace(/\d+/g, '#').slice(0, 200)}`;
+  return `${name}\n${json}\n${normalizeError(error).slice(0, 200)}`;
+}
+
+/** Durations (`12ms`, `3 s`, `1.5 minutes`) collapse; every other digit is significant. */
+function normalizeError(error: string): string {
+  return error.replace(/\d[\d,]*(?:\.\d+)?\s*(?:ms|s(?:ec(?:ond)?s?)?|m(?:in(?:ute)?s?)?|h(?:ours?)?|ns|µs|us)\b/gi, '#dur');
 }
 
 /** Short non-crypto digest (FNV-1a) for truncated failure keys. */
@@ -259,6 +269,12 @@ const route: ConditionalEdgeRouter<typeof AgentState, AgentContext, 'leader' | '
 const LEADER_NO_VISION_NOTE =
   'Leader screenshot requested, but this Leader cannot see images: plan from the text evidence.';
 
+/** Whether a provider failure names images as the problem (vs a transient/transport error). */
+function isVisionRejection(error: unknown): boolean {
+  const text = error instanceof Error ? error.message : String(error);
+  return /\bimages?\b|\bvision\b|\bmultimodal\b|\bpictures?\b|\bimage_url\b/i.test(text);
+}
+
 /** Index of the last message carrying an image block, or -1. */
 function findLastImageMessage(messages: BaseMessage[]): number {
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -321,7 +337,10 @@ const leader: GraphNode<typeof AgentState, AgentContext> = async (state, config)
   const readByName = new Map(leaderReads.map((t) => [t.name, t]));
   const bound = ctx.leaderModel.bindTools?.([...leaderReads, planTool]) ?? ctx.leaderModel;
   const human = new HumanMessage(
-    `${situation}\nEvidence reads available: ${leaderReads.map((t) => t.name).join(', ') || '(none)'}.`,
+    `${situation}\nEvidence reads available: ${leaderReads.map((t) => t.name).join(', ') || '(none)'}.` +
+      (ctx.readOnly
+        ? '\nRead-only mode is on: the Follower has no act tools (no click, hover, type, press, select, download, or write_userscript). Plan reads, navigation, read-only userscripts, and saving only — never a subgoal that needs an action.'
+        : ''),
   );
 
   const messages: BaseMessage[] = [human];
@@ -349,10 +368,11 @@ const leader: GraphNode<typeof AgentState, AgentContext> = async (state, config)
       )) as AIMessage;
     } catch (error) {
       // A text-only Leader dies on the image block leader_screenshot appended: swap
-      // the pixels for a note, bar further screenshots, and retry the lap. Any other
-      // failure — or a second one — propagates exactly as before.
+      // the pixels for a note, bar further screenshots, and retry the lap. Only a
+      // vision-specific rejection qualifies — timeouts, rate limits, and transport
+      // errors propagate (and fail the run) exactly as before.
       const imgIdx = findLastImageMessage(messages);
-      if (imgIdx === -1 || screenshotsBarred) throw error;
+      if (imgIdx === -1 || screenshotsBarred || !isVisionRejection(error)) throw error;
       screenshotsBarred = true;
       messages[imgIdx] = new HumanMessage(LEADER_NO_VISION_NOTE);
       continue;

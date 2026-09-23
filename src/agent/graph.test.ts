@@ -564,6 +564,24 @@ describe('leader observation reads (M4)', () => {
     expect(results[1]?.result.summary).toContain('cannot see images');
   });
 
+  it('propagates transient failures with pixels instead of mis-barring screenshots', async () => {
+    const { ended, leader } = await harness({
+      maxSteps: 2,
+      observe: 'both',
+      follower: finishQuickly,
+      leader: (call) => {
+        const seen = JSON.stringify(call.messages.map((m) => m.content));
+        if (seen.includes('"image"')) throw new Error('429 rate limited, retry later');
+        return { kind: 'tool', name: 'leader_screenshot', args: {} };
+      },
+    });
+
+    expect(ended).toMatchObject({ kind: 'run.ended', status: 'error' });
+    expect(ended.message).toContain('429');
+    const history = JSON.stringify(leader.calls.map((c) => c.messages.map((m) => m.content)));
+    expect(history).not.toContain('cannot see images');
+  });
+
   it('answers every call id when the Leader batches two reads in one turn', async () => {
     const { events } = await harness({
       maxSteps: 2,
@@ -741,6 +759,20 @@ describe('read-only runs (M9 #13)', () => {
       const first = follower.calls[0]!;
       const text = JSON.stringify(first.messages.map((m) => m.content));
       expect(text.includes('Read-only mode is on')).toBe(readOnly);
+    }
+  });
+
+  it('tells the leader the read-only boundary too, so it never plans an action', async () => {
+    for (const readOnly of [true, false] as const) {
+      const { leader } = await harness({
+        maxSteps: 1,
+        ...(readOnly ? { readOnly: true } : {}),
+        follower: () => ({ kind: 'tool', name: 'done', args: { summary: 'done' } }),
+      });
+      const first = leader.calls[0]!;
+      const text = JSON.stringify(first.messages.map((m) => m.content));
+      expect(text.includes('Read-only mode is on')).toBe(readOnly);
+      if (readOnly) expect(text).toContain('never a subgoal that needs an action');
     }
   });
 

@@ -163,6 +163,7 @@ function harness(
     readOnly?: boolean;
     userscriptValueStore?: UserscriptValueStore;
     listUserscripts?: () => Promise<Userscript[]>;
+    resolveUserscript?: (idOrName: string) => Promise<Userscript | undefined>;
     writeUserscript?: (request: WriteUserscriptRequest) => Promise<AgentWriteResult>;
   } = {},
 ): Harness {
@@ -203,6 +204,7 @@ function harness(
     },
     sleep: async () => {},
     ...(options.listUserscripts ? { listUserscripts: options.listUserscripts } : {}),
+    ...(options.resolveUserscript ? { resolveUserscript: options.resolveUserscript } : {}),
     ...(options.writeUserscript ? { writeUserscript: options.writeUserscript } : {}),
     ...(options.runId !== undefined ? { runId: options.runId } : {}),
     ...(options.saveArtifact ? { saveArtifact: options.saveArtifact } : {}),
@@ -447,7 +449,9 @@ describe('read-only runs (M9 #13)', () => {
       author: 'agent',
     };
     const writer: Userscript = { ...reader, id: 'writer', name: 'writer', code: 'form.submit();' };
-    const h = harness('in-page', { readOnly: true, listUserscripts: async () => [reader, writer] });
+    const resolve = async (idOrName: string) =>
+      [reader, writer].find((s) => s.id === idOrName || s.name === idOrName);
+    const h = harness('in-page', { readOnly: true, resolveUserscript: resolve });
 
     expect(await h.tools.runUserscript('reader')).toContain('reader');
     await expect(h.tools.runUserscript('writer')).rejects.toThrow('read-only run: writer');
@@ -458,27 +462,27 @@ describe('read-only runs (M9 #13)', () => {
     const withoutCatalog = harness('in-page', { readOnly: true });
     await expect(withoutCatalog.tools.runUserscript('s1')).rejects.toThrow('no catalog in this run');
 
-    const withCatalog = harness('in-page', { readOnly: true, listUserscripts: async () => [] });
+    const withCatalog = harness('in-page', { readOnly: true, resolveUserscript: async () => undefined });
     await expect(withCatalog.tools.runUserscript('ghost')).rejects.toThrow('unknown userscript ghost');
   });
 
-  it('resolves an unambiguous userscript name like normal runs, and refuses an ambiguous one', async () => {
-    const reader: Userscript = {
-      id: 'u1',
-      name: 'reader',
-      matches: ['*://x.test/*'],
+  it('resolves from the whole catalog, not the starting-URL-filtered list', async () => {
+    // A read-only run that navigated elsewhere: the display list omits the
+    // destination-matching script, but the preflight still verifies its source.
+    const dest: Userscript = {
+      id: 'u9',
+      name: 'dest-reader',
+      matches: ['*://b.test/*'],
       code: 'return document.title;',
       updatedAt: 0,
     };
-    const h = harness('in-page', { readOnly: true, listUserscripts: async () => [reader] });
-    expect(await h.tools.runUserscript('reader')).toContain('reader');
-    expect(h.userscriptRuns).toEqual(['reader']);
-
-    const dupes = harness('in-page', {
+    const h = harness('in-page', {
       readOnly: true,
-      listUserscripts: async () => [reader, { ...reader, id: 'u2' }],
+      listUserscripts: async () => [],
+      resolveUserscript: async (idOrName) => (idOrName === 'u9' || idOrName === 'dest-reader' ? dest : undefined),
     });
-    await expect(dupes.tools.runUserscript('reader')).rejects.toThrow('unknown userscript reader');
+    expect(await h.tools.runUserscript('dest-reader')).toContain('dest-reader');
+    expect(h.userscriptRuns).toEqual(['dest-reader']);
   });
 
   it('save_file downloads to the Downloads folder and emits a file.saved event', async () => {

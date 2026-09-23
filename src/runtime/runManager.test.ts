@@ -275,6 +275,16 @@ describe('RunManager.restoreReplay (M6)', () => {
     expect((hostLog.at(-1)?.[1] as { message: string }).message).toContain('restarted');
   });
 
+  it('publishes one terminal event when two restores race on the same run', async () => {
+    const stores = memoryStores();
+    await stores.replay.save('run-1', [started, step]);
+
+    const { runManager } = manager({ replayStore: stores.replay, now: () => 99 });
+    await Promise.all([runManager.restoreReplay('run-1'), runManager.restoreReplay('run-1')]);
+
+    expect(runManager.replay('run-1').map((e) => e.kind)).toEqual(['run.started', 'step', 'run.ended']);
+  });
+
   it('restoreReplay is a no-op for buffered runs, finished restores, and unknown runs', async () => {
     const stores = memoryStores();
     await stores.replay.save('run-1', [started, step]);

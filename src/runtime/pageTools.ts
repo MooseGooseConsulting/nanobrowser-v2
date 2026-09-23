@@ -344,6 +344,12 @@ export interface CreatePageToolsOptions {
    * tools; this refuses them anyway so a shape drift can never silently act.
    */
   readOnly?: boolean;
+  /**
+   * Whole-catalog userscript resolution for the read-only preflight. Separate
+   * from the run's starting-URL-filtered list: a read-only run may navigate
+   * and then run a script matching its destination.
+   */
+  resolveUserscript?: (idOrName: string) => Promise<Userscript | undefined>;
 }
 
 /** Cap on the JSON echoed in `run_userscript`'s own return string (not what's retained). */
@@ -426,20 +432,16 @@ export function createPageTools(options: CreatePageToolsOptions): RuntimePageToo
 
   /** A userscript may run read-only only when its source passes the advisory scan (#13). */
   async function assertReadOnlyScript(scriptId: string): Promise<void> {
-    if (!options.listUserscripts) {
+    // Resolved from the whole catalog, deliberately NOT from the run's filtered
+    // list: that list is closed over the starting tab's URL, while a read-only run
+    // may navigate and then run a script matching its destination. Execution stays
+    // URL-gated — the runner refuses scripts whose matches reject the live tab.
+    if (!options.resolveUserscript) {
       throw new Error(
         `read-only run: cannot verify userscript ${scriptId} is read-only (no catalog in this run): refusing to run it`,
       );
     }
-    const scripts = await options.listUserscripts();
-    // Same resolution as normal runs (`resolveUserscript`): the id first, then an
-    // unambiguous name. Anything else cannot be verified, so it is refused.
-    const script =
-      scripts.find((s) => s.id === scriptId) ??
-      (() => {
-        const named = scripts.filter((s) => s.name === scriptId);
-        return named.length === 1 ? named[0] : undefined;
-      })();
+    const script = await options.resolveUserscript(scriptId);
     if (!script) {
       throw new Error(`read-only run: unknown userscript ${scriptId}: refusing to run what cannot be verified`);
     }
