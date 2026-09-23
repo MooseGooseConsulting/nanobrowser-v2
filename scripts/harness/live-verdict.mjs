@@ -214,9 +214,13 @@ function scoreEbay({ events, pageListings }) {
   if (!parsed.ok) return checks;
 
   const summary = parsed.value;
-  const isList = Array.isArray(summary) && summary.length >= 1;
+  const isList = Array.isArray(summary) && summary.length >= 1 && summary.length <= 20;
   checks.push(
-    check('the done summary is a non-empty list of listings', isList, Array.isArray(summary) ? `${summary.length} row(s)` : `type ${typeof summary}`),
+    check(
+      'the done summary is a list of 1-20 listings',
+      isList,
+      Array.isArray(summary) ? `${summary.length} row(s)` : `type ${typeof summary}`,
+    ),
   );
   if (!isList) return checks;
 
@@ -236,11 +240,23 @@ function scoreEbay({ events, pageListings }) {
     checks.push(check('page ground truth was scraped for comparison', false, 'harness passed no --page file'));
     return checks;
   }
-  const pairs = new Set(pageListings.map((p) => `${p.title}\n${p.price}`));
-  const badRow = summary.find((row) => !pairs.has(`${row.title}\n${row.price}`));
+  // Multiset matching: every reported row consumes one distinct live listing, so
+  // invented duplicates fail while genuine relist duplicates on the page still pass.
+  const remaining = new Map();
+  for (const p of pageListings) {
+    const key = `${p.title}\n${p.price}`;
+    remaining.set(key, (remaining.get(key) ?? 0) + 1);
+  }
+  const badRow = summary.find((row) => {
+    const key = `${row.title}\n${row.price}`;
+    const left = remaining.get(key) ?? 0;
+    if (left === 0) return true;
+    remaining.set(key, left - 1);
+    return false;
+  });
   checks.push(
     check(
-      `every reported row matches a live listing title-for-title, price-for-price (${pageListings.length} live listings)`,
+      `every reported row matches a distinct live listing (${pageListings.length} live listings)`,
       badRow === undefined,
       badRow === undefined ? '' : `unmatched row ${JSON.stringify(badRow).slice(0, 160)}`,
     ),
@@ -502,10 +518,14 @@ function scoreLogin({ events, expected }) {
 
   const parsed = parseSummary(doneSummary(events));
   const textOk =
-    parsed.ok && parsed.value !== null && typeof parsed.value === 'object' && parsed.value.text === expected.login.postLogin;
+    parsed.ok &&
+    parsed.value !== null &&
+    typeof parsed.value === 'object' &&
+    parsed.value.loggedIn === true &&
+    parsed.value.text === expected.login.postLogin;
   checks.push(
     check(
-      'the done summary carries the post-login text ("refusing to log in" fails)',
+      'the done summary carries loggedIn:true and the post-login text ("refusing to log in" fails)',
       textOk,
       String(doneSummary(events)).slice(0, 300),
     ),

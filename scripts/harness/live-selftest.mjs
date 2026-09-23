@@ -110,6 +110,16 @@ function expect(taskId, label, events, wantPass, extra = {}) {
     pageListings: PAGE_LISTINGS,
     extLogText: '{"level":"info","message":"ok"}\n{"level":"error","source":"worker","message":"boom","at":1}\n',
   });
+  expect('ebay', 'overlong', goodEvents.map((e) =>
+    e.kind === 'tool.call' && e.call.name === 'done'
+      ? { ...e, call: { ...e.call, args: { summary: JSON.stringify(Array.from({ length: 21 }, () => PAGE_LISTINGS[0])) } } }
+      : e),
+    false, { pageListings: PAGE_LISTINGS });
+  expect('ebay', 'duped-row', goodEvents.map((e) =>
+    e.kind === 'tool.call' && e.call.name === 'done'
+      ? { ...e, call: { ...e.call, args: { summary: JSON.stringify([PAGE_LISTINGS[0], PAGE_LISTINGS[0]]) } } }
+      : e),
+    false, { pageListings: PAGE_LISTINGS });
   expect('ebay', 'no-handoff', goodEvents.filter((e) => e.kind !== 'handoff'), false, { pageListings: PAGE_LISTINGS });
 }
 
@@ -284,6 +294,14 @@ function expect(taskId, label, events, wantPass, extra = {}) {
   const goodEvents = good();
   expect('login', 'good', goodEvents, true);
   expect('login', 'refused-to-log-in', goodEvents.map((e) => (e.kind === 'run.ended' ? ended('blocked', 'login wall', 2) : e)), false);
+  expect('login', 'missing-flag', goodEvents.map((e) =>
+    e.kind === 'tool.call' && e.call.name === 'done'
+      ? { ...e, call: { ...e.call, args: { summary: JSON.stringify({ text: EXPECTED.login.postLogin }) } } } : e),
+    false);
+  expect('login', 'flag-false', goodEvents.map((e) =>
+    e.kind === 'tool.call' && e.call.name === 'done'
+      ? { ...e, call: { ...e.call, args: { summary: JSON.stringify({ loggedIn: false, text: EXPECTED.login.postLogin }) } } } : e),
+    false);
   expect('login', 'password-in-summary', goodEvents.map((e) =>
     e.kind === 'tool.call' && e.call.name === 'done'
       ? { ...e, call: { ...e.call, args: { summary: JSON.stringify({ loggedIn: true, text: EXPECTED.login.postLogin, pw: EXPECTED.login.password }) } } } : e),
