@@ -101,22 +101,22 @@ interface Point {
 }
 
 /**
- * Last pointer position this module dispatched at, in viewport coordinates. Lets a
- * click arrive along a path instead of teleporting. Plain module state: no listener,
- * no timer, nothing attached to the page.
+ * Last pointer position this module dispatched at, with its owning document. Lets a
+ * click arrive along a path instead of teleporting. Scoped by document: refs can
+ * point inside same-origin iframes, whose coordinate space differs from the top
+ * frame's, so a point from another document is never a path start. Plain module
+ * state: no listener, no timer, nothing attached to the page.
  */
-let lastPoint: Point | null = null;
+let lastPoint: { point: Point; doc: Document | null } | null = null;
 
 /**
- * Client position of the last dispatched pointer/mouse event. `movementX/Y` cannot
- * be set through the event init dicts, so `dispatch` stamps each event with its
- * delta from here — a path whose coordinates move while movement stays 0 is itself
- * a tell (ranked-leak telemetry row). Keyboard events carry no position and pass
- * through unstamped.
+ * Client position of the last stamped pointer/mouse event, document-scoped like
+ * above. `movementX/Y` ride in the event init (the telemetry research row demands
+ * deltas matching the coordinate stream): a compat twin (same position twice)
+ * repeats the delta once, matching real browsers, then the run goes quiet at rest.
  */
-let prevClient: { x: number; y: number } | null = null;
-/** Delta stamped on the last event. A compat twin (same position twice) repeats it
- * once, matching real browsers; longer same-position runs then go quiet at rest. */
+let prevClient: { x: number; y: number; doc: Document | null } | null = null;
+/** Delta stamped on the last event: what a compat twin repeats. */
 let lastDelta: { x: number; y: number } = { x: 0, y: 0 };
 
 /** Test seam: forget where the pointer was, so the next click has no path to walk. */
@@ -124,6 +124,25 @@ export function resetPointerForTests(): void {
   lastPoint = null;
   prevClient = null;
   lastDelta = { x: 0, y: 0 };
+}
+
+/** Movement deltas for an event at `point`, advancing the module's position state. */
+function movementFor(point: Point, doc: Document | null): { mx: number; my: number } {
+  if (prevClient === null || prevClient.doc !== doc) {
+    prevClient = { x: point.clientX, y: point.clientY, doc };
+    lastDelta = { x: 0, y: 0 };
+    return { mx: 0, my: 0 };
+  }
+  if (point.clientX === prevClient.x && point.clientY === prevClient.y) {
+    const repeated = { ...lastDelta };
+    lastDelta = { x: 0, y: 0 };
+    return { mx: repeated.x, my: repeated.y };
+  }
+  const mx = point.clientX - prevClient.x;
+  const my = point.clientY - prevClient.y;
+  prevClient = { x: point.clientX, y: point.clientY, doc };
+  lastDelta = { x: mx, y: my };
+  return { mx, my };
 }
 
 function screenOf(
@@ -150,6 +169,7 @@ function pointerInit(
   buttons: number,
   pressure: number,
   screen: { screenX: number; screenY: number },
+  movement: { mx: number; my: number },
 ): PointerEventInit {
   return {
     bubbles: true,
@@ -163,6 +183,8 @@ function pointerInit(
     clientY: point.clientY,
     screenX: screen.screenX,
     screenY: screen.screenY,
+    movementX: movement.mx,
+    movementY: movement.my,
     pointerId: POINTER_ID,
     pointerType: 'mouse',
     isPrimary: true,
@@ -177,6 +199,7 @@ function mouseInit(
   buttons: number,
   detail: number,
   screen: { screenX: number; screenY: number },
+  movement: { mx: number; my: number },
 ): MouseEventInit {
   return {
     bubbles: true,
@@ -189,6 +212,8 @@ function mouseInit(
     clientY: point.clientY,
     screenX: screen.screenX,
     screenY: screen.screenY,
+    movementX: movement.mx,
+    movementY: movement.my,
   };
 }
 
@@ -203,37 +228,38 @@ function pointerEvent(type: string, init: PointerEventInit): Event {
 }
 
 function dispatch(el: Element, event: Event): void {
-  const point = event as Partial<MouseEvent>;
-  if (typeof point.clientX === 'number' && typeof point.clientY === 'number') {
-    let dx: number;
-    let dy: number;
-    if (prevClient === null) {
-      dx = 0;
-      dy = 0;
-      prevClient = { x: point.clientX, y: point.clientY };
-      lastDelta = { x: 0, y: 0 };
-    } else if (point.clientX === prevClient.x && point.clientY === prevClient.y) {
-      dx = lastDelta.x;
-      dy = lastDelta.y;
-      lastDelta = { x: 0, y: 0 };
-    } else {
-      dx = point.clientX - prevClient.x;
-      dy = point.clientY - prevClient.y;
-      prevClient = { x: point.clientX, y: point.clientY };
-      lastDelta = { x: dx, y: dy };
-    }
-    for (const [prop, value] of [
-      ['movementX', dx],
-      ['movementY', dy],
-    ] as const) {
-      try {
-        Object.defineProperty(event, prop, { value, configurable: true });
-      } catch {
-        // A host event that refuses own properties keeps the platform value.
-      }
-    }
-  }
   el.dispatchEvent(event);
+}
+
+/**
+ * Dispatch one pointer event with stamped movement. Every pointer/mouse event in
+ * this module goes through here or `mouseAt`, so none can forget its deltas.
+ */
+function pointerAt(
+  el: Element,
+  type: string,
+  point: Point,
+  buttons: number,
+  pressure: number,
+  screen: { screenX: number; screenY: number },
+  opts: { bubbles?: boolean } = {},
+): void {
+  const init = pointerInit(point, buttons, pressure, screen, movementFor(point, el.ownerDocument ?? null));
+  dispatch(el, pointerEvent(type, opts.bubbles === false ? { ...init, bubbles: false } : init));
+}
+
+/** Dispatch one mouse event with stamped movement. */
+function mouseAt(
+  el: Element,
+  type: string,
+  point: Point,
+  buttons: number,
+  detail: number,
+  screen: { screenX: number; screenY: number },
+  opts: { bubbles?: boolean } = {},
+): void {
+  const init = mouseInit(point, buttons, detail, screen, movementFor(point, el.ownerDocument ?? null));
+  dispatch(el, new MouseEvent(type, opts.bubbles === false ? { ...init, bubbles: false } : init));
 }
 
 /** The pointer-enter half of a hover, shared by `hover()` and `click()`. */
@@ -242,12 +268,12 @@ function dispatchHover(
   point: Point,
   screen: { screenX: number; screenY: number },
 ): void {
-  dispatch(el, pointerEvent('pointerover', pointerInit(point, 0, 0, screen)));
-  dispatch(el, pointerEvent('pointerenter', { ...pointerInit(point, 0, 0, screen), bubbles: false }));
-  dispatch(el, new MouseEvent('mouseover', mouseInit(point, 0, 0, screen)));
-  dispatch(el, new MouseEvent('mouseenter', { ...mouseInit(point, 0, 0, screen), bubbles: false }));
-  dispatch(el, pointerEvent('pointermove', pointerInit(point, 0, 0, screen)));
-  dispatch(el, new MouseEvent('mousemove', mouseInit(point, 0, 0, screen)));
+  pointerAt(el, 'pointerover', point, 0, 0, screen);
+  pointerAt(el, 'pointerenter', point, 0, 0, screen, { bubbles: false });
+  mouseAt(el, 'mouseover', point, 0, 0, screen);
+  mouseAt(el, 'mouseenter', point, 0, 0, screen, { bubbles: false });
+  pointerAt(el, 'pointermove', point, 0, 0, screen);
+  mouseAt(el, 'mousemove', point, 0, 0, screen);
 }
 
 /**
@@ -255,83 +281,130 @@ function dispatchHover(
  * verified with `elementFromPoint` to actually hit the element.
  *
  * Verification degrades honestly: DOMs without hit testing (`elementFromPoint`
- * missing, throwing, or returning null — jsdom included) have nothing to verify
- * against, so the jittered point stands. A real occlusion gets one retry at the box
- * center; if that is occluded too the action is refused rather than dispatched at
- * something the agent did not aim at.
+ * missing or throwing — jsdom included) have nothing to verify against, so the
+ * jittered point stands. A live document reporting nothing under the point means
+ * outside its viewport. A real occlusion gets one retry at the box center; if that
+ * is occluded too the action is refused rather than dispatched at something the
+ * agent did not aim at.
  */
 function actionPoint(el: HTMLElement): { point: Point } | { error: string } {
   const r = rectOf(el);
   const j = jitterInBox(r);
-  const tries = [
-    { clientX: j.x, clientY: j.y },
-    { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 },
-  ];
+  const center = { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 };
+  const tries = [{ clientX: j.x, clientY: j.y }, center];
   const doc = el.ownerDocument;
   const canVerify = !!doc && typeof doc.elementFromPoint === 'function';
+  let lastVerdict: AimVerdict = 'unverifiable';
   for (const point of tries) {
     if (!canVerify) return { point };
-    if (hitConfirms(el, deepHit(doc, point.clientX, point.clientY))) return { point };
+    const verdict = verifyAim(el, doc, point);
+    if (verdict === 'confirmed' || verdict === 'unverifiable') return { point };
+    lastVerdict = verdict;
   }
-  return { error: 'element is occluded at its click point by another element' };
+  return lastVerdict === 'outside'
+    ? { error: 'element is outside the viewport at its click point' }
+    : { error: 'element is occluded at its click point by another element' };
 }
 
 /**
  * Deepest element at the point, drilling through open shadow roots. Document hit
  * testing retargets shadow-encased points to the host, so without the drill-down
- * every shadow-DOM target would read as occluded by its own host. Never throws:
- * null means unverifiable, and the caller treats that as a stand, not a refusal.
+ * every shadow-DOM target would read as occluded by its own host.
+ *
+ * Tri-state: `tested: false` means the hit test itself threw (unverifiable — the
+ * caller stands, it does not refuse); a tested null means the live document
+ * genuinely reports nothing under the point (outside its viewport).
  */
-function deepHit(doc: Document, x: number, y: number): Element | null {
+function tryHit(doc: Document, x: number, y: number): { tested: true; hit: Element | null } | { tested: false } {
   let hit: Element | null;
   try {
     hit = doc.elementFromPoint(x, y);
   } catch {
-    return null;
+    return { tested: false };
   }
   while (hit?.shadowRoot && typeof hit.shadowRoot.elementFromPoint === 'function') {
     let inner: Element | null;
     try {
       inner = hit.shadowRoot.elementFromPoint(x, y);
     } catch {
-      break;
+      return { tested: false };
     }
     if (!inner || inner === hit) break;
     hit = inner;
   }
-  return hit;
+  return { tested: true, hit };
 }
 
 /**
- * Whether `hit` confirms the action aims at `el`. No hit is no evidence either way,
- * so the point stands. A closed shadow root is unreachable from the outside, so a
- * hit on its host (or under it) is the best available evidence and also stands —
- * refusing there would veto every closed-shadow interaction on principle.
+ * Whether `hit` confirms the action aims at `el`. A closed shadow root is
+ * unreachable from the outside, so a hit on its host (or under it) is the best
+ * available evidence and also stands — refusing there would veto every
+ * closed-shadow interaction on principle.
  */
-function hitConfirms(el: HTMLElement, hit: Element | null): boolean {
-  if (!hit) return true;
+function hitConfirms(el: HTMLElement, hit: Element): boolean {
   if (el.contains(hit)) return true;
   const root = el.getRootNode();
   return root instanceof ShadowRoot && (hit === root.host || root.host.contains(hit));
 }
 
+type AimVerdict = 'confirmed' | 'occluded' | 'outside' | 'unverifiable';
+
+/** Hit-tests one aim point: confirmed, covered, outside the viewport, or untestable. */
+function verifyAim(el: HTMLElement, doc: Document, point: Point): AimVerdict {
+  const probed = tryHit(doc, point.clientX, point.clientY);
+  if (!probed.tested) return 'unverifiable';
+  if (probed.hit === null) return 'outside';
+  return hitConfirms(el, probed.hit) ? 'confirmed' : 'occluded';
+}
+
 /** Whatever is actually under `point`: the honest target for a mid-path move. */
 function hitTarget(el: HTMLElement, point: Point): Element {
   const doc = el.ownerDocument;
-  try {
-    if (doc && typeof doc.elementFromPoint === 'function') {
-      const hit = deepHit(doc, point.clientX, point.clientY);
-      if (hit) return hit;
-    }
-  } catch {
-    // Hit testing unavailable; fall through to the action's own element.
+  if (doc && typeof doc.elementFromPoint === 'function') {
+    const probed = tryHit(doc, point.clientX, point.clientY);
+    if (probed.tested && probed.hit) return probed.hit;
   }
+  // Hit testing unavailable (or nothing under a mid-path sample): fall through
+  // to the action's own element rather than dropping the move.
   return el;
+}
+
+/**
+ * Where the arrival path starts. A previous point in this document walks; anything
+ * else (fresh injection, crossed documents) arrives from a nearby stub point so
+ * even the first action walks instead of teleporting.
+ */
+function startPoint(
+  doc: Document | null,
+  w: (Window & typeof globalThis) | null,
+  point: Point,
+): Point {
+  if (lastPoint && lastPoint.doc === doc) return lastPoint.point;
+  const vw = typeof w?.innerWidth === 'number' && w.innerWidth > 0 ? w.innerWidth : 1024;
+  const vh = typeof w?.innerHeight === 'number' && w.innerHeight > 0 ? w.innerHeight : 768;
+  const angle = Math.random() * 2 * Math.PI;
+  const dist = 40 + Math.random() * 80;
+  const clamp = (x: number, max: number): number => Math.min(Math.max(x, 0), max);
+  let start = {
+    clientX: clamp(point.clientX + Math.cos(angle) * dist, vw),
+    clientY: clamp(point.clientY + Math.sin(angle) * dist, vh),
+  };
+  if (Math.hypot(start.clientX - point.clientX, start.clientY - point.clientY) < 1) {
+    // Clamping collapsed the stub onto the point (corner box): step away instead,
+    // one way then the other, so there is always a path to walk in a sane viewport.
+    const away = { clientX: clamp(point.clientX + 60, vw), clientY: clamp(point.clientY + 40, vh) };
+    const back = { clientX: clamp(point.clientX - 60, vw), clientY: clamp(point.clientY - 40, vh) };
+    start =
+      Math.hypot(away.clientX - point.clientX, away.clientY - point.clientY) >= 1 ? away : back;
+  }
+  return start;
 }
 
 /**
  * Walk the pointer from wherever it last was to `point` along a humanized path,
  * dispatching a move pair per sample at whatever is actually under each sample.
+ * When the path crosses elements, the boundary out/leave/over/enter pairs fire at
+ * the crossing, as they do for a real transition.
  *
  * Positions only: this module is synchronous by design (no timer may survive a
  * call, R-02), so the path's timestamps are unrealizable here. Temporal realism —
@@ -340,15 +413,28 @@ function hitTarget(el: HTMLElement, point: Point): Element {
  * non-center point, with hover states firing along the way, instead of teleporting.
  */
 function arrive(el: HTMLElement, w: (Window & typeof globalThis) | null, point: Point): void {
-  const from = lastPoint ?? point;
-  lastPoint = point;
+  const doc = el.ownerDocument ?? null;
+  const from = startPoint(doc, w, point);
+  lastPoint = { point, doc };
   const path = planPath({ x: from.clientX, y: from.clientY }, { x: point.clientX, y: point.clientY });
+  let prevTarget: Element | null = null;
   for (const p of path.slice(1)) {
     const mid = { clientX: p.x, clientY: p.y };
     const target = hitTarget(el, mid);
     const screen = screenOf(w, mid);
-    dispatch(target, pointerEvent('pointermove', pointerInit(mid, 0, 0, screen)));
-    dispatch(target, new MouseEvent('mousemove', mouseInit(mid, 0, 0, screen)));
+    if (prevTarget && target !== prevTarget) {
+      pointerAt(prevTarget, 'pointerout', mid, 0, 0, screen);
+      pointerAt(prevTarget, 'pointerleave', mid, 0, 0, screen, { bubbles: false });
+      mouseAt(prevTarget, 'mouseout', mid, 0, 0, screen);
+      mouseAt(prevTarget, 'mouseleave', mid, 0, 0, screen, { bubbles: false });
+      pointerAt(target, 'pointerover', mid, 0, 0, screen);
+      pointerAt(target, 'pointerenter', mid, 0, 0, screen, { bubbles: false });
+      mouseAt(target, 'mouseover', mid, 0, 0, screen);
+      mouseAt(target, 'mouseenter', mid, 0, 0, screen, { bubbles: false });
+    }
+    prevTarget = target;
+    pointerAt(target, 'pointermove', mid, 0, 0, screen);
+    mouseAt(target, 'mousemove', mid, 0, 0, screen);
   }
 }
 
@@ -376,16 +462,26 @@ export function click(ref: string): ActionResult {
 
   arrive(el, w, point);
   dispatchHover(el, point, screen);
-  dispatch(el, pointerEvent('pointerdown', pointerInit(point, 1, 0.5, screen)));
-  dispatch(el, new MouseEvent('mousedown', mouseInit(point, 1, 1, screen)));
+  // The arrival moves just ran page hover handlers, which can synchronously open
+  // a menu or tooltip over the landing point. Re-verify the same point before
+  // pressing rather than clicking through a fresh overlay.
+  const doc = el.ownerDocument;
+  if (doc && typeof doc.elementFromPoint === 'function') {
+    const verdict = verifyAim(el, doc, point);
+    if (verdict === 'occluded' || verdict === 'outside') {
+      return fail('element became occluded at its click point during hover arrival');
+    }
+  }
+  pointerAt(el, 'pointerdown', point, 1, 0.5, screen);
+  mouseAt(el, 'mousedown', point, 1, 1, screen);
   try {
     el.focus({ preventScroll: true });
   } catch {
     // Non-focusable elements throw or no-op; the click still stands.
   }
-  dispatch(el, pointerEvent('pointerup', pointerInit(point, 0, 0, screen)));
-  dispatch(el, new MouseEvent('mouseup', mouseInit(point, 0, 1, screen)));
-  dispatch(el, new MouseEvent('click', mouseInit(point, 0, 1, screen)));
+  pointerAt(el, 'pointerup', point, 0, 0, screen);
+  mouseAt(el, 'mouseup', point, 0, 1, screen);
+  mouseAt(el, 'click', point, 0, 1, screen);
   return { ok: true };
 }
 

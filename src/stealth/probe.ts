@@ -59,7 +59,20 @@ export const PROBE_CHECKS = [
 ] as const;
 
 /** Globals no clean page defines but automation harnesses have left behind. */
-export const SUSPECT_GLOBALS = ['__playwright', '__pwInitScripts', '__puppeteer', '__nightmare', '_selenium', 'callPhantom'];
+export const SUSPECT_GLOBALS = [
+  '__playwright',
+  '__playwright_builtins__',
+  '__playwright__binding__',
+  '__playwright__binding__controller__',
+  '__pwInitScripts',
+  '__pw_fn_',
+  '__pwClock',
+  '__pwWebAuthnBinding',
+  '__puppeteer',
+  '__nightmare',
+  '_selenium',
+  'callPhantom',
+];
 
 const NAVIGATOR_PROBE_PROPS = ['userAgent', 'plugins', 'languages', 'hardwareConcurrency', 'deviceMemory'];
 
@@ -105,20 +118,32 @@ export function runStealthProbe(scope: ProbeScope): ProbeFinding[] {
     });
   }
 
-  // 2. Error.stack accessor on the instance: V8 captures the stack as an own
-  // *data* property. An accessor here is an injected getter watching stack reads
-  // (a known instrumentation hook). Anything else is reported, not flagged.
+  // 2. Error.stack accessor on the instance: stock V8 exposes it as an own NATIVE
+  // accessor pair, so accessor-ness alone flags every clean browser. The tell is a
+  // CUSTOM getter — JavaScript watching stack reads (a known instrumentation hook).
   const descriptor = scope.errorInstanceStackDescriptor;
-  const isAccessor = !!descriptor && (typeof descriptor.get === 'function' || typeof descriptor.set === 'function');
+  const get = descriptor?.get;
+  let native = false;
+  if (typeof get === 'function') {
+    try {
+      native = /\[native code\]/.test(Function.prototype.toString.call(get));
+    } catch {
+      native = false;
+    }
+  }
+  const hooked = typeof get === 'function' && !native;
+  const isAccessor = !!descriptor && (typeof get === 'function' || typeof descriptor.set === 'function');
   findings.push({
     check: 'error-stack-accessor',
     observed: !descriptor
       ? 'no own stack property on a fresh error'
-      : isAccessor
-        ? 'own stack ACCESSOR on a fresh error'
-        : 'own stack data property on a fresh error',
-    anomalous: isAccessor,
-    detail: 'an accessor on the instance is an injected stack hook; data-or-inherited needs a clean-profile baseline to judge',
+      : hooked
+        ? 'own stack CUSTOM ACCESSOR on a fresh error (injected hook)'
+        : isAccessor
+          ? 'own stack native accessor on a fresh error (stock V8)'
+          : 'own stack data property on a fresh error',
+    anomalous: hooked,
+    detail: 'only a custom getter is conclusive; native-or-data readings are differential evidence against a clean baseline',
   });
 
   // 3. Proxy traps around navigator: reading ordinary properties must never

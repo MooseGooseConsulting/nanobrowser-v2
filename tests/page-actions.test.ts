@@ -66,7 +66,10 @@ describe('click', () => {
     const button = document.querySelector('button') as HTMLButtonElement;
     const seen = recorder(button, CLICK_TYPES);
     expect(click(refOf('button'))).toEqual({ ok: true });
-    expect(seen).toEqual(CLICK_TYPES);
+    // Arrival moves precede it (even the first action walks); the cortège itself
+    // keeps spec order at the tail.
+    expect(seen.length).toBeGreaterThan(CLICK_TYPES.length);
+    expect(seen.slice(-CLICK_TYPES.length)).toEqual(CLICK_TYPES);
   });
 
   it('lands inside the box but never dead-center (center is a bot tell)', () => {
@@ -139,6 +142,107 @@ describe('click', () => {
       expect(moves[i]!.dx).toBeCloseTo(moves[i]!.x - moves[i - 1]!.x, 9);
       expect(moves[i]!.dy).toBeCloseTo(moves[i]!.y - moves[i - 1]!.y, 9);
     }
+  });
+
+  it('walks an arrival path even on the first action (no teleport signature)', () => {
+    document.body.innerHTML = '<button>Go</button>';
+    const button = document.querySelector('button') as HTMLButtonElement;
+    const seen: string[] = [];
+    for (const t of ['pointermove', 'mousemove', 'pointerdown']) {
+      button.addEventListener(t, () => seen.push(t));
+    }
+    // Fresh module state (beforeEach reset): no previous point anywhere.
+    click(refOf('button'));
+    const downAt = seen.indexOf('pointerdown');
+    const movesBefore = seen.slice(0, downAt).filter((t) => t === 'pointermove' || t === 'mousemove');
+    expect(movesBefore.length).toBeGreaterThan(2);
+  });
+
+  it('fires boundary events when the arrival path crosses elements', () => {
+    document.body.innerHTML = '<button id="a">A</button><button id="b">B</button>';
+    const a = document.querySelector('#a') as HTMLElement;
+    const b = document.querySelector('#b') as HTMLElement;
+    const rectAt = (x: number, y: number) =>
+      ({ x, y, width: 100, height: 50, top: y, left: x, right: x + 100, bottom: y + 50, toJSON: () => ({}) }) as DOMRect;
+    a.getBoundingClientRect = () => rectAt(100, 100);
+    b.getBoundingClientRect = () => rectAt(300, 100);
+    click(refOf('#a'));
+
+    // A continuous path from ~150 to ~350 must cross x=250.
+    const docTarget = document as unknown as { elementFromPoint: unknown };
+    docTarget.elementFromPoint = (x: number) => (x < 250 ? a : b);
+    const seenA = recorder(a, ['pointerout', 'pointerleave', 'pointerover']);
+    const seenB = recorder(b, ['pointerover', 'pointerenter']);
+    try {
+      expect(click(refOf('#b'))).toEqual({ ok: true });
+    } finally {
+      delete (document as unknown as { elementFromPoint?: unknown }).elementFromPoint;
+    }
+    expect(seenA).toContain('pointerout');
+    expect(seenA).toContain('pointerleave');
+    expect(seenB.filter((t) => t === 'pointerover').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('refuses when hover arrival opens an overlay over the landing point', () => {
+    document.body.innerHTML = '<button>Go</button><div>menu</div>';
+    const button = document.querySelector('button') as HTMLButtonElement;
+    const cover = document.querySelector('div') as HTMLElement;
+    const ref = refOf('button');
+    let overlayOpen = false;
+    button.addEventListener('mouseover', () => {
+      overlayOpen = true;
+    });
+    const docTarget = document as unknown as { elementFromPoint: unknown };
+    docTarget.elementFromPoint = () => (overlayOpen ? cover : button);
+    try {
+      expect(click(ref)).toEqual({
+        ok: false,
+        error: 'element became occluded at its click point during hover arrival',
+      });
+    } finally {
+      delete (document as unknown as { elementFromPoint?: unknown }).elementFromPoint;
+    }
+  });
+
+  it('refuses when the live document reports nothing under the point', () => {
+    document.body.innerHTML = '<button>Go</button>';
+    const ref = refOf('button');
+    const docTarget = document as unknown as { elementFromPoint: unknown };
+    docTarget.elementFromPoint = () => null;
+    try {
+      expect(click(ref)).toEqual({
+        ok: false,
+        error: 'element is outside the viewport at its click point',
+      });
+    } finally {
+      delete (document as unknown as { elementFromPoint?: unknown }).elementFromPoint;
+    }
+  });
+
+  it('does not walk paths across documents (iframe coordinates differ)', () => {
+    document.body.innerHTML = '<button>Top</button><iframe></iframe>';
+    const top = document.querySelector('button') as HTMLButtonElement;
+    const iframe = document.querySelector('iframe') as HTMLIFrameElement;
+    const idoc = iframe.contentDocument as Document;
+    idoc.body.innerHTML = '<button>Inner</button>';
+    const inner = idoc.querySelector('button') as HTMLButtonElement;
+    const rectAt = (x: number, y: number) =>
+      ({ x, y, width: 100, height: 50, top: y, left: x, right: x + 100, bottom: y + 50, toJSON: () => ({}) }) as DOMRect;
+    top.getBoundingClientRect = () => rectAt(500, 500);
+    inner.getBoundingClientRect = () => rectAt(50, 50);
+    click(refOf('button'));
+
+    // The iframe click must arrive from nearby in its own frame — not trek from
+    // the top frame's (500,500), which is a different coordinate space entirely.
+    const moves: { x: number; y: number }[] = [];
+    inner.addEventListener('mousemove', (e) => {
+      const m = e as MouseEvent;
+      moves.push({ x: m.clientX, y: m.clientY });
+    });
+    expect(click(refOfElement(inner))).toEqual({ ok: true });
+    expect(moves.length).toBeGreaterThan(0);
+    expect(Math.abs(moves[0]!.x - 100)).toBeLessThan(200);
+    expect(Math.abs(moves[0]!.y - 75)).toBeLessThan(200);
   });
 
   it('offsets screenX/screenY by the window origin instead of echoing clientX', () => {
@@ -264,7 +368,8 @@ describe('click', () => {
     const dispatched = CLICK_TYPES.filter((t) => t !== 'focus');
     for (const t of dispatched) button.addEventListener(t, (e) => trust.push(e.isTrusted));
     click(refOf('button'));
-    expect(trust.length).toBe(dispatched.length);
+    // Arrival moves plus the cortège: strictly more than the cortège alone.
+    expect(trust.length).toBeGreaterThan(dispatched.length);
     expect(trust.every((v) => v === false)).toBe(true);
   });
 
@@ -326,7 +431,12 @@ describe('hover', () => {
     const el = document.querySelector('div') as HTMLElement;
     const seen = recorder(el, [...CLICK_TYPES]);
     expect(hover(refOf('div'))).toEqual({ ok: true });
-    expect(seen).toEqual(['pointerover', 'pointerenter', 'mouseover', 'mouseenter', 'pointermove', 'mousemove']);
+    // Arrival moves precede it; the enter cortège itself keeps order at the tail,
+    // and no press ever appears.
+    const cortège = ['pointerover', 'pointerenter', 'mouseover', 'mouseenter', 'pointermove', 'mousemove'];
+    expect(seen.length).toBeGreaterThan(cortège.length);
+    expect(seen.slice(-cortège.length)).toEqual(cortège);
+    expect(seen).not.toContain('pointerdown');
   });
 });
 

@@ -61,9 +61,10 @@ fi
 # 5. No window.postMessage bridge in page-context code. A postMessage channel
 #    between the page and the extension is enumerable page-side and turns the
 #    extension into a detectable surface; the injected tier talks over
-#    chrome.runtime messaging only (see src/page/handler.ts).
+#    chrome.runtime messaging only (see src/page/handler.ts). Word-boundary match
+#    so the bare window-scope call is caught alongside window.postMessage.
 PAGE_CONTEXT="src/page entrypoints/injected-content.ts src/userscripts"
-POST_HITS="$(grep -rn --include='*.ts' -e '\.postMessage(' $PAGE_CONTEXT 2>/dev/null || true)"
+POST_HITS="$(grep -rn --include='*.ts' -e '\<postMessage[[:space:]]*(' $PAGE_CONTEXT 2>/dev/null || true)"
 if [ -n "$POST_HITS" ]; then
   fail 'page-context code uses window.postMessage'
   echo "$POST_HITS"

@@ -69,6 +69,12 @@ describe('runStealthProbe', () => {
     expect(probeAnomalies(runStealthProbe(scope))).toEqual(['error-stack-accessor']);
   });
 
+  it('treats this realm\'s own fresh-error descriptor as clean (stock V8 shape)', () => {
+    const scope = cleanScope();
+    scope.errorInstanceStackDescriptor = Object.getOwnPropertyDescriptor(new Error('x'), 'stack');
+    expect(probeAnomalies(runStealthProbe(scope))).toEqual([]);
+  });
+
   it('flags a navigator whose property reads throw (interposed proxy trap)', () => {
     const scope = cleanScope();
     scope.navigator = {
@@ -102,6 +108,16 @@ describe('runStealthProbe', () => {
     const findings = runStealthProbe(scope);
     expect(probeAnomalies(findings)).toEqual(['playwright-init-globals']);
     expect(findings.find((f) => f.check === 'playwright-init-globals')?.observed).toContain('__playwright');
+  });
+
+  it('flags the documented Playwright artifact names, not just the stem', () => {
+    const scope = cleanScope();
+    scope.globalNames = [...(scope.globalNames ?? []), '__playwright_builtins__', '__playwright__binding__'];
+    const findings = runStealthProbe(scope);
+    expect(probeAnomalies(findings)).toEqual(['playwright-init-globals']);
+    expect(findings.find((f) => f.check === 'playwright-init-globals')?.observed).toContain(
+      '__playwright_builtins__',
+    );
   });
 
   it('flags a stripped PointerEvent with no coalesced events', () => {
