@@ -54,15 +54,29 @@ export const FOLLOWER_HISTORY_TURNS = 3;
 /**
  * Keeps the most recent turns of Follower history.
  *
- * Trims by message rather than by token because the reducer stores whole
- * messages and a turn is always one human plus one AI message.
+ * Trims by turn, not by fixed message count: a turn is a human observation plus
+ * everything the model emitted for it (one AI message plus its tool results,
+ * including refused extras). Slicing a fixed count can keep tool results whose
+ * assistant call was cut away, and OpenAI-compatible providers reject orphaned
+ * tool messages — so the cut lands only on a human boundary, and any leading
+ * tool messages left by the cut are dropped with it.
  */
 export function trimFollowerHistory(
   messages: BaseMessage[],
   turns: number = FOLLOWER_HISTORY_TURNS,
 ): BaseMessage[] {
-  const keep = Math.max(turns, 1) * 2;
-  return messages.length <= keep ? messages : messages.slice(-keep);
+  const want = Math.max(turns, 1);
+  let seen = 0;
+  let cut = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i] instanceof HumanMessage) {
+      seen++;
+      if (seen === want) cut = i;
+    }
+  }
+  let kept = seen >= want ? messages.slice(cut) : messages.slice();
+  while (kept.length > 0 && kept[0] instanceof ToolMessage) kept = kept.slice(1);
+  return kept.length > 0 ? kept : messages.slice(-1);
 }
 
 /** Consecutive tool-call-less Follower turns before a run is called stalled. */
@@ -95,7 +109,11 @@ export function actionKey(name: string, args: Record<string, unknown>, error: st
     json = String(sorted);
   }
   if (json.length > 500) json = `${json.slice(0, 500)}…len=${json.length}#${hash32(json)}`;
-  return `${name}\n${json}\n${normalizeError(error).slice(0, 200)}`;
+  // Hash the full normalized error, not just its head: two failures sharing a
+  // 200-char prefix (long userscript errors with a common console preamble) must
+  // not read as one identical failure and stop a run whose failure changed.
+  const failure = normalizeError(error);
+  return `${name}\n${json}\n${failure.slice(0, 200)}#${hash32(failure)}`;
 }
 
 /** Durations (`12ms`, `3 s`, `1.5 minutes`) collapse; every other digit is significant. */

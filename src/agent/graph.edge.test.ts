@@ -16,7 +16,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { MemorySaver } from '@langchain/langgraph/web';
-import { HumanMessage, type ToolMessage } from '@langchain/core/messages';
+import { AIMessage, HumanMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import type { RunEvent } from '@/src/messaging/contract';
 import type { Config } from '@/src/storage';
 import {
@@ -282,7 +282,7 @@ describe('follower history is bounded', () => {
     const history = Array.from({ length: 40 }, (_, i) => msg(i));
     const kept = trimFollowerHistory(history);
 
-    expect(kept).toHaveLength(FOLLOWER_HISTORY_TURNS * 2);
+    expect(kept).toHaveLength(FOLLOWER_HISTORY_TURNS);
     expect(kept.at(-1)).toBe(history.at(-1));
     expect(kept).not.toContain(history[0]);
   });
@@ -295,6 +295,26 @@ describe('follower history is bounded', () => {
   it('never returns an empty history, whatever it is asked for', () => {
     const history = Array.from({ length: 10 }, (_, i) => msg(i));
     expect(trimFollowerHistory(history, 0).length).toBeGreaterThan(0);
+  });
+
+  it('cuts only at turn boundaries, so no kept tool result loses its assistant call', () => {
+    // Turn 1 carries refused extras (one AI message, three tool results); a
+    // fixed message-count slice would keep the first refused result while
+    // cutting the assistant call it answers, which providers reject.
+    const ai = (id: string, calls: string[]) =>
+      new AIMessage({
+        content: '',
+        tool_calls: calls.map((name, i) => ({ id: `${id}-${i}`, name, args: {} })),
+      });
+    const res = (id: string) => new ToolMessage({ tool_call_id: id, content: 'refused' });
+    const turn1: BaseMessage[] = [msg(0), ai('a0', ['snapshot', 'bogus', 'bogus']), res('a0-0'), res('a0-1'), res('a0-2')];
+    const turn2: BaseMessage[] = [msg(1), ai('a1', ['click']), res('a1-0')];
+    const history = [...turn1, ...turn2];
+
+    const kept = trimFollowerHistory(history, 1);
+    expect(kept).toEqual(turn2);
+    expect(kept[0]).toBeInstanceOf(HumanMessage);
+    expect(kept.filter((m) => m instanceof ToolMessage)).toHaveLength(1);
   });
 });
 
@@ -312,6 +332,13 @@ describe('actionKey', () => {
     expect(actionKey('snapshot', {}, 'request failed with status code 429')).not.toBe(
       actionKey('snapshot', {}, 'request failed with status code 500'),
     );
+  });
+
+  it('distinguishes errors that share a long prefix but differ after it', () => {
+    const prefix = `console output:\n${'x'.repeat(300)}\n`;
+    const a = actionKey('run_userscript', { scriptId: 's' }, `${prefix}TypeError: undefined is not an object`);
+    const b = actionKey('run_userscript', { scriptId: 's' }, `${prefix}ReferenceError: foo is not defined`);
+    expect(a).not.toBe(b);
   });
 
   it('distinguishes large payloads that share a prefix and length', () => {
