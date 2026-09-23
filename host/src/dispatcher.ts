@@ -35,6 +35,12 @@ const OPTIONAL_ID_TYPES = new Set(['runlog.append', 'log.append']);
 
 export class Dispatcher {
   readonly #deps: DispatcherDeps;
+  /**
+   * The tail of each run's append chain. main.ts handles frames concurrently, and two
+   * awaited appendFile calls can land in either order -- run.end overtaking run.ended
+   * made the trigger close nb-run's stream before the run's own terminal event.
+   */
+  readonly #runLogTails = new Map<string, Promise<void>>();
 
   constructor(deps: DispatcherDeps) {
     this.#deps = deps;
@@ -90,13 +96,20 @@ export class Dispatcher {
         } catch (err) {
           return this.#fail(m.id, 'bad_request', (err as RunLogError).message);
         }
-        try {
-          await appendRunLog(m.runId, m.event, this.#deps.runsDir);
-        } catch (err) {
-          return this.#fail(m.id, 'io', (err as Error).message);
-        }
-        this.#deps.onRunEvent?.(m.runId, m.event);
-        return this.#deps.send({ type: 'runlog.ack', ...(m.id ? { id: m.id } : {}), runId: m.runId, ok: true });
+        const append = async (): Promise<void> => {
+          try {
+            await appendRunLog(m.runId, m.event, this.#deps.runsDir);
+          } catch (err) {
+            return this.#fail(m.id, 'io', (err as Error).message);
+          }
+          this.#deps.onRunEvent?.(m.runId, m.event);
+          this.#deps.send({ type: 'runlog.ack', ...(m.id ? { id: m.id } : {}), runId: m.runId, ok: true });
+        };
+        const tail = (this.#runLogTails.get(m.runId) ?? Promise.resolve()).then(append);
+        this.#runLogTails.set(m.runId, tail);
+        await tail;
+        if (this.#runLogTails.get(m.runId) === tail) this.#runLogTails.delete(m.runId);
+        return;
       }
 
       case 'artifact.save': {

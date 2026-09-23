@@ -110,7 +110,15 @@ export class CassetteStore {
     this.#dir = dir;
   }
 
+  /**
+   * A key is a bare filename token (in practice a sha256 hex digest). Anything
+   * with a separator or dot could climb out of the cassette directory, so it is
+   * refused rather than joined.
+   */
   fileFor(key: string): string {
+    if (!/^[A-Za-z0-9_-]+$/.test(key)) {
+      throw new Error(`refusing cassette key that is not a plain filename: ${JSON.stringify(key.slice(0, 80))}`);
+    }
     return path.join(this.#dir, `${key}.json`);
   }
 

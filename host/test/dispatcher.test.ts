@@ -271,6 +271,21 @@ describe('runlog.append', () => {
     expect(h.runEvents.map((e) => e.runId)).toEqual(['run-1', 'run-1']);
   });
 
+  it('keeps arrival order when frames are handled concurrently, so run.end is never published before the events ahead of it', async () => {
+    // main.ts fires `void dispatcher.handle(m)` per frame without awaiting. The harness
+    // (scripts/harness.sh) caught run.end overtaking run.ended: the trigger closed the
+    // nb-run socket on run.end and the stream lost the run's own terminal event.
+    h = await makeHarness();
+    const events = Array.from({ length: 40 }, (_, n) => ({ kind: 'step', n }));
+    events.push({ kind: 'run.ended', n: 40 } as never, { type: 'run.end', n: 41 } as never);
+    await Promise.all(events.map((event) => h.dispatcher.handle({ type: 'runlog.append', runId: 'run-1', event })));
+
+    const text = await fs.readFile(path.join(h.runsDir, 'run-1.jsonl'), 'utf8');
+    const order = events.map((e) => (e as { n: number }).n);
+    expect(text.trimEnd().split('\n').map((l) => JSON.parse(l).n)).toEqual(order);
+    expect(h.runEvents.map((e) => (e.event as { n: number }).n)).toEqual(order);
+  });
+
   it('rejects a bad runId without writing anything', async () => {
     h = await makeHarness();
     await h.dispatcher.handle({ type: 'runlog.append', id: 'a1', runId: '../evil', event: {} });

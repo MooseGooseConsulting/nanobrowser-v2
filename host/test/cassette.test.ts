@@ -154,4 +154,25 @@ describe('CassetteStore', () => {
   it('returns null for a miss', async () => {
     expect(await new CassetteStore(dir).read('deadbeef')).toBeNull();
   });
+
+  it('keeps a real key inside the cassette directory', () => {
+    const file = new CassetteStore(dir).fileFor(cassetteKey(req()));
+    expect(path.dirname(file)).toBe(dir);
+  });
+
+  it.each(['../../etc/passwd', '..', 'a/b', 'a\\b', '/etc/passwd', 'x.json', ''])(
+    'refuses a key that could leave the cassette directory: %j',
+    (key) => {
+      expect(() => new CassetteStore(dir).fileFor(key)).toThrow(/not a plain filename/);
+    },
+  );
+
+  it('writes nothing outside the directory for a traversal key, and reads it as a miss', async () => {
+    const inner = path.join(dir, 'cassettes');
+    const store = new CassetteStore(inner);
+    const entry = { key: '../escaped', url: 'chat/completions', model: 'm', status: 200, headers: {}, chunks: [] };
+    await expect(store.write(entry)).rejects.toThrow(/not a plain filename/);
+    await expect(fs.access(path.join(dir, 'escaped.json'))).rejects.toThrow();
+    expect(await store.read('../escaped')).toBeNull();
+  });
 });
