@@ -19,7 +19,13 @@ import type { RunEvent, RunId } from '@/src/messaging';
 /** Persisted replay ring for one run: the events `runlog.replay` serves. */
 export interface ReplayStore {
   load(runId: RunId): Promise<RunEvent[] | undefined>;
-  save(runId: RunId, events: RunEvent[]): Promise<void>;
+  /**
+   * Save a run's events. Runs named in `opts.protect` are never chosen for
+   * eviction: refused starts each persist a terminal event, so without this a
+   * burst of refusals behind an active run would evict the active run's keys
+   * and leave `session:lastRunId` pointing at unrestorable state.
+   */
+  save(runId: RunId, events: RunEvent[], opts?: { protect?: RunId[] }): Promise<void>;
 }
 
 /**
@@ -70,7 +76,7 @@ export function sessionReplayStore(): ReplayStore | undefined {
       const found = (await area.get(replayKey(id)))[replayKey(id)];
       return Array.isArray(found) ? (found as RunEvent[]) : undefined;
     },
-    async save(id, events) {
+    async save(id, events, opts) {
       await area.set({ [replayKey(id)]: events });
       // Bounded index: without eviction every run's keys would accumulate until
       // the 10 MB session quota silently stops durability for the whole session.
@@ -79,8 +85,10 @@ export function sessionReplayStore(): ReplayStore | undefined {
         (v) => v !== id,
       );
       index.push(id);
-      const evicted = index.splice(0, Math.max(0, index.length - DURABLE_RUN_CAP));
-      await area.set({ [INDEX_KEY]: index });
+      const protectedIds = new Set(opts?.protect ?? []);
+      const victims = index.filter((v) => !protectedIds.has(v));
+      const evicted = victims.splice(0, Math.min(victims.length, Math.max(0, index.length - DURABLE_RUN_CAP)));
+      await area.set({ [INDEX_KEY]: index.filter((v) => !evicted.includes(v)) });
       for (const runId of evicted) {
         await area.remove([replayKey(runId), valueKey(runId)]).catch(() => {});
       }

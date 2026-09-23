@@ -111,4 +111,20 @@ describe('session stores over a fake chrome area', () => {
     // 5 runs × (replay + value) keys, plus the index itself.
     expect(data.size).toBe(11);
   });
+
+  it('never evicts a protected run, even under a burst of other saves', async () => {
+    installFake();
+    const replay = sessionReplayStore()!;
+    // An active run plus five refused starts: without protection the refusals
+    // would push the active run out of the five-entry index and delete its keys,
+    // leaving session:lastRunId pointing at unrestorable state.
+    await replay.save('active', [started]);
+    for (let i = 0; i < 5; i++) {
+      await replay.save(`refused-${i}`, [started], { protect: ['active'] });
+    }
+
+    expect(await replay.load('active')).toHaveLength(1);
+    expect(await replay.load('refused-0')).toBeUndefined();
+    expect(await replay.load('refused-4')).toHaveLength(1);
+  });
 });

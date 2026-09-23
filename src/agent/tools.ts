@@ -172,7 +172,9 @@ export const TERMINAL_TOOLS: Record<string, 'done' | 'blocked'> = {
  * Tools that only read. Their success is not evidence the page changed, so it does
  * not reset the repeat-failure counter in `src/agent/graph.ts`. Everything else that
  * succeeds counts as progress. `wait` is here too: pausing performs no action, so a
- * failure alternating with waits is still the same futile loop.
+ * failure alternating with waits is still the same futile loop. `save_file` writes
+ * a local artifact, not page state, so alternating it with a failing page action is
+ * the same loop wearing a different hat.
  */
 export const READ_TOOL_NAMES: ReadonlySet<string> = new Set([
   'snapshot',
@@ -181,6 +183,7 @@ export const READ_TOOL_NAMES: ReadonlySet<string> = new Set([
   'get_box',
   'list_userscripts',
   'wait',
+  'save_file',
 ]);
 
 export interface PageToolset {

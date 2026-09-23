@@ -173,6 +173,19 @@ describe('repeat-failure stall detection (M2)', () => {
     expect(ended).toMatchObject({ kind: 'run.ended', status: 'error', steps: 3 });
   });
 
+  it('does not let file saves break the repeat chain either: saving is not page progress', async () => {
+    const { ended } = await harness({
+      maxSteps: 10,
+      planningInterval: 10,
+      follower: (call) =>
+        call.index === 1
+          ? { kind: 'tool', name: 'save_file', args: { filename: 'n.json', content: '{}' } }
+          : { kind: 'tool', name: 'bogus_tool', args: {} },
+    });
+
+    expect(ended).toMatchObject({ kind: 'run.ended', status: 'error', steps: 3 });
+  });
+
   it('trips when the same action is refused as a batch extra every turn', async () => {
     const { ended } = await harness({
       maxSteps: 10,

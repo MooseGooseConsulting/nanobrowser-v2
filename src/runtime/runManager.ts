@@ -523,7 +523,11 @@ export class RunManager {
     // keeps growing while a gated save waits. The run never waits; a failed save only warns.
     const snapshot = [...buffer];
     const prev = this.#persistTails.get(runId) ?? Promise.resolve();
-    const save = prev.catch(() => {}).then(() => this.#deps.replayStore?.save(runId, snapshot));
+    // The active run is exempt from durable eviction: refused starts persist
+    // terminal events too, so a burst of refusals behind a slow model call must
+    // not push the active run's keys out of the ring.
+    const protect = this.#active ? [this.#active.runId] : [];
+    const save = prev.catch(() => {}).then(() => this.#deps.replayStore?.save(runId, snapshot, { protect }));
     const tail = save.catch((error: unknown) => {
       console.warn('[nanobrowser] could not persist replay event', error);
     });
