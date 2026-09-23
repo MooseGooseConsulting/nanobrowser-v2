@@ -523,19 +523,29 @@ function arrive(
       const nextChain = ancestors(target);
       const common = nextChain.find((n) => prevSet.has(n)) ?? null;
       // Nodes actually exited, innermost first; the common ancestor never left.
-      for (const node of prevChain) {
-        if (node === common) break;
-        pointerAt(node, 'pointerout', mid, 0, 0, screen, { movement: move, relatedTarget: target });
+      // Bubbling out-events fire only on the innermost exited node: ancestors
+      // receive them through the bubble path, and a direct dispatch on each
+      // would double-deliver (once direct, once bubbled). Leave events do not
+      // bubble, so each exited node gets its own.
+      const exited = prevChain.slice(0, common ? prevChain.indexOf(common) : prevChain.length);
+      if (exited.length > 0) {
+        const leaf = exited[0]!;
+        pointerAt(leaf, 'pointerout', mid, 0, 0, screen, { movement: move, relatedTarget: target });
+        mouseAt(leaf, 'mouseout', mid, 0, 0, screen, { movement: move, relatedTarget: target });
+      }
+      for (const node of exited) {
         pointerAt(node, 'pointerleave', mid, 0, 0, screen, { bubbles: false, movement: move, relatedTarget: target });
-        mouseAt(node, 'mouseout', mid, 0, 0, screen, { movement: move, relatedTarget: target });
         mouseAt(node, 'mouseleave', mid, 0, 0, screen, { bubbles: false, movement: move, relatedTarget: target });
       }
-      // Nodes actually entered, outermost first.
+      // Nodes actually entered, outermost first. Symmetrically, bubbling
+      // over-events fire only on the entered target itself.
       const entered = (common ? nextChain.slice(0, nextChain.indexOf(common)) : nextChain).reverse();
+      if (entered.length > 0) {
+        pointerAt(target, 'pointerover', mid, 0, 0, screen, { movement: move, relatedTarget: prevTarget });
+        mouseAt(target, 'mouseover', mid, 0, 0, screen, { movement: move, relatedTarget: prevTarget });
+      }
       for (const node of entered) {
-        pointerAt(node, 'pointerover', mid, 0, 0, screen, { movement: move, relatedTarget: prevTarget });
         pointerAt(node, 'pointerenter', mid, 0, 0, screen, { bubbles: false, movement: move, relatedTarget: prevTarget });
-        mouseAt(node, 'mouseover', mid, 0, 0, screen, { movement: move, relatedTarget: prevTarget });
         mouseAt(node, 'mouseenter', mid, 0, 0, screen, { bubbles: false, movement: move, relatedTarget: prevTarget });
       }
       if (target === el) crossedIntoEl = true;

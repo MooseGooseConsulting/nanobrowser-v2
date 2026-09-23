@@ -836,3 +836,35 @@ describe('triage: arrival telemetry and aim honesty', () => {
     expect(observed!.screenY - observed!.clientY).toBeCloseTo(112, 9);
   });
 });
+
+describe('triage: bubbling boundary events fire once', () => {
+  const rectAt = (x: number, y: number, w = 100, h = 50) =>
+    ({ x, y, width: w, height: h, top: y, left: x, right: x + w, bottom: y + h, toJSON: () => ({}) }) as DOMRect;
+
+  it('dispatches mouseout on the innermost exited node; ancestors get it bubbled, not direct', () => {
+    document.body.innerHTML =
+      '<div id="d"><button id="b">B<span id="s">S</span></button></div><button id="a">A</button>';
+    const a = document.querySelector('#a') as HTMLElement;
+    const b = document.querySelector('#b') as HTMLElement;
+    const s = document.querySelector('#s') as HTMLElement;
+    a.getBoundingClientRect = () => rectAt(100, 100);
+    b.getBoundingClientRect = () => rectAt(300, 100);
+    // Seed lastPoint near ~350 (the snapshot mints no ref for a bare span).
+    click(refOf('#b'));
+
+    // Two zones, no middle ground: samples jump from the span straight to the
+    // far button, so one transition exits span and button together.
+    (document as unknown as { elementFromPoint: unknown }).elementFromPoint = (x: number) => (x >= 300 ? s : a);
+    const seen: { type: string; target: EventTarget | null }[] = [];
+    b.addEventListener('mouseout', (e) => seen.push({ type: 'mouseout', target: e.target }));
+    try {
+      expect(click(refOf('#a'))).toEqual({ ok: true });
+    } finally {
+      delete (document as unknown as { elementFromPoint?: unknown }).elementFromPoint;
+    }
+    // One bubbled (target span) from leaving the span. Before the fix the
+    // same transition also fired mouseout directly on the button, delivering
+    // it twice with target button.
+    expect(seen).toEqual([{ type: 'mouseout', target: s }]);
+  });
+});
