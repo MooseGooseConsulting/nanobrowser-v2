@@ -175,6 +175,9 @@ function parseSignal(value: unknown): FollowerSignal | undefined {
  * results. Both roles act once per turn by design, so extras are refused with
  * an instruction to re-issue, never run.
  */
+const EXTRA_CALL_REFUSAL =
+  'only the first tool call per turn is answered; re-issue this call next turn if it still matters.';
+
 function answerExtraCalls(
   config: Emitter,
   role: Role,
@@ -184,7 +187,7 @@ function answerExtraCalls(
 ): void {
   extra.forEach((call, i) => {
     const callId = call.id ?? `${fallbackPrefix}-extra-${i}`;
-    const refusal = 'only the first tool call per turn is answered; re-issue this call next turn if it still matters.';
+    const refusal = EXTRA_CALL_REFUSAL;
     emit(config, {
       kind: 'tool.call',
       role,
@@ -645,6 +648,8 @@ const follower: GraphNode<typeof AgentState, AgentContext> = async (state, confi
   let repeatFailureKey: string | null = state.repeatFailureKey;
   let repeatFailureTurns = state.repeatFailureTurns;
   let failureText = '';
+  let recordedFailure = false;
+  let failureAction: string | null = null;
   let endNote: string | null = state.endNote;
 
   if (!call) {
@@ -706,6 +711,8 @@ const follower: GraphNode<typeof AgentState, AgentContext> = async (state, confi
       // tools already ended the run above, so reaching here means the run continues.
       if (status === 'running') {
         failureText = result;
+        recordedFailure = true;
+        failureAction = call.name;
         const key = actionKey(call.name, visibleArgs, result);
         if (key === repeatFailureKey) repeatFailureTurns += 1;
         else {
@@ -729,6 +736,25 @@ const follower: GraphNode<typeof AgentState, AgentContext> = async (state, confi
   // emitted id still has its result before the next model call.
   answerExtraCalls(config, role, extras, `follower-${stepN}`, messages);
 
+  // A refused extra is still a failed attempt for loop detection: without this, a
+  // model batching [read, same-failing-action] every turn would repeat the refused
+  // action forever outside both detectors. Only when the acted call did not already
+  // record a failure this turn, so a real failure is never evicted by a refusal.
+  const firstExtra = extras[0];
+  if (status === 'running' && !recordedFailure && firstExtra) {
+    failureText = EXTRA_CALL_REFUSAL;
+    failureAction = firstExtra.name;
+    const extraArgs = { ...((firstExtra.args ?? {}) as Record<string, unknown>) };
+    delete extraArgs.signal;
+    delete extraArgs.note;
+    const key = actionKey(firstExtra.name, extraArgs, EXTRA_CALL_REFUSAL);
+    if (key === repeatFailureKey) repeatFailureTurns += 1;
+    else {
+      repeatFailureKey = key;
+      repeatFailureTurns = 1;
+    }
+  }
+
   if (status === 'running' && signal === 'BLOCKED') status = 'blocked';
 
   // A Follower that answers in prose never touches the page, so the Leader replans
@@ -745,9 +771,10 @@ const follower: GraphNode<typeof AgentState, AgentContext> = async (state, confi
 
   if (status === 'running' && repeatFailureTurns >= MAX_REPEAT_FAILURE_TURNS) {
     status = 'error';
+    const failingName = failureAction ?? (call ? call.name : null);
     note =
       `the follower repeated the same failing action ${repeatFailureTurns} times` +
-      `${call ? ` (${call.name})` : ''}: ${summarize(failureText, 160)} No successful action happened ` +
+      `${failingName ? ` (${failingName})` : ''}: ${summarize(failureText, 160)} No successful action happened ` +
       'between attempts. Try a different tool or subgoal, or call blocked.';
     endNote = note;
   }

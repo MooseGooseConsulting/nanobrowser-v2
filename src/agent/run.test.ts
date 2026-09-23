@@ -173,6 +173,23 @@ describe('repeat-failure stall detection (M2)', () => {
     expect(ended).toMatchObject({ kind: 'run.ended', status: 'error', steps: 3 });
   });
 
+  it('trips when the same action is refused as a batch extra every turn', async () => {
+    const { ended } = await harness({
+      maxSteps: 10,
+      planningInterval: 10,
+      follower: () => ({
+        kind: 'tools',
+        calls: [
+          { name: 'snapshot', args: {} },
+          { name: 'bogus_tool', args: {} },
+        ],
+      }),
+    });
+
+    expect(ended).toMatchObject({ kind: 'run.ended', status: 'error', steps: 2 });
+    expect(ended.message).toContain('the follower repeated the same failing action 2 times (bogus_tool)');
+  });
+
   it('treats the same-shaped call failing with a different error as a new failure', async () => {
     const { ended } = await harness({
       maxSteps: 4,

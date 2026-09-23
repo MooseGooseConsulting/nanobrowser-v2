@@ -36,6 +36,21 @@ describe('followerVisionFor', () => {
     expect(followerVisionFor(models, { ...config, followerModelSource: 'openrouter' })).toBe(false);
   });
 
+  it('treats a source mismatch as unknown instead of borrowing another gateway flag', () => {
+    // Partial catalog: kilo failed to fetch, but openrouter lists the same id.
+    // The run is routed to kilo, so openrouter's flag must not decide.
+    const models = [model({ id: 'follower', vision: true, source: 'openrouter' })];
+    expect(followerVisionFor(models, { ...config, followerModelSource: 'kilo' })).toBeUndefined();
+  });
+
+  it('prefers openrouter, the run default, when no source is configured', () => {
+    const models = [
+      model({ id: 'follower', vision: true, source: 'kilo' }),
+      model({ id: 'follower', vision: false, source: 'openrouter' }),
+    ];
+    expect(followerVisionFor(models, config)).toBe(false);
+  });
+
   it('returns undefined when the catalog does not name the follower, refusing nothing', () => {
     expect(followerVisionFor([], config)).toBeUndefined();
     expect(followerVisionFor([model({ id: 'other', vision: true })], config)).toBeUndefined();

@@ -407,6 +407,10 @@ export class RunManager {
         await input.detach().catch((error: unknown) => {
           console.warn('[nanobrowser] input detach failed', error);
         });
+        // Durability: done resolves only once the terminal snapshot has landed,
+        // so a worker restart right after success cannot restore a stale prefix
+        // and falsely mark the run interrupted.
+        await (this.#persistTails.get(runId) ?? Promise.resolve());
         if (this.#active?.runId === runId) this.#active = undefined;
         return ended;
       });
@@ -459,7 +463,8 @@ export class RunManager {
       at: now(),
     };
     this.#publish(runId, ended);
-    return { runId, ok: false, done: Promise.resolve(ended) };
+    // Refusals flush like completions: the terminal save must land before done.
+    return { runId, ok: false, done: (this.#persistTails.get(runId) ?? Promise.resolve()).then(() => ended) };
   }
 
   #publish(runId: RunId, event: RunEvent): void {

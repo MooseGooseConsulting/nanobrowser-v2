@@ -226,7 +226,7 @@ describe('RunManager.restoreReplay (M6)', () => {
       load: async () => undefined,
       save: async (_runId, events) => {
         calls += 1;
-        // The first save hangs until released below; the run must not wait for it.
+        // The first save hangs until released below; later saves queue behind it.
         if (calls === 1) await firstGate;
         landed.push(events);
       },
@@ -236,18 +236,29 @@ describe('RunManager.restoreReplay (M6)', () => {
     const result = await runManager.start({ prompt: 'go', config });
     expect(result.ok).toBe(true);
     scripted.finish();
-    await result.done;
+    const doneP = result.done;
+    let doneResolved = false;
+    void doneP.then(() => {
+      doneResolved = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // The run itself never waits for persistence (event flow is unblocked)...
     expect(calls).toBeGreaterThan(0);
+    // ...but done does: it resolves only once the terminal snapshot has landed.
+    expect(doneResolved).toBe(false);
     releaseFirst();
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    const ended = await doneP;
+    expect(doneResolved).toBe(true);
+    expect(ended.status).toBe('done');
 
     // Every landed snapshot extends the previous one; the stale gated prefix never
-    // overwrote the full buffer behind it.
+    // overwrote the full buffer behind it — and the last one is terminal.
     expect(landed.length).toBeGreaterThan(1);
     for (let i = 1; i < landed.length; i++) {
       expect(landed[i]!.length).toBeGreaterThan(landed[i - 1]!.length);
       expect(landed[i]!.slice(0, landed[i - 1]!.length)).toEqual(landed[i - 1]);
     }
+    expect(landed.at(-1)?.at(-1)).toMatchObject({ kind: 'run.ended', status: 'done' });
   });
 
   it('ends an interrupted restored run with a clean error, keeping the partial log', async () => {

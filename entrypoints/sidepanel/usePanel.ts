@@ -91,14 +91,18 @@ type PanelChannel = Channel<HubOutbound | WorkerToPanel[keyof WorkerToPanel], Hu
 
 /**
  * The configured Follower's catalog vision flag, if the fetched catalog names it.
- * Same id on both gateways prefers the configured source; absent from the catalog
- * means unknown (undefined), which refuses nothing.
+ * Same id on both gateways prefers the configured source (or openrouter, the run's
+ * default, when no source is configured). A source mismatch is unknown, not a
+ * fallback: with a partial catalog the surviving gateway's flag describes a model
+ * the run is not routed to.
  */
 export function followerVisionFor(models: ModelInfo[], config: Config): boolean | undefined {
   const candidates = models.filter((m) => m.id === config.followerModel);
-  const follower =
-    candidates.find((m) => m.source === config.followerModelSource) ?? candidates[0];
-  return follower?.vision;
+  const wantSource = config.followerModelSource ?? 'openrouter';
+  const follower = candidates.find((m) => m.source === wantSource) ?? candidates[0];
+  if (!follower) return undefined;
+  if (follower.source !== undefined && follower.source !== wantSource) return undefined;
+  return follower.vision;
 }
 
 /**
