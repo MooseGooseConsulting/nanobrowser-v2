@@ -296,6 +296,23 @@ describe('RunManager.restoreReplay (M6)', () => {
     expect(runManager.replay('run-1').map((e) => e.kind)).toEqual(['run.started', 'step', 'run.ended']);
   });
 
+  it('re-emits run.end for a finished restore, so a lost terminator never hangs nb-run', async () => {
+    const stores = memoryStores();
+    await stores.replay.save('run-1', [started, step, endedOk]);
+
+    const { runManager, hostLog } = manager({ replayStore: stores.replay, now: () => 99 });
+    await runManager.restoreReplay('run-1');
+
+    // No synthetic run.ended (the log already ends)...
+    expect(runManager.replay('run-1').at(-1)).toEqual(endedOk);
+    // ...but the terminator goes out again, mirroring the stored terminal: it is
+    // sent after the terminal snapshot lands, so it may have died with the worker.
+    expect(hostLog.at(-1)).toEqual([
+      'run-1',
+      { type: 'run.end', runId: 'run-1', status: 'done', message: 'objective complete', steps: 2, at: 99 },
+    ]);
+  });
+
   it('restoreReplay is a no-op for buffered runs, finished restores, and unknown runs', async () => {
     const stores = memoryStores();
     await stores.replay.save('run-1', [started, step]);

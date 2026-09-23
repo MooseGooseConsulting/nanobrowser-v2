@@ -252,8 +252,27 @@ export class RunManager {
     if (this.#ring.has(runId)) return;
     this.#ring.set(runId, [...stored]);
     const last = stored.at(-1);
-    if (last?.kind === 'run.ended') return;
     const now = this.#deps.now ?? Date.now;
+    if (last?.kind === 'run.ended') {
+      // Finished before the restart — but devRun's run.end frame goes out after the
+      // terminal snapshot lands, so it may still have died with the old worker while
+      // nb-run waits. Re-emit it from the stored terminal: the trigger closes
+      // subscribers idempotently, and log readers last-win, so a duplicate only
+      // costs a log line while a missing frame hangs the client.
+      try {
+        this.#deps.host.appendRunLog(runId, {
+          type: 'run.end',
+          runId,
+          status: last.status,
+          message: last.message,
+          steps: last.steps,
+          at: now(),
+        });
+      } catch (error) {
+        console.warn('[nanobrowser] could not publish the restarted run end', error);
+      }
+      return;
+    }
     const message = 'the extension restarted mid-run; showing the partial log up to the restart';
     const steps = stepsIn(stored);
     this.#publish(runId, { kind: 'run.ended', status: 'error', message, steps, at: now() });
