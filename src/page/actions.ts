@@ -145,16 +145,41 @@ function movementFor(point: Point, doc: Document | null): { mx: number; my: numb
   return { mx, my };
 }
 
+/**
+ * Viewport offset of `doc` within the top-level viewport: the sum of every
+ * containing frame's box. A point inside a same-origin iframe is in the child's
+ * coordinates, so its screen position needs these accumulated — the child
+ * window's own screenX/Y identify the browser window, not the frame.
+ */
+function frameOffset(doc: Document | null): { x: number; y: number } {
+  let x = 0;
+  let y = 0;
+  let current: Document | null = doc;
+  try {
+    while (current?.defaultView?.frameElement) {
+      const rect = (current.defaultView.frameElement as Element).getBoundingClientRect();
+      x += rect.left;
+      y += rect.top;
+      current = (current.defaultView.frameElement as Element).ownerDocument ?? null;
+    }
+  } catch {
+    // A cross-origin frame in the chain: keep the partial offset rather than fail.
+  }
+  return { x, y };
+}
+
 function screenOf(
   w: (Window & typeof globalThis) | null,
+  doc: Document | null,
   point: Point,
 ): { screenX: number; screenY: number } {
   // window.screenX/screenY is the viewport origin in screen pixels. jsdom reports 0
   // and real browsers the window offset; Wayland reports 0, which is also correct
   // there (no global screen coordinates exist). Either way this beats the old
   // `screenX = clientX`, which was a teleporting-window tell on X11.
-  const ox = typeof w?.screenX === 'number' ? w.screenX : 0;
-  const oy = typeof w?.screenY === 'number' ? w.screenY : 0;
+  const frame = frameOffset(doc);
+  const ox = (typeof w?.screenX === 'number' ? w.screenX : 0) + frame.x;
+  const oy = (typeof w?.screenY === 'number' ? w.screenY : 0) + frame.y;
   return { screenX: point.clientX + ox, screenY: point.clientY + oy };
 }
 
@@ -242,10 +267,22 @@ function pointerAt(
   buttons: number,
   pressure: number,
   screen: { screenX: number; screenY: number },
-  opts: { bubbles?: boolean } = {},
+  opts: { bubbles?: boolean; relatedTarget?: EventTarget | null } = {},
 ): void {
   const init = pointerInit(point, buttons, pressure, screen, movementFor(point, el.ownerDocument ?? null));
-  dispatch(el, pointerEvent(type, opts.bubbles === false ? { ...init, bubbles: false } : init));
+  dispatch(
+    el,
+    pointerEvent(
+      type,
+      opts.bubbles === false || opts.relatedTarget !== undefined
+        ? {
+            ...init,
+            ...(opts.bubbles === false ? { bubbles: false as const } : {}),
+            ...(opts.relatedTarget !== undefined ? { relatedTarget: opts.relatedTarget } : {}),
+          }
+        : init,
+    ),
+  );
 }
 
 /** Dispatch one mouse event with stamped movement. */
@@ -256,22 +293,46 @@ function mouseAt(
   buttons: number,
   detail: number,
   screen: { screenX: number; screenY: number },
-  opts: { bubbles?: boolean } = {},
+  opts: { bubbles?: boolean; relatedTarget?: EventTarget | null } = {},
 ): void {
   const init = mouseInit(point, buttons, detail, screen, movementFor(point, el.ownerDocument ?? null));
-  dispatch(el, new MouseEvent(type, opts.bubbles === false ? { ...init, bubbles: false } : init));
+  dispatch(
+    el,
+    new MouseEvent(
+      type,
+      opts.bubbles === false || opts.relatedTarget !== undefined
+        ? {
+            ...init,
+            ...(opts.bubbles === false ? { bubbles: false as const } : {}),
+            ...(opts.relatedTarget !== undefined ? { relatedTarget: opts.relatedTarget } : {}),
+          }
+        : init,
+    ),
+  );
 }
 
-/** The pointer-enter half of a hover, shared by `hover()` and `click()`. */
+/** The pointer-enter half of a hover, shared by `hover()` and `click()`.
+ *
+ * `arrival` is what `arrive()` just did: when the path crossed into `el` and is
+ * still on it, the enter sequence already fired mid-path and only the move pair
+ * repeats — a real transition emits each boundary event once. Otherwise the full
+ * hover fires, with the arrival's last target as the related target (delegated
+ * handlers use it to tell re-entry from an internal transition).
+ */
 function dispatchHover(
   el: HTMLElement,
   point: Point,
   screen: { screenX: number; screenY: number },
+  arrival: { lastTarget: Element | null; crossedIntoEl: boolean } | null,
 ): void {
-  pointerAt(el, 'pointerover', point, 0, 0, screen);
-  pointerAt(el, 'pointerenter', point, 0, 0, screen, { bubbles: false });
-  mouseAt(el, 'mouseover', point, 0, 0, screen);
-  mouseAt(el, 'mouseenter', point, 0, 0, screen, { bubbles: false });
+  const entered = !!arrival && arrival.crossedIntoEl && arrival.lastTarget === el;
+  const from = arrival?.lastTarget && arrival.lastTarget !== el ? arrival.lastTarget : null;
+  if (!entered) {
+    pointerAt(el, 'pointerover', point, 0, 0, screen, { relatedTarget: from });
+    pointerAt(el, 'pointerenter', point, 0, 0, screen, { bubbles: false, relatedTarget: from });
+    mouseAt(el, 'mouseover', point, 0, 0, screen, { relatedTarget: from });
+    mouseAt(el, 'mouseenter', point, 0, 0, screen, { bubbles: false, relatedTarget: from });
+  }
   pointerAt(el, 'pointermove', point, 0, 0, screen);
   mouseAt(el, 'mousemove', point, 0, 0, screen);
 }
@@ -412,30 +473,37 @@ function startPoint(
  * for real. What the in-page tier can honestly do is arrive along a curve at a
  * non-center point, with hover states firing along the way, instead of teleporting.
  */
-function arrive(el: HTMLElement, w: (Window & typeof globalThis) | null, point: Point): void {
+function arrive(
+  el: HTMLElement,
+  w: (Window & typeof globalThis) | null,
+  point: Point,
+): { lastTarget: Element | null; crossedIntoEl: boolean } {
   const doc = el.ownerDocument ?? null;
   const from = startPoint(doc, w, point);
   lastPoint = { point, doc };
   const path = planPath({ x: from.clientX, y: from.clientY }, { x: point.clientX, y: point.clientY });
   let prevTarget: Element | null = null;
+  let crossedIntoEl = false;
   for (const p of path.slice(1)) {
     const mid = { clientX: p.x, clientY: p.y };
     const target = hitTarget(el, mid);
-    const screen = screenOf(w, mid);
+    const screen = screenOf(w, doc, mid);
     if (prevTarget && target !== prevTarget) {
-      pointerAt(prevTarget, 'pointerout', mid, 0, 0, screen);
-      pointerAt(prevTarget, 'pointerleave', mid, 0, 0, screen, { bubbles: false });
-      mouseAt(prevTarget, 'mouseout', mid, 0, 0, screen);
-      mouseAt(prevTarget, 'mouseleave', mid, 0, 0, screen, { bubbles: false });
-      pointerAt(target, 'pointerover', mid, 0, 0, screen);
-      pointerAt(target, 'pointerenter', mid, 0, 0, screen, { bubbles: false });
-      mouseAt(target, 'mouseover', mid, 0, 0, screen);
-      mouseAt(target, 'mouseenter', mid, 0, 0, screen, { bubbles: false });
+      pointerAt(prevTarget, 'pointerout', mid, 0, 0, screen, { relatedTarget: target });
+      pointerAt(prevTarget, 'pointerleave', mid, 0, 0, screen, { bubbles: false, relatedTarget: target });
+      mouseAt(prevTarget, 'mouseout', mid, 0, 0, screen, { relatedTarget: target });
+      mouseAt(prevTarget, 'mouseleave', mid, 0, 0, screen, { bubbles: false, relatedTarget: target });
+      pointerAt(target, 'pointerover', mid, 0, 0, screen, { relatedTarget: prevTarget });
+      pointerAt(target, 'pointerenter', mid, 0, 0, screen, { bubbles: false, relatedTarget: prevTarget });
+      mouseAt(target, 'mouseover', mid, 0, 0, screen, { relatedTarget: prevTarget });
+      mouseAt(target, 'mouseenter', mid, 0, 0, screen, { bubbles: false, relatedTarget: prevTarget });
+      if (target === el) crossedIntoEl = true;
     }
     prevTarget = target;
     pointerAt(target, 'pointermove', mid, 0, 0, screen);
     mouseAt(target, 'mousemove', mid, 0, 0, screen);
   }
+  return { lastTarget: prevTarget, crossedIntoEl };
 }
 
 /**
@@ -458,10 +526,10 @@ export function click(ref: string): ActionResult {
   if ('error' in placed) return fail(placed.error);
   const point = placed.point;
   const w = view(el);
-  const screen = screenOf(w, point);
+  const screen = screenOf(w, el.ownerDocument ?? null, point);
 
-  arrive(el, w, point);
-  dispatchHover(el, point, screen);
+  const arrival = arrive(el, w, point);
+  dispatchHover(el, point, screen, arrival);
   // The arrival moves just ran page hover handlers, which can synchronously open
   // a menu or tooltip over the landing point. Re-verify the same point before
   // pressing rather than clicking through a fresh overlay.
@@ -493,8 +561,8 @@ export function hover(ref: string): ActionResult {
   const placed = actionPoint(found.el);
   if ('error' in placed) return fail(placed.error);
   const w = view(found.el);
-  arrive(found.el, w, placed.point);
-  dispatchHover(found.el, placed.point, screenOf(w, placed.point));
+  const arrival = arrive(found.el, w, placed.point);
+  dispatchHover(found.el, placed.point, screenOf(w, found.el.ownerDocument ?? null, placed.point), arrival);
   return { ok: true };
 }
 

@@ -64,7 +64,7 @@ fi
 #    chrome.runtime messaging only (see src/page/handler.ts). Word-boundary match
 #    so the bare window-scope call is caught alongside window.postMessage.
 PAGE_CONTEXT="src/page entrypoints/injected-content.ts src/userscripts"
-POST_HITS="$(grep -rn --include='*.ts' -e '\<postMessage[[:space:]]*(' $PAGE_CONTEXT 2>/dev/null || true)"
+POST_HITS="$(grep -rn --include='*.ts' --include='*.tsx' --include='*.js' --include='*.jsx' -e '\<postMessage[[:space:]]*(' $PAGE_CONTEXT 2>/dev/null || true)"
 if [ -n "$POST_HITS" ]; then
   fail 'page-context code uses window.postMessage'
   echo "$POST_HITS"
@@ -75,7 +75,7 @@ fi
 # 6. No storage writes in page-context code. localStorage/sessionStorage/IndexedDB
 #    writes from injected code are observable page-side (storage events) and persist
 #    extension fingerprints past the run.
-STORE_HITS="$(grep -rn --include='*.ts' -e 'localStorage' -e 'sessionStorage' -e 'indexedDB' $PAGE_CONTEXT 2>/dev/null || true)"
+STORE_HITS="$(grep -rn --include='*.ts' --include='*.tsx' --include='*.js' --include='*.jsx' -e 'localStorage' -e 'sessionStorage' -e 'indexedDB' $PAGE_CONTEXT 2>/dev/null || true)"
 if [ -n "$STORE_HITS" ]; then
   fail 'page-context code touches web storage'
   echo "$STORE_HITS"
@@ -88,7 +88,7 @@ fi
 #    authoring rails (src/userscripts/authoring.ts), and the bundled i03 probe
 #    reads its own page over GET by design. Word-boundary match so window.fetch
 #    is caught too; prefetch/fetchData and bare mentions without a call are not.
-FETCH_HITS="$(grep -rn --include='*.ts' -e '\<fetch[[:space:]]*(' src/page entrypoints/injected-content.ts 2>/dev/null || true)"
+FETCH_HITS="$(grep -rn --include='*.ts' --include='*.tsx' --include='*.js' --include='*.jsx' -e '\<fetch[[:space:]]*(' src/page entrypoints/injected-content.ts 2>/dev/null || true)"
 if [ -n "$FETCH_HITS" ]; then
   fail 'injected tier uses fetch'
   echo "$FETCH_HITS"

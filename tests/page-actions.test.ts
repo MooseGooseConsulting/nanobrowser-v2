@@ -173,6 +173,14 @@ describe('click', () => {
     docTarget.elementFromPoint = (x: number) => (x < 250 ? a : b);
     const seenA = recorder(a, ['pointerout', 'pointerleave', 'pointerover']);
     const seenB = recorder(b, ['pointerover', 'pointerenter']);
+    let outRelated: EventTarget | null = null;
+    let overRelated: EventTarget | null = null;
+    a.addEventListener('pointerout', (e) => {
+      outRelated = (e as PointerEvent).relatedTarget;
+    });
+    b.addEventListener('pointerover', (e) => {
+      if (!overRelated) overRelated = (e as PointerEvent).relatedTarget;
+    });
     try {
       expect(click(refOf('#b'))).toEqual({ ok: true });
     } finally {
@@ -180,7 +188,11 @@ describe('click', () => {
     }
     expect(seenA).toContain('pointerout');
     expect(seenA).toContain('pointerleave');
-    expect(seenB.filter((t) => t === 'pointerover').length).toBeGreaterThanOrEqual(2);
+    // Entered mid-path exactly once (the destination hover does not re-enter),
+    // with related targets pointing across the transition both ways.
+    expect(seenB.filter((t) => t === 'pointerover')).toHaveLength(1);
+    expect(outRelated).toBe(b);
+    expect(overRelated).toBe(a);
   });
 
   it('refuses when hover arrival opens an overlay over the landing point', () => {
@@ -243,6 +255,37 @@ describe('click', () => {
     expect(moves.length).toBeGreaterThan(0);
     expect(Math.abs(moves[0]!.x - 100)).toBeLessThan(200);
     expect(Math.abs(moves[0]!.y - 75)).toBeLessThan(200);
+  });
+
+  it('adds containing frame offsets to screen coordinates inside iframes', () => {
+    document.body.innerHTML = '<iframe></iframe>';
+    const iframe = document.querySelector('iframe') as HTMLIFrameElement;
+    const idoc = iframe.contentDocument as Document;
+    idoc.body.innerHTML = '<button>Inner</button>';
+    const inner = idoc.querySelector('button') as HTMLButtonElement;
+    const rectAt = (x: number, y: number) =>
+      ({ x, y, width: 100, height: 50, top: y, left: x, right: x + 100, bottom: y + 50, toJSON: () => ({}) }) as DOMRect;
+    iframe.getBoundingClientRect = () => rectAt(50, 60);
+    inner.getBoundingClientRect = () => rectAt(10, 20);
+    const win = iframe.contentWindow as unknown as { screenX: number; screenY: number };
+    const origX = win.screenX;
+    const origY = win.screenY;
+    Object.defineProperty(iframe.contentWindow, 'screenX', { value: 100, configurable: true });
+    Object.defineProperty(iframe.contentWindow, 'screenY', { value: 50, configurable: true });
+    let observed: { clientX: number; clientY: number; screenX: number; screenY: number } | null = null;
+    inner.addEventListener('mousedown', (e) => {
+      const m = e as MouseEvent;
+      observed = { clientX: m.clientX, clientY: m.clientY, screenX: m.screenX, screenY: m.screenY };
+    });
+    try {
+      expect(click(refOfElement(inner))).toEqual({ ok: true });
+    } finally {
+      Object.defineProperty(iframe.contentWindow, 'screenX', { value: origX, configurable: true });
+      Object.defineProperty(iframe.contentWindow, 'screenY', { value: origY, configurable: true });
+    }
+    // Frame-local point + iframe offset + window origin.
+    expect(observed!.screenX - observed!.clientX).toBe(150);
+    expect(observed!.screenY - observed!.clientY).toBe(110);
   });
 
   it('offsets screenX/screenY by the window origin instead of echoing clientX', () => {
