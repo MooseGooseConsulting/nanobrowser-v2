@@ -11,8 +11,8 @@
  * screenshots are sent on every step (docs/research/models-and-grounding.md §6).
  * OpenRouter's `:free` endpoints exist only under the training data policy, so
  * "deny" yields `404 No endpoints found matching your data policy`; the user
- * chose free models knowingly (see the live run in docs/STATUS.md), so those
- * get "allow".
+ * chose free models knowingly (a live run on the free pair ended `error 404`
+ * under "deny" before this mapping existed), so those get "allow".
  */
 export function dataCollectionFor(model: string): 'allow' | 'deny' {
   return model.endsWith(':free') ? 'allow' : 'deny';
