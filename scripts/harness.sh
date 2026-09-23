@@ -737,13 +737,19 @@ CHROME
       [ "${PIPESTATUS[0]}" -eq 0 ] && ok "UI inspection passed for $task" \
         || bad "UI inspection failed for $task (see $OUT/$task-inspection.txt)"
     fi
+    # Missing or empty scorer artifacts fail the task, never pass it: an empty
+    # verdict array (or null inspection) would make `all` vacuously true and mark
+    # a crashed scorer as passing in the persisted scorecard.
+    [ -f "$OUT/$task-verdict.json" ] || echo '[{"name":"verdict crashed before writing results","ok":false,"detail":"see verdict txt"}]' >"$OUT/$task-verdict.json"
+    if [ ! -f "$inspect_file" ] && [ -n "$panel_target" ]; then
+      jq -n --arg task "$task" '{task: $task, results: [{name: "UI inspection did not run", ok: false, detail: "see inspection txt"}]}' >"$inspect_file"
+    fi
     [ -f "$inspect_file" ] || echo 'null' >"$inspect_file"
-    [ -f "$OUT/$task-verdict.json" ] || echo '[]' >"$OUT/$task-verdict.json"
     jq -n --arg task "$task" --arg title "$(jq -r .title "$TJSON")" \
       --slurpfile verdict "$OUT/$task-verdict.json" \
       --slurpfile inspect "$inspect_file" \
       '{task: $task, title: $title,
-        passed: ([$verdict[0][] | .ok] | all) and (if $inspect[0] then ([$inspect[0].results[] | .ok] | all) else true end),
+        passed: ([$verdict[0][] | .ok] | length > 0 and all) and (if $inspect[0] then ([$inspect[0].results[] | .ok] | length > 0 and all) else true end),
         checks: ($verdict[0] + (if $inspect[0] then [$inspect[0].results[] | {name: ("ui: " + .name), ok, detail}] else [] end))}' \
       >>"$OUT/results.jsonl"
 

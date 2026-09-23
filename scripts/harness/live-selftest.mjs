@@ -120,6 +120,10 @@ function expect(taskId, label, events, wantPass, extra = {}) {
       ? { ...e, call: { ...e.call, args: { summary: JSON.stringify([PAGE_LISTINGS[0], PAGE_LISTINGS[0]]) } } }
       : e),
     false, { pageListings: PAGE_LISTINGS });
+  expect('ebay', 'empty-extractor-output', goodEvents.map((e) =>
+    e.kind === 'tool.result' && e.result.name === 'run_userscript'
+      ? { ...e, result: { ...e.result, summary: '[]' } } : e),
+    false, { pageListings: PAGE_LISTINGS });
   expect('ebay', 'no-handoff', goodEvents.filter((e) => e.kind !== 'handoff'), false, { pageListings: PAGE_LISTINGS });
 }
 

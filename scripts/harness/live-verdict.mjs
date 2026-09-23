@@ -209,6 +209,21 @@ function scoreEbay({ events, pageListings }) {
     ),
   );
 
+  // The extractor must have produced listing data itself: an ok run returning []
+  // while the summary matches the page means the model hand-read the DOM and the
+  // extractor went untested. Summaries are truncated for the log, so this checks
+  // for listing shape (a title key) rather than full consistency.
+  const outputOk = ebayOk.some((c) =>
+    /"title"\s*:/.test(String(resultFor(events, c)?.result?.summary ?? '')),
+  );
+  checks.push(
+    check(
+      'the ok extractor run returned listing data, not an empty result',
+      outputOk,
+      outputOk ? '' : 'no ok ebay run summary contained a listing title',
+    ),
+  );
+
   const parsed = parseSummary(doneSummary(events));
   checks.push(check('the done summary parses as JSON', parsed.ok, parsed.ok ? '' : parsed.error));
   if (!parsed.ok) return checks;
