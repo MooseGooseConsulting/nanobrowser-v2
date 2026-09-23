@@ -205,6 +205,8 @@ export class RunManager {
   readonly #deps: RunManagerDeps;
   readonly #listeners = new Set<(runId: RunId, event: RunEvent) => void>();
   readonly #ring = new Map<RunId, RunEvent[]>();
+  /** The tail of each run's persist chain. Deleted once the terminal event's save lands. */
+  readonly #persistTails = new Map<RunId, Promise<void>>();
   #active: ActiveRun | undefined;
 
   constructor(deps: RunManagerDeps) {
@@ -482,11 +484,22 @@ export class RunManager {
     }
     buffer.push(event);
     if (buffer.length > size) buffer.splice(0, buffer.length - size);
-    // Fire-and-forget: a slow store must never stall the run, and a failed one
-    // must never lose the in-memory buffer. A snapshot copy, not the live array.
-    void this.#deps.replayStore?.save(runId, [...buffer]).catch((error: unknown) => {
+    // Ordered fire-and-forget: each save waits for the run's previous one, so a slow
+    // store cannot land snapshots out of order and hide the tail behind a stale
+    // prefix after a restart. The snapshot is frozen here, at queue time — the buffer
+    // keeps growing while a gated save waits. The run never waits; a failed save only warns.
+    const snapshot = [...buffer];
+    const prev = this.#persistTails.get(runId) ?? Promise.resolve();
+    const save = prev.catch(() => {}).then(() => this.#deps.replayStore?.save(runId, snapshot));
+    const tail = save.catch((error: unknown) => {
       console.warn('[nanobrowser] could not persist replay event', error);
     });
+    this.#persistTails.set(runId, tail);
+    if (event.kind === 'run.ended') {
+      void tail.finally(() => {
+        if (this.#persistTails.get(runId) === tail) this.#persistTails.delete(runId);
+      });
+    }
   }
 }
 

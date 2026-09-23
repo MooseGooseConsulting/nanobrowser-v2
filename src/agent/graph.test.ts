@@ -518,6 +518,45 @@ describe('leader observation reads (M4)', () => {
     expect(seen).toContain('image');
   });
 
+  it('survives a text-only Leader: pixels swap for a note and the turn still plans', async () => {
+    const planArgs = { plan: 'do it blind', subgoals: ['open the page'], currentSubgoal: 0 };
+    const { events, leader, page } = await harness({
+      maxSteps: 2,
+      follower: finishQuickly,
+      leader: (call) => {
+        const seen = JSON.stringify(call.messages.map((m) => m.content));
+        if (seen.includes('"image"')) throw new Error('400: images not supported by this model');
+        return call.index === 0
+          ? { kind: 'tool', name: 'leader_screenshot', args: {} }
+          : { kind: 'tool', name: 'set_plan', args: planArgs };
+      },
+    });
+
+    expect(page.calls.filter((c) => c.name === 'screenshot')).toHaveLength(1);
+    expect(pick(events, 'leader.plan')).toHaveLength(1);
+    // The failed pixels were swapped for a note, not left to fail every replan.
+    const history = JSON.stringify(leader.calls.map((c) => c.messages.map((m) => m.content)));
+    expect(history).toContain('cannot see images');
+  });
+
+  it('bars further screenshots once the Leader has failed on pixels', async () => {
+    const { events, page } = await harness({
+      maxSteps: 2,
+      follower: finishQuickly,
+      leader: (call) => {
+        const seen = JSON.stringify(call.messages.map((m) => m.content));
+        if (seen.includes('"image"')) throw new Error('400: images not supported by this model');
+        return { kind: 'tool', name: 'leader_screenshot', args: {} };
+      },
+    });
+
+    // One fetch; the retry is refused without touching the page again.
+    expect(page.calls.filter((c) => c.name === 'screenshot')).toHaveLength(1);
+    const results = leaderResults(events, 'leader_screenshot');
+    expect(results.map((e) => e.result.ok)).toEqual([true, false, false]);
+    expect(results[1]?.result.summary).toContain('cannot see images');
+  });
+
   it('does not let the follower call the leader reads', async () => {
     const { ended } = await harness({
       maxSteps: 4,

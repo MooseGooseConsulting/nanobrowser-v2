@@ -462,6 +462,25 @@ describe('read-only runs (M9 #13)', () => {
     await expect(withCatalog.tools.runUserscript('ghost')).rejects.toThrow('unknown userscript ghost');
   });
 
+  it('resolves an unambiguous userscript name like normal runs, and refuses an ambiguous one', async () => {
+    const reader: Userscript = {
+      id: 'u1',
+      name: 'reader',
+      matches: ['*://x.test/*'],
+      code: 'return document.title;',
+      updatedAt: 0,
+    };
+    const h = harness('in-page', { readOnly: true, listUserscripts: async () => [reader] });
+    expect(await h.tools.runUserscript('reader')).toContain('reader');
+    expect(h.userscriptRuns).toEqual(['reader']);
+
+    const dupes = harness('in-page', {
+      readOnly: true,
+      listUserscripts: async () => [reader, { ...reader, id: 'u2' }],
+    });
+    await expect(dupes.tools.runUserscript('reader')).rejects.toThrow('unknown userscript reader');
+  });
+
   it('save_file downloads to the Downloads folder and emits a file.saved event', async () => {
     const h = harness('in-page', { runId: 'run-1' });
     const result = await h.tools.saveFile('data.json', '{"a":1}', false);

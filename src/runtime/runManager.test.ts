@@ -21,7 +21,7 @@ import {
   type TabsPort,
 } from './runManager';
 import type { RuntimeDriver } from './pageTools';
-import { memoryStores } from './durability';
+import { memoryStores, type ReplayStore } from './durability';
 
 const config: Config = {
   leaderModel: 'fake/leader',
@@ -213,6 +213,41 @@ describe('RunManager.restoreReplay (M6)', () => {
     // The terminal event was persisted too, so no synthetic ending is added.
     expect(second.runManager.replay('run-1')).toEqual(first.runManager.replay('run-1'));
     expect(second.runManager.replay('run-1').at(-1)).toEqual(endedOk);
+  });
+
+  it('lands replay snapshots in order even when an early save resolves late', async () => {
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const landed: RunEvent[][] = [];
+    let calls = 0;
+    const store: ReplayStore = {
+      load: async () => undefined,
+      save: async (_runId, events) => {
+        calls += 1;
+        // The first save hangs until released below; the run must not wait for it.
+        if (calls === 1) await firstGate;
+        landed.push(events);
+      },
+    };
+    const scripted = scriptedStart([step], endedOk);
+    const { runManager } = manager({ start: scripted.start, replayStore: store });
+    const result = await runManager.start({ prompt: 'go', config });
+    expect(result.ok).toBe(true);
+    scripted.finish();
+    await result.done;
+    expect(calls).toBeGreaterThan(0);
+    releaseFirst();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Every landed snapshot extends the previous one; the stale gated prefix never
+    // overwrote the full buffer behind it.
+    expect(landed.length).toBeGreaterThan(1);
+    for (let i = 1; i < landed.length; i++) {
+      expect(landed[i]!.length).toBeGreaterThan(landed[i - 1]!.length);
+      expect(landed[i]!.slice(0, landed[i - 1]!.length)).toEqual(landed[i - 1]);
+    }
   });
 
   it('ends an interrupted restored run with a clean error, keeping the partial log', async () => {

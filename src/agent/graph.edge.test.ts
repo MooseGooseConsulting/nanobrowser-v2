@@ -20,6 +20,7 @@ import { HumanMessage, type ToolMessage } from '@langchain/core/messages';
 import type { RunEvent } from '@/src/messaging/contract';
 import type { Config } from '@/src/storage';
 import {
+  actionKey,
   decideNext,
   trimFollowerHistory,
   FOLLOWER_HISTORY_TURNS,
@@ -292,5 +293,22 @@ describe('follower history is bounded', () => {
   it('never returns an empty history, whatever it is asked for', () => {
     const history = Array.from({ length: 10 }, (_, i) => msg(i));
     expect(trimFollowerHistory(history, 0).length).toBeGreaterThan(0);
+  });
+});
+
+describe('actionKey', () => {
+  it('matches identical attempts despite key order and varying digits', () => {
+    const a = actionKey('click', { ref: 'e1' }, 'stale ref after 12ms');
+    const b = actionKey('click', { ref: 'e1' }, 'stale ref after 34ms');
+    expect(a).toBe(b);
+    expect(actionKey('type', { ref: 'e1', text: 'x' }, 'e')).toBe(
+      actionKey('type', { text: 'x', ref: 'e1' }, 'e'),
+    );
+  });
+
+  it('distinguishes large payloads that share a prefix and length', () => {
+    const a = actionKey('save_file', { body: `${'x'.repeat(600)}a` }, 'denied');
+    const b = actionKey('save_file', { body: `${'x'.repeat(600)}b` }, 'denied');
+    expect(a).not.toBe(b);
   });
 });

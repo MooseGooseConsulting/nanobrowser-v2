@@ -432,7 +432,14 @@ export function createPageTools(options: CreatePageToolsOptions): RuntimePageToo
       );
     }
     const scripts = await options.listUserscripts();
-    const script = scripts.find((s) => s.id === scriptId);
+    // Same resolution as normal runs (`resolveUserscript`): the id first, then an
+    // unambiguous name. Anything else cannot be verified, so it is refused.
+    const script =
+      scripts.find((s) => s.id === scriptId) ??
+      (() => {
+        const named = scripts.filter((s) => s.name === scriptId);
+        return named.length === 1 ? named[0] : undefined;
+      })();
     if (!script) {
       throw new Error(`read-only run: unknown userscript ${scriptId}: refusing to run what cannot be verified`);
     }

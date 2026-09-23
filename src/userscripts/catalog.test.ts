@@ -50,6 +50,16 @@ describe('userscript catalog', () => {
     expect(edited.id).toBe(first.id);
   });
 
+  it('refuses a create squatting a bundled id, but allows editing the bundled script in place', async () => {
+    const pinned = BUNDLED_USERSCRIPTS[0]!.id;
+    await expect(saveUserscript({ ...draft, id: pinned })).rejects.toThrow(/reserved for its bundled script/);
+
+    const [seeded] = await seedDefaults(() => 7);
+    const edited = await saveUserscript({ ...seeded!, code: 'return 999; // my edit' });
+    expect(edited.id).toBe(pinned);
+    expect(edited.code).toBe('return 999; // my edit');
+  });
+
   it('deletes, and reports whether anything was removed', async () => {
     const saved = await saveUserscript(draft);
     await expect(deleteUserscript('nope')).resolves.toBe(false);

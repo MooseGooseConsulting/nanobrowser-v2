@@ -76,7 +76,8 @@ export const MAX_REPEAT_FAILURE_TURNS = 2;
  * key order (the `signal`/`note` envelope is already stripped by the caller, so two
  * attempts that differ only in their control note still match), and the error with
  * digits normalized (durations and counts vary between identical failures).
- * Capped so a `save_file` with a huge payload cannot bloat checkpointed state.
+ * Capped so a `save_file` with a huge payload cannot bloat checkpointed state; the
+ * digest keeps truncated keys distinct when large payloads share a prefix and length.
  */
 export function actionKey(name: string, args: Record<string, unknown>, error: string): string {
   const sorted = Object.fromEntries(
@@ -88,8 +89,18 @@ export function actionKey(name: string, args: Record<string, unknown>, error: st
   } catch {
     json = String(sorted);
   }
-  if (json.length > 500) json = `${json.slice(0, 500)}…len=${json.length}`;
+  if (json.length > 500) json = `${json.slice(0, 500)}…len=${json.length}#${hash32(json)}`;
   return `${name}\n${json}\n${error.replace(/\d+/g, '#').slice(0, 200)}`;
+}
+
+/** Short non-crypto digest (FNV-1a) for truncated failure keys. */
+function hash32(text: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16).padStart(8, '0');
 }
 
 export const LEADER_SYSTEM = [
@@ -208,6 +219,31 @@ const route: ConditionalEdgeRouter<typeof AgentState, AgentContext, 'leader' | '
 /* Nodes                                                                      */
 /* ------------------------------------------------------------------------- */
 
+/**
+ * Replaces a Leader screenshot's image block when the model cannot see images.
+ * The note's presence in history also keeps screenshots barred on later turns:
+ * the bar below only exists because a provider call already failed on pixels.
+ */
+const LEADER_NO_VISION_NOTE =
+  'Leader screenshot requested, but this Leader cannot see images: plan from the text evidence.';
+
+/** Index of the last message carrying an image block, or -1. */
+function findLastImageMessage(messages: BaseMessage[]): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const content = messages[i]!.content;
+    if (
+      Array.isArray(content) &&
+      content.some((block) => {
+        const type = (block as { type?: unknown }).type;
+        return type === 'image' || type === 'image_url';
+      })
+    ) {
+      return i;
+    }
+  }
+  return -1;
+}
+
 const leader: GraphNode<typeof AgentState, AgentContext> = async (state, config) => {
   const ctx = requireContext(config);
   const replan = state.stepCount > 0;
@@ -243,15 +279,32 @@ const leader: GraphNode<typeof AgentState, AgentContext> = async (state, config)
   let readsUsed = 0;
   let planned = false;
   let lastText = '';
+  // A previous turn already proved this Leader cannot see images: keep the pixels
+  // barred rather than spending another doomed provider call per replan.
+  let screenshotsBarred = state.leaderMessages.some(
+    (m) => typeof m.content === 'string' && m.content === LEADER_NO_VISION_NOTE,
+  );
 
   // Pull evidence, then plan. Each lap is one model round trip; the loop is
   // bounded (reads plus room for the plan and one refusal) so a model that
   // only ever reads still ends its turn instead of becoming a second Follower.
   for (let lap = 0; lap < LEADER_READ_CAP + 2 && !planned; lap++) {
-    const response = (await bound.invoke(
-      [new SystemMessage(LEADER_SYSTEM), ...state.leaderMessages, ...messages],
-      config,
-    )) as AIMessage;
+    let response: AIMessage;
+    try {
+      response = (await bound.invoke(
+        [new SystemMessage(LEADER_SYSTEM), ...state.leaderMessages, ...messages],
+        config,
+      )) as AIMessage;
+    } catch (error) {
+      // A text-only Leader dies on the image block leader_screenshot appended: swap
+      // the pixels for a note, bar further screenshots, and retry the lap. Any other
+      // failure — or a second one — propagates exactly as before.
+      const imgIdx = findLastImageMessage(messages);
+      if (imgIdx === -1 || screenshotsBarred) throw error;
+      screenshotsBarred = true;
+      messages[imgIdx] = new HumanMessage(LEADER_NO_VISION_NOTE);
+      continue;
+    }
     messages.push(response);
 
     const text = textOf(response);
@@ -318,6 +371,20 @@ const leader: GraphNode<typeof AgentState, AgentContext> = async (state, config)
       }
       readsUsed += 1;
       if (call.name === 'leader_screenshot') {
+        if (screenshotsBarred) {
+          // The model already failed on pixels this run: refuse without fetching so
+          // a text-only Leader that keeps asking still ends its turn planning.
+          const refusal =
+            'this Leader cannot see images: use leader_snapshot or leader_extract_text, then call set_plan.';
+          emit(config, {
+            kind: 'tool.result',
+            role: 'leader',
+            result: { callId, name: call.name, ok: false, summary: refusal, durationMs: now() - started },
+            at: now(),
+          });
+          messages.push(new ToolMessage({ tool_call_id: callId, name: call.name, content: refusal }));
+          continue;
+        }
         // Pixels cannot ride in a ToolMessage (capped text), so the screenshot
         // arrives as an observation block like the Follower's — fetched once,
         // logged as text, seen as an image.

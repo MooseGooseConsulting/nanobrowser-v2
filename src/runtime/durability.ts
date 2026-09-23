@@ -43,7 +43,14 @@ function valueKey(runId: RunId): string {
 type SessionArea = {
   get(keys: string): Promise<Record<string, unknown>>;
   set(items: Record<string, unknown>): Promise<void>;
+  remove(keys: string | string[]): Promise<void>;
 };
+
+/** Runs kept in session storage. Mirrors `DEFAULT_RING_RUNS`: the durable log keeps what memory keeps. */
+export const DURABLE_RUN_CAP = 5;
+
+/** Most-recently-saved-first run ids with durable state. */
+const INDEX_KEY = 'session:runlog:index';
 
 function sessionArea(): SessionArea | undefined {
   try {
@@ -65,6 +72,18 @@ export function sessionReplayStore(): ReplayStore | undefined {
     },
     async save(id, events) {
       await area.set({ [replayKey(id)]: events });
+      // Bounded index: without eviction every run's keys would accumulate until
+      // the 10 MB session quota silently stops durability for the whole session.
+      const raw = (await area.get(INDEX_KEY))[INDEX_KEY];
+      const index = (Array.isArray(raw) ? raw.filter((v): v is RunId => typeof v === 'string') : []).filter(
+        (v) => v !== id,
+      );
+      index.push(id);
+      const evicted = index.splice(0, Math.max(0, index.length - DURABLE_RUN_CAP));
+      await area.set({ [INDEX_KEY]: index });
+      for (const runId of evicted) {
+        await area.remove([replayKey(runId), valueKey(runId)]).catch(() => {});
+      }
     },
   };
 }
@@ -75,11 +94,15 @@ export function sessionUserscriptValueStore(runId: RunId): UserscriptValueStore 
   if (!area) return undefined;
   return {
     async load() {
-      const found = (await area.get(valueKey(runId)))[valueKey(runId)];
-      return found === undefined ? { found: false } : { found: true, value: found };
+      // A presence wrapper, not the bare value: chrome.storage drops undefined, so
+      // a script that returned undefined would otherwise load back as absent.
+      const found = (await area.get(valueKey(runId)))[valueKey(runId)] as
+        | { present?: unknown; value?: unknown }
+        | undefined;
+      return found?.present === true ? { found: true, value: found.value } : { found: false };
     },
     async save(value) {
-      await area.set({ [valueKey(runId)]: value });
+      await area.set({ [valueKey(runId)]: { present: true, value } });
     },
   };
 }

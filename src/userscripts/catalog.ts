@@ -10,6 +10,9 @@ import type { Userscript } from '@/src/messaging';
 import { isValidMatchPattern } from './match-pattern';
 import { BUNDLED_USERSCRIPTS, type UserscriptSeed } from './examples';
 
+/** Pinned ids of the bundled seeds. Caller-supplied drafts may never take one. */
+const STABLE_SEED_IDS = new Set(BUNDLED_USERSCRIPTS.map((seed) => seed.id));
+
 export const userscriptsItem = storage.defineItem<Userscript[]>('local:userscripts', {
   fallback: [],
   version: 1,
@@ -134,6 +137,16 @@ export async function saveUserscript(
   const script = validated.script;
   const current = await listUserscripts();
   const index = current.findIndex((existing) => existing.id === script.id);
+
+  // A create squatting a bundled id would make seedDefaults treat it as the bundled
+  // script and never install the real example. Replacing the script that already
+  // holds the id (editing the bundled example in place) stays allowed; seeding and
+  // migration write through setValue directly and never pass through here.
+  if (index < 0 && STABLE_SEED_IDS.has(script.id)) {
+    throw new Error(
+      `id ${JSON.stringify(script.id)} is reserved for its bundled script: omit id to create your own`,
+    );
+  }
 
   if (index >= 0 && options.requireAuthor && current[index]!.author !== options.requireAuthor) {
     throw new Error(
