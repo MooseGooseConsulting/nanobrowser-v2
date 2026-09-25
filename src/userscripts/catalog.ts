@@ -144,7 +144,7 @@ export async function saveUserscript(
   // migration write through setValue directly and never pass through here.
   if (index < 0 && STABLE_SEED_IDS.has(script.id)) {
     throw new Error(
-      `id ${JSON.stringify(script.id)} is reserved for its bundled script: omit id to create your own`,
+      `id ${JSON.stringify(script.id)} is reserved for its bundled script. Omit scriptId to create a copy of your own.`,
     );
   }
 

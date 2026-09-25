@@ -57,7 +57,16 @@ actionable element gets a `[ref=eNN]` handle, and performs clicks and typing.
 Separately from all of that, the agent can **write a userscript and iterate on it**: author
 the code, run it in the `USER_SCRIPT` world, read what it returned and what it logged, and
 fix it. Scripts it writes must name a concrete http/https host — never every site — and it
-can never overwrite one you wrote; the panel marks the ones it did write. This needs
+can never overwrite one you wrote; the panel marks the ones it did write. It reads a script's
+source with `read_userscript` before changing it, and can pass `args` to `run_userscript` to
+shorten a long run. A run streams its console lines into the run log as it goes, gives up
+after 120 s, and polls a stop flag that the panel's Stop button sets. A run that is stopped,
+times out, or hits a challenge page hands back the partial rows it had. The model sees only a
+result's `summary`, `meta` and `log`. Rows go to disk through `save_file`, and the panel's Save
+JSON writes its last result under `artifacts/panel/`. The bundled `ebay-ram-comps` script is
+the only bundled script that makes requests: same-origin GETs of eBay search pages, sent with
+your session. A read-only run skips the write scan only for a bundled script whose code is
+exactly as shipped. Once you edit a bundled script it is scanned like any other. This needs
 **Allow User Scripts** turned on for the extension at `chrome://extensions`, which is off by
 default and only you can turn on.
 

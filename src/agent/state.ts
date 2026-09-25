@@ -119,6 +119,8 @@ export const AgentContextSchema = z.object({
   /** Stored userscripts whose match pattern fits the run's tab (R-09), so the
    *  Follower knows what id(s) `run_userscript` may take. */
   availableUserscripts: z.array(z.object({ id: z.string(), name: z.string() })).default(() => []),
+  /** Re-reads the tab URL each Follower step so navigate updates the list. */
+  refreshUserscripts: z.custom<() => Promise<Array<{ id: string; name: string }>>>().optional(),
 });
 
 export type AgentContext = z.infer<typeof AgentContextSchema>;

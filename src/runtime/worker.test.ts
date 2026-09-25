@@ -114,6 +114,12 @@ class FakeHost implements HostPort {
   abortTrigger: ((msg: { runId: string }) => void) | undefined;
   reloadTrigger: (() => void) | undefined;
   readonly logs: ExtLogEntry[] = [];
+  readonly artifacts: Array<{ runId: string; filename: string; content: string }> = [];
+
+  async saveArtifact(runId: string, filename: string, content: string): Promise<{ path: string; bytes: number }> {
+    this.artifacts.push({ runId, filename, content });
+    return { path: `/artifacts/${runId}/${filename}`, bytes: content.length };
+  }
 
   async keyStatus(): Promise<Readiness> {
     return this.readiness;
@@ -510,6 +516,42 @@ describe('createWorker: userscripts', () => {
     await settle();
     expect(types).toEqual(['userscript.list', 'userscript.save', 'userscript.delete']);
     expect(panel.received('userscript.list')).toHaveLength(3);
+  });
+
+  it('saves each panel\'s own last result, not whichever panel ran last', async () => {
+    const h = harness({
+      handleUserscript: async (message) => {
+        if (message.type !== 'userscript.run') return undefined;
+        return {
+          type: 'userscript.result',
+          payload: { scriptId: message.payload.scriptId, ok: true, value: { from: message.payload.scriptId }, console: [], durationMs: 1 },
+        };
+      },
+    });
+    const first = h.connect();
+    const second = h.connect();
+
+    first.send('userscript.run', { scriptId: 'first', code: '' });
+    await settle();
+    second.send('userscript.run', { scriptId: 'second', code: '' });
+    await settle();
+    first.send('userscript.saveResult', {});
+    await settle();
+
+    expect(h.host.artifacts).toHaveLength(1);
+    expect(JSON.parse(h.host.artifacts[0]!.content)).toEqual({ from: 'first' });
+    expect(first.received('userscript.saved')).toEqual([
+      { filename: 'userscript.json', path: '/artifacts/panel/userscript.json', bytes: h.host.artifacts[0]!.content.length },
+    ]);
+  });
+
+  it('refuses to save before the panel has a result', async () => {
+    const h = harness();
+    const panel = h.connect();
+    panel.send('userscript.saveResult', {});
+    await settle();
+    expect(panel.received('error')).toEqual([{ message: 'no userscript result to save', inReplyTo: 'userscript.saveResult' }]);
+    expect(h.host.artifacts).toEqual([]);
   });
 
   it('reports a handler failure as an error message rather than dropping the reply', async () => {

@@ -14,7 +14,7 @@ import { createChromeDebuggerApi, DebuggerInputTier } from '@/src/input';
 import { HostClient, createHostFetch } from '@/src/host';
 import { PageDriver } from '@/src/page';
 import { getConfig } from '@/src/storage';
-import { resolveUserscript, runUserscript, seedDefaults } from '@/src/userscripts';
+import { notifyUserscriptProgress, resolveUserscript, runUserscript, seedDefaults } from '@/src/userscripts';
 import { RunManager, chromeTabsPort, createWorker, installErrorForwarding } from '@/src/runtime';
 import { sessionReplayStore, sessionUserscriptValueStore } from '@/src/runtime/durability';
 import { getLastRunId, setLastRunId } from '@/src/ui/state/lastRun';
@@ -65,7 +65,7 @@ export default defineBackground(() => {
     // URL/credential; createChatModel defaults it to OpenRouter when absent.
     createModel: (model, source) => createChatModel({ model, source, fetch: hostFetch }),
     makeDebuggerTier: (onDetach) => new DebuggerInputTier(createChromeDebuggerApi(), { onDetach }),
-    runUserscript: async (scriptId, tabId) => {
+    runUserscript: async (scriptId, tabId, args) => {
       // `resolveUserscript` tolerates the script's name: weak Followers echo the
       // parenthesized name from the per-turn prompt instead of the id (seen live
       // with ebay-search-extract). Unambiguous names run; anything else errors.
@@ -73,7 +73,8 @@ export default defineBackground(() => {
       if (!script) {
         return { scriptId, ok: false, error: `unknown userscript: ${scriptId}`, console: [], durationMs: 0 };
       }
-      return runUserscript({ tabId, script });
+      // Agent runs stream console lines into the run log; panel runs do not.
+      return runUserscript({ tabId, script, reportProgress: true, ...(args ? { args } : {}) });
     },
     saveLastRunId: setLastRunId,
     // M6: the replay ring and the last-userscript value survive a worker
@@ -88,6 +89,13 @@ export default defineBackground(() => {
     getConfig,
     getLastRunId,
     extensionVersion: chrome.runtime.getManifest().version,
+  });
+
+  const runtime = chrome.runtime as typeof chrome.runtime & {
+    onUserScriptMessage?: { addListener(cb: (message: { type?: string; level?: unknown; text?: unknown; at?: unknown }) => void): void };
+  };
+  runtime.onUserScriptMessage?.addListener((message) => {
+    if (message?.type === 'nanobrowser.userscript.progress') notifyUserscriptProgress(message);
   });
 
   chrome.runtime.onConnect.addListener((port) => {
