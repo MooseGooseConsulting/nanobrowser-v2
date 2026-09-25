@@ -41,7 +41,10 @@ describe('runUserscript', () => {
     await runUserscript({ tabId: 1, script: script('return 1;'), url: URL_IN_SCOPE, api });
     await runUserscript({ tabId: 1, script: script('return 2;'), url: URL_IN_SCOPE, api });
 
-    expect(api.worldConfigs).toEqual([{ messaging: false, csp: undefined }]);
+    expect(api.worldConfigs).toEqual([
+      { messaging: false, csp: undefined },
+      { worldId: 'nanobrowser', messaging: true, csp: undefined },
+    ]);
   });
 
   it('returns the script value and the captured console lines', async () => {
@@ -273,5 +276,130 @@ describe('wrapper mechanics', () => {
     });
     expect(parseErrorLocation('Error: x\n    at userscript.js:2:9')).toBeNull();
     expect(parseErrorLocation(null)).toBeNull();
+  });
+});
+
+describe('runUserscript progress, stop, and bad returns', () => {
+  beforeEach(() => {
+    resetWorldConfiguration();
+  });
+
+  it('sends a console line before the script returns', async () => {
+    const seen: string[] = [];
+    const previous = (globalThis as { chrome?: unknown }).chrome;
+    (globalThis as { chrome?: unknown }).chrome = {
+      runtime: { sendMessage: (message: { text?: string }) => seen.push(String(message.text)) },
+    };
+    try {
+      const result = await runUserscript({
+        tabId: 1,
+        script: script("console.log('before'); await Promise.resolve(); return seenLength;".replace('seenLength', String(0))),
+        url: URL_IN_SCOPE,
+        api: vmUserScriptsApi(),
+      });
+      expect(seen).toContain('before');
+      expect(result.ok).toBe(true);
+    } finally {
+      (globalThis as { chrome?: unknown }).chrome = previous;
+    }
+  });
+
+  it('stops between two fetches and does not start the second', async () => {
+    const urls: string[] = [];
+    const previous = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      urls.push(url);
+      if (url.endsWith('/a')) (globalThis as { __nbUserscriptStop?: boolean }).__nbUserscriptStop = true;
+      return new Response('ok');
+    }) as typeof fetch;
+    try {
+      const result = await runUserscript({
+        tabId: 1,
+        script: script(`
+          await fetch('/a');
+          if (nb.stopped) return { stopped_early: true };
+          await fetch('/b');
+          return { stopped_early: false };
+        `),
+        url: URL_IN_SCOPE,
+        api: vmUserScriptsApi(),
+      });
+      expect(result.ok).toBe(true);
+      expect(result.value).toEqual({ stopped_early: true });
+      expect(urls).toEqual(['/a']);
+    } finally {
+      globalThis.fetch = previous;
+    }
+  });
+
+  it('returns the partial when the deadline passes and leaves the fetch pending', async () => {
+    let finished = false;
+    let finish: (() => void) | undefined;
+    const previous = globalThis.fetch;
+    globalThis.fetch = (() =>
+      new Promise((resolve) => {
+        finish = () => {
+          finished = true;
+          resolve(new Response('late'));
+        };
+      })) as typeof fetch;
+    try {
+      const result = await runUserscript({
+        tabId: 1,
+        script: script(`
+          nb.partial = { summary: [], meta: { stopped_early: true, reason: 'timeout' }, log: [], rows: [] };
+          await fetch('/slow');
+          return { late: true };
+        `),
+        url: URL_IN_SCOPE,
+        deadlineMs: 30,
+        api: vmUserScriptsApi(),
+      });
+      expect(finished).toBe(false);
+      expect(result.ok).toBe(true);
+      expect(result.value).toMatchObject({ meta: { stopped_early: true, reason: 'timeout' } });
+      finish?.();
+      expect(finished).toBe(true);
+    } finally {
+      globalThis.fetch = previous;
+    }
+  });
+
+  it('reports an IIFE that returns nothing', async () => {
+    const result = await runUserscript({
+      tabId: 1,
+      script: script('(function () { return { rows: [] }; })();'),
+      url: URL_IN_SCOPE,
+      api: vmUserScriptsApi(),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('Return the JSON');
+  });
+
+  it('names the type when the script returns a DOM node', async () => {
+    const result = await runUserscript({
+      tabId: 1,
+      script: script("return document.createElement('div');"),
+      url: URL_IN_SCOPE,
+      api: vmUserScriptsApi(),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('DIV');
+  });
+
+  it('reports a syntax error on the user line, not the wrapper line', async () => {
+    const api = vmUserScriptsApi();
+    api.execute = async () =>
+      [{ documentId: 'doc-1', frameId: 0, error: `userscript.js:${WRAPPER_LINE_OFFSET + 12}:1 SyntaxError: Unexpected token` }] as never;
+    const result = await runUserscript({
+      tabId: 1,
+      script: script('return 1;'),
+      url: URL_IN_SCOPE,
+      api,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('line 12');
+    expect(result.error).not.toContain(`line ${WRAPPER_LINE_OFFSET + 12}`);
   });
 });

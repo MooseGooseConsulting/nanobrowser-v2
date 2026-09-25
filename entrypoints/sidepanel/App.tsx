@@ -92,6 +92,8 @@ export default function App() {
               runStatus={panel.scriptRunStatus}
               onSave={panel.saveScript}
               onRun={panel.runScript}
+              onStop={panel.stopScript}
+              onSaveResult={panel.saveScriptResult}
               onDelete={panel.deleteScript}
               onRefresh={panel.refreshScripts}
             />

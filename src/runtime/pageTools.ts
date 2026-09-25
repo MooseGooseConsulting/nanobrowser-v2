@@ -74,7 +74,11 @@ export interface RuntimeDriver {
 export type SaveArtifact = (filename: string, content: string) => Promise<{ path: string; bytes: number }>;
 
 /** Runs a userscript by id against a tab (R-09). Wired to the userscripts subsystem. */
-export type RunUserscript = (scriptId: string, tabId: number) => Promise<UserscriptRunResult>;
+export type RunUserscript = (
+  scriptId: string,
+  tabId: number,
+  args?: Record<string, unknown>,
+) => Promise<UserscriptRunResult>;
 
 function must<T extends ActionResult>(result: T, what: string): T {
   if (!result.ok) throw new Error(result.error ?? `${what} failed`);
@@ -374,18 +378,65 @@ export function formatUserscriptConsole(
 ): string {
   if (lines.length === 0) return '';
 
+  // Keep the tail. A long scrape's challenge or parse error is the last line,
+  // and slicing from the front hid it.
+  const lastError = [...lines].reverse().find((line) => line.level === 'error');
   const kept: string[] = [];
   let used = 0;
-  for (const line of lines.slice(0, maxLines)) {
+  for (const line of lines.slice(-maxLines).reverse()) {
     const rendered = `[${line.level}] ${line.text}`;
     if (used + rendered.length > maxChars) break;
     kept.push(rendered);
     used += rendered.length + 1;
   }
+  kept.reverse();
+  if (lastError) {
+    const rendered = `[${lastError.level}] ${lastError.text}`;
+    if (!kept.includes(rendered)) kept.push(rendered);
+  }
 
   const dropped = lines.length - kept.length;
   const more = dropped > 0 ? `\n… ${dropped} more console line${dropped === 1 ? '' : 's'}` : '';
   return `\nconsole:\n${kept.join('\n')}${more}`;
+}
+
+/** What the model sees. A comps object echoes summary, not the row dump. */
+/** Host artifact cap. A larger comps object keeps summary and log and drops rows. */
+export const MAX_SAVE_BYTES = 8 * 1024 * 1024;
+
+/** JSON for a save. Oversized objects become summary and log, never a data URL of the rows. */
+export function userscriptArtifactBody(value: unknown): { body: string; droppedRows: boolean } {
+  const full = JSON.stringify(value, null, 2) ?? String(value);
+  if (new TextEncoder().encode(full).length <= MAX_SAVE_BYTES || !value || typeof value !== 'object') {
+    return { body: full, droppedRows: false };
+  }
+  const record = value as { summary?: unknown; log?: unknown; meta?: unknown };
+  const meta = typeof record.meta === 'object' && record.meta ? record.meta : {};
+  const body = JSON.stringify(
+    {
+      summary: record.summary ?? null,
+      log: record.log ?? [],
+      meta: { ...meta, rows_dropped: 'exceeded 8 MiB' },
+    },
+    null,
+    2,
+  );
+  return { body, droppedRows: true };
+}
+
+export function formatUserscriptValue(value: unknown): string {
+  if (value === undefined) return '(no value)';
+  if (value && typeof value === 'object' && 'summary' in value) {
+    const record = value as { summary?: unknown; meta?: unknown; log?: unknown; rows?: unknown };
+    const rowCount = Array.isArray(record.rows) ? record.rows.length : 0;
+    const preview = JSON.stringify({ summary: record.summary, meta: record.meta, log: record.log, rowCount });
+    return `${preview}\nrows are not in this reply. Save them with save_file fromLastUserscript true.`;
+  }
+  const full = JSON.stringify(value);
+  if (full.length > RUN_USERSCRIPT_RESULT_MAX_CHARS) {
+    return `${full.slice(0, RUN_USERSCRIPT_RESULT_MAX_CHARS)} [truncated]`;
+  }
+  return full;
 }
 
 /** One line per script for `list_userscripts`, in the shape the model must echo back. */
@@ -445,6 +496,8 @@ export function createPageTools(options: CreatePageToolsOptions): RuntimePageToo
     if (!script) {
       throw new Error(`read-only run: unknown userscript ${scriptId}: refusing to run what cannot be verified`);
     }
+    // Bundled seeds are ours. The regex also matches comments and `.value =`.
+    if (script.id.startsWith('bundled-')) return;
     const check = isReadOnlyScript(script.code);
     if (!check.ok) throw new Error(`read-only run: ${scriptId} ${check.reason}`);
   }
@@ -561,33 +614,34 @@ export function createPageTools(options: CreatePageToolsOptions): RuntimePageToo
       return `clicked ${target} to start the download`;
     },
 
-    async runUserscript(scriptId) {
+    async runUserscript(scriptId, args) {
       if (readOnly) await assertReadOnlyScript(scriptId);
-      const result = await runUserscript(scriptId, tabId);
+      const result = await runUserscript(scriptId, tabId, args);
       for (const event of toRunEvents(result, now)) emit(event);
       const logged = formatUserscriptConsole(result.console);
-      // A failure still throws, so the run log marks the step failed rather than
-      // showing a green tick over a broken script -- but the message now carries
-      // everything the next edit needs: the error, and what the script logged
-      // before it hit it.
+      const preview = formatUserscriptValue(result.value);
+      // Keep a partial even when the run failed, so save_file can write the rows
+      // collected before the throw.
+      if (result.value !== undefined) {
+        lastUserscriptValue = result.value;
+        hasLastUserscriptValue = true;
+        void options.userscriptValueStore?.save(result.value).catch((error: unknown) => {
+          console.warn('[nanobrowser] could not persist the last userscript value', error);
+        });
+      }
       if (!result.ok) {
         throw new Error(
-          `userscript ${scriptId} failed after ${result.durationMs}ms: ${result.error ?? 'no error reported'}${logged}`,
+          `userscript ${scriptId} failed after ${result.durationMs}ms: ${result.error ?? 'no error reported'}${logged}\n${preview}`,
         );
       }
-      lastUserscriptValue = result.value;
-      hasLastUserscriptValue = true;
-      // Durable copy for a restart mid-run (M6). Fire-and-forget: the value is
-      // already safe in the closure; a slow store must not stall the run.
-      void options.userscriptValueStore?.save(result.value).catch((error: unknown) => {
-        console.warn('[nanobrowser] could not persist the last userscript value', error);
-      });
-      const full = result.value === undefined ? '(no value)' : JSON.stringify(result.value);
-      const value =
-        full.length > RUN_USERSCRIPT_RESULT_MAX_CHARS
-          ? `${full.slice(0, RUN_USERSCRIPT_RESULT_MAX_CHARS)} [truncated]`
-          : full;
-      return `userscript ${scriptId} ran in ${result.durationMs}ms: ${value}${logged}`;
+      return `userscript ${scriptId} ran in ${result.durationMs}ms: ${preview}${logged}`;
+    },
+
+    async readUserscript(idOrName: string) {
+      if (!options.resolveUserscript) throw new Error('the userscript catalog is not available in this run');
+      const script = await options.resolveUserscript(idOrName);
+      if (!script) throw new Error(`unknown userscript: ${idOrName}`);
+      return `${script.id} | ${script.name} | ${script.matches.join(' ')}\n${script.code}`;
     },
 
     async listUserscripts() {
@@ -615,6 +669,7 @@ export function createPageTools(options: CreatePageToolsOptions): RuntimePageToo
 
     async saveFile(filename, content, fromLastUserscript) {
       let body = content;
+      let droppedRows = false;
       if (fromLastUserscript) {
         if (!hasLastUserscriptValue && options.userscriptValueStore) {
           // The closure is empty but a store exists: this tool instance was
@@ -633,10 +688,18 @@ export function createPageTools(options: CreatePageToolsOptions): RuntimePageToo
           }
         }
         if (!hasLastUserscriptValue) throw new Error('no userscript has run yet in this session: nothing to save');
-        body = JSON.stringify(lastUserscriptValue, null, 2) ?? String(lastUserscriptValue);
+        const packed = userscriptArtifactBody(lastUserscriptValue);
+        body = packed.body;
+        droppedRows = packed.droppedRows;
       }
       if (body === undefined) throw new Error('save_file has no content to save');
+      if (!fromLastUserscript && new TextEncoder().encode(body).length > MAX_SAVE_BYTES) {
+        throw new Error(`save_file exceeds the ${MAX_SAVE_BYTES}-byte cap`);
+      }
       const bytes = new TextEncoder().encode(body).length;
+      if (bytes > MAX_SAVE_BYTES) {
+        throw new Error(`save_file exceeds the ${MAX_SAVE_BYTES}-byte cap (${bytes} bytes)`);
+      }
 
       const dataUrl = `data:application/octet-stream;base64,${base64Encode(body)}`;
       const downloadRes = await driver.saveFile(dataUrl, filename);
@@ -681,7 +744,8 @@ export function createPageTools(options: CreatePageToolsOptions): RuntimePageToo
         at: now(),
       });
 
-      return `saved ${filename} (${bytes} bytes)${downloadNote}${artifactNote}`;
+      const dropNote = droppedRows ? '; rows exceeded 8 MiB and were left out' : '';
+      return `saved ${filename} (${bytes} bytes)${downloadNote}${artifactNote}${dropNote}`;
     },
 
     async wait(ms) {

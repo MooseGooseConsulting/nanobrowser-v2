@@ -482,6 +482,32 @@ describe('RunManager.restoreReplay (M6)', () => {
     expect(scripted.seen[0]?.availableUserscripts).toEqual([{ id: 's1', name: 'ebay-search-extract' }]);
   });
 
+  it('lists ebay-ram-comps after the tab moves from the eBay homepage onto a search', async () => {
+    fakeBrowser.reset();
+    let url = 'https://www.ebay.com/';
+    const scripted = scriptedStart([], endedOk);
+    const { runManager } = manager({
+      start: scripted.start,
+      tabs: {
+        activeTab: async () => ({ id: 3, url }),
+        get: async () => ({ id: 3, url }),
+      },
+    });
+    await runManager.start({ prompt: 'go', config });
+    const tools = scripted.seen[0]?.tools;
+    expect(tools).toBeDefined();
+
+    const home = await tools!.listUserscripts();
+    expect(home).toContain('ebay-ram-comps');
+    expect(home).not.toContain('ebay-search-extract');
+
+    url = 'https://www.ebay.com/sch/i.html?_nkw=ddr5';
+    const search = await tools!.listUserscripts();
+    expect(search).toContain('ebay-ram-comps');
+    expect(search).toContain('ebay-search-extract');
+    scripted.finish();
+  });
+
   it('surfaces the bundled ebay-search-extract userscript on an eBay search page by default', async () => {
     fakeBrowser.reset();
     const scripted = scriptedStart([], endedOk);

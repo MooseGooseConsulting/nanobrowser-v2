@@ -10,7 +10,7 @@ describe('allowedInReadOnly (#13)', () => {
   it('keeps every read, navigation, save, and terminal tool, and nothing else', () => {
     const allowed = TOOL_NAMES.filter(allowedInReadOnly);
     expect(allowed.sort()).toEqual(
-      ['snapshot', 'screenshot', 'extract_text', 'get_box', 'scroll', 'navigate', 'run_userscript', 'list_userscripts', 'save_file', 'wait', 'done', 'blocked'].sort(),
+      ['snapshot', 'screenshot', 'extract_text', 'get_box', 'scroll', 'navigate', 'run_userscript', 'list_userscripts', 'read_userscript', 'save_file', 'wait', 'done', 'blocked'].sort(),
     );
   });
 

@@ -63,6 +63,8 @@ export interface PanelApi {
   abortRun: () => void;
   saveScript: (script: Userscript) => void;
   runScript: (scriptId: string, code: string) => void;
+  stopScript: () => void;
+  saveScriptResult: (value: unknown) => void;
   deleteScript: (id: string) => void;
 }
 
@@ -326,6 +328,18 @@ export function usePanel(): PanelApi {
         setScriptResult(undefined);
         setScriptRunStatus('waiting');
         send('userscript.run', { scriptId, code });
+      },
+      [send],
+    ),
+    stopScript: useCallback(() => {
+      send('userscript.stop', {});
+    }, [send]),
+    saveScriptResult: useCallback(
+      (value: unknown) => {
+        // The worker already holds this object from the run. The argument is what
+        // the panel test asserts; the message does not carry the body.
+        void value;
+        send('userscript.saveResult', { filename: 'userscript.json' });
       },
       [send],
     ),

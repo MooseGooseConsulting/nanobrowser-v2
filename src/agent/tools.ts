@@ -78,9 +78,11 @@ export interface PageTools {
   select(ref: string, value: string): Promise<string>;
   navigate(url: string): Promise<string>;
   download(target: string): Promise<string>;
-  runUserscript(scriptId: string): Promise<string>;
+  runUserscript(scriptId: string, args?: Record<string, unknown>): Promise<string>;
   /** Lists the saved scripts so the Follower knows what ids exist (R-09). */
   listUserscripts(): Promise<string>;
+  /** The source of one saved script, bundled seeds included. */
+  readUserscript(idOrName: string): Promise<string>;
   /**
    * Creates or revises an agent-authored script (R-10/O-03). The rails on what an
    * agent may write live in `src/userscripts/authoring.ts`, not here; this port
@@ -153,6 +155,7 @@ export const TOOL_NAMES = [
   'download',
   'run_userscript',
   'list_userscripts',
+  'read_userscript',
   'write_userscript',
   'save_file',
   'wait',
@@ -177,6 +180,7 @@ export const TERMINAL_TOOLS: Record<string, 'done' | 'blocked'> = {
  * the same loop wearing a different hat.
  */
 export const READ_TOOL_NAMES: ReadonlySet<string> = new Set([
+  'read_userscript',
   'snapshot',
   'screenshot',
   'extract_text',
@@ -364,14 +368,19 @@ export function createPageToolset(page: PageTools, options: { readOnly?: boolean
         ...controlEnvelope,
       }),
     }),
-    tool(async ({ scriptId }) => page.runUserscript(scriptId), {
+    tool(async ({ scriptId, args }) => (args === undefined ? page.runUserscript(scriptId) : page.runUserscript(scriptId, args)), {
       name: 'run_userscript',
       description:
-        'Run a saved userscript on this page by its id. The reply gives you what the script ' +
-        'returned plus anything it logged; if it failed you get the error and the line. ' +
-        'Fix it with write_userscript and run it again.',
+        'Run a saved userscript on this page by its id. The reply gives you the summary the script ' +
+        'returned plus anything it logged; rows are saved with save_file, not pasted here. ' +
+        'If it failed you get the error and the line. Read the source with read_userscript first. ' +
+        'Pass args to shorten a long script, for example {"limitQueries":1,"pages":1}.',
       schema: z.object({
         scriptId: z.string().describe('The id of a saved userscript.'),
+        args: z
+          .record(z.string(), z.unknown())
+          .optional()
+          .describe('Optional JSON the script sees as args. Omit it to run the script\'s full config.'),
         ...controlEnvelope,
       }),
     }),
@@ -379,6 +388,16 @@ export function createPageToolset(page: PageTools, options: { readOnly?: boolean
       name: 'list_userscripts',
       description: 'List the saved userscripts with their ids, so you know what run_userscript can take.',
       schema: z.object({ ...controlEnvelope }),
+    }),
+    tool(async ({ idOrName }) => page.readUserscript(idOrName), {
+      name: 'read_userscript',
+      description:
+        'Read the source of a saved userscript, including a bundled one, before you run or copy it. ' +
+        'Pass the id, or the name when only one script has it.',
+      schema: z.object({
+        idOrName: z.string().describe('The id from list_userscripts, or an unambiguous name.'),
+        ...controlEnvelope,
+      }),
     }),
     tool(async ({ scriptId, name, matches, code }) => page.writeUserscript({ scriptId, name, matches, code }), {
       name: 'write_userscript',
@@ -706,14 +725,19 @@ export class FakePageTools implements PageTools {
     return `downloaded ${target}`;
   }
 
-  async runUserscript(scriptId: string): Promise<string> {
-    this.#record('runUserscript', scriptId);
+  async runUserscript(scriptId: string, args?: Record<string, unknown>): Promise<string> {
+    this.#record('runUserscript', ...(args === undefined ? [scriptId] : [scriptId, args]));
     return `ran userscript ${scriptId}`;
   }
 
   async listUserscripts(): Promise<string> {
     this.#record('listUserscripts');
     return 'no userscripts are saved';
+  }
+
+  async readUserscript(idOrName: string): Promise<string> {
+    this.#record('readUserscript', idOrName);
+    return `source of ${idOrName}`;
   }
 
   async writeUserscript(request: WriteUserscriptRequest): Promise<string> {

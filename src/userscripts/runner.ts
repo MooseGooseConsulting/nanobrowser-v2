@@ -160,6 +160,7 @@ export async function ensureWorldConfigured(api: UserScriptsApi): Promise<void> 
   if (typeof api.configureWorld !== 'function') return;
   try {
     await api.configureWorld({ messaging: false, csp: undefined });
+    await api.configureWorld({ worldId: USERSCRIPT_WORLD_ID, messaging: true, csp: undefined });
   } catch {
     // Older Chrome rejects some property combinations; the defaults still apply.
   }
@@ -190,10 +191,31 @@ export interface WrappedOutcome {
  * The user's code becomes the body of an async function, so it may use `await` and
  * returns its result with a top-level `return`.
  */
-const WRAPPER_PREFIX = `(async () => {
+/** World that may message the extension. The default world stays messaging-off. */
+export const USERSCRIPT_WORLD_ID = 'nanobrowser';
+
+/** Default ceiling so a hung fetch cannot hold the agent forever. */
+export const DEFAULT_DEADLINE_MS = 120_000;
+
+export interface WrapOptions {
+  deadlineMs?: number;
+  args?: unknown;
+}
+
+const WRAPPER_PREFIX_HEAD = `(async () => {
   const __nbG = typeof window !== 'undefined' ? window : globalThis;
   const __nbMaxLines = ${MAX_CONSOLE_LINES};
   const __nbMaxBytes = ${MAX_CONSOLE_BYTES};
+  const __nbDeadline = `;
+
+const WRAPPER_PREFIX_TAIL = `;
+  __nbG.__nbUserscriptStop = false;
+  const args = __nbArgs;
+  const nb = {
+    get stopped() { return __nbG.__nbUserscriptStop === true; },
+    get partial() { return __nbG.__nbUserscriptPartial; },
+    set partial(value) { __nbG.__nbUserscriptPartial = value; },
+  };
   const __nbLog = [];
   let __nbBytes = 0;
   let __nbTruncated = false;
@@ -209,7 +231,15 @@ const WRAPPER_PREFIX = `(async () => {
     const room = __nbMaxBytes - __nbBytes;
     if (text.length > room) { text = text.slice(0, room); __nbTruncated = true; }
     __nbBytes += text.length;
-    __nbLog.push({ level: level, text: text, at: Date.now() });
+    const line = { level: level, text: text, at: Date.now() };
+    __nbLog.push(line);
+    try {
+      const rt = __nbG.chrome && __nbG.chrome.runtime;
+      if (rt && typeof rt.sendMessage === 'function') {
+        const sent = rt.sendMessage({ type: 'nanobrowser.userscript.progress', level: line.level, text: line.text, at: line.at });
+        if (sent && typeof sent.then === 'function') sent.then(undefined, function () {});
+      }
+    } catch (e) {}
   };
   const __nbConsole = __nbG.console;
   const __nbLevels = { log: 'log', info: 'log', debug: 'log', warn: 'warn', error: 'error' };
@@ -243,20 +273,39 @@ const WRAPPER_PREFIX = `(async () => {
   let __nbOk = true;
   let __nbValue;
   let __nbError = null;
+  let __nbTimer;
+  const __nbTimeout = new Promise(function (_, reject) {
+    __nbTimer = setTimeout(function () {
+      const err = new Error('userscript timed out after ' + __nbDeadline + 'ms');
+      err.__nbTimeout = true;
+      reject(err);
+    }, __nbDeadline);
+  });
   try {
-    __nbValue = await (async () => {
+    __nbValue = await Promise.race([
+      (async () => {
 `;
 
 const WRAPPER_SUFFIX = `
-    })();
+      })(),
+      __nbTimeout,
+    ]);
   } catch (__nbCaught) {
-    __nbOk = false;
-    __nbError = {
-      name: (__nbCaught && __nbCaught.name) || 'Error',
-      message: (__nbCaught && __nbCaught.message) || __nbText(__nbCaught),
-      stack: (__nbCaught && __nbCaught.stack) || null,
-    };
+    if (__nbCaught && __nbCaught.__nbTimeout && __nbG.__nbUserscriptPartial !== undefined) {
+      __nbOk = true;
+      __nbValue = __nbG.__nbUserscriptPartial;
+      __nbError = null;
+    } else {
+      __nbOk = false;
+      if (__nbG.__nbUserscriptPartial !== undefined) __nbValue = __nbG.__nbUserscriptPartial;
+      __nbError = {
+        name: (__nbCaught && __nbCaught.name) || 'Error',
+        message: (__nbCaught && __nbCaught.message) || __nbText(__nbCaught),
+        stack: (__nbCaught && __nbCaught.stack) || null,
+      };
+    }
   } finally {
+    clearTimeout(__nbTimer);
     for (const __nbName of Object.keys(__nbSaved)) {
       try {
         Object.defineProperty(__nbConsole, __nbName, {
@@ -285,11 +334,18 @@ const WRAPPER_SUFFIX = `
  * itself so it can never drift out of step with an edit to the wrapper — the
  * debugger subtracts it to map a stack frame back to the user's source.
  */
-export const WRAPPER_LINE_OFFSET = WRAPPER_PREFIX.split('\n').length - 1;
+export function wrapperPrefix(options: WrapOptions = {}): string {
+  const deadline = options.deadlineMs ?? DEFAULT_DEADLINE_MS;
+  const args = JSON.stringify(options.args ?? {});
+  return `${WRAPPER_PREFIX_HEAD}${deadline};\n  const __nbArgs = ${args}${WRAPPER_PREFIX_TAIL}`;
+}
+
+/** Lines the wrapper adds above the user's first line, for the default wrap. */
+export const WRAPPER_LINE_OFFSET = wrapperPrefix().split('\n').length - 1;
 
 /** Wraps user code for capture. Column 1 of user line 1 stays column 1: no indent. */
-export function wrapUserscript(code: string): string {
-  return WRAPPER_PREFIX + code + WRAPPER_SUFFIX;
+export function wrapUserscript(code: string, options?: WrapOptions): string {
+  return wrapperPrefix(options) + code + WRAPPER_SUFFIX;
 }
 
 export interface SourceLocation {
@@ -334,6 +390,10 @@ export interface RunUserscriptOptions {
   code?: string;
   /** The tab's URL. Resolved through {@link TabsApi} when omitted. */
   url?: string;
+  /** Bound as `args` inside the script. */
+  args?: unknown;
+  /** Overrides the 120s ceiling for this run. */
+  deadlineMs?: number;
   api?: UserScriptsApi;
   tabs?: TabsApi;
   env?: AvailabilityEnv;
@@ -382,28 +442,44 @@ export async function runUserscript(options: RunUserscriptOptions): Promise<User
 
   await ensureWorldConfigured(api);
 
+  activeScriptId = scriptId;
   const started = now();
+  const source = options.code ?? script.code;
   let results: chrome.userScripts.InjectionResult<WrappedOutcome>[];
   try {
     results = await api.execute<WrappedOutcome>({
       target: { tabId },
-      js: [{ code: wrapUserscript(options.code ?? script.code) }],
+      js: [{ code: wrapUserscript(source, { args: options.args, deadlineMs: options.deadlineMs }) }],
       world: 'USER_SCRIPT',
+      worldId: USERSCRIPT_WORLD_ID,
       injectImmediately: true,
     });
   } catch (error) {
+    activeScriptId = '';
     return failure(scriptId, describe(error), now() - started);
+  } finally {
+    activeScriptId = '';
   }
 
   const elapsed = now() - started;
   const first = results?.[0];
   if (!first) return failure(scriptId, 'no injection result: the tab may have navigated away', elapsed);
-  if (first.error) return failure(scriptId, first.error, elapsed);
+  if (first.error) return failure(scriptId, rebaseInjectionError(first.error), elapsed);
 
   const outcome = first.result;
   if (!outcome || outcome.__nanobrowserUserscript !== 1) {
     return failure(scriptId, 'unrecognised injection result', elapsed);
   }
+
+  if (outcome.ok && outcome.value === undefined && looksLikeIife(source)) {
+    return failure(
+      scriptId,
+      'this script returns nothing. Return the JSON from the top level instead of wrapping it in a function.',
+      elapsed,
+    );
+  }
+  const jsonProblem = nonJsonReturn(outcome.value);
+  if (jsonProblem) return failure(scriptId, jsonProblem, elapsed);
 
   const captured = outcome.console ?? [];
   const consoleLines = outcome.truncated
@@ -423,4 +499,75 @@ export async function runUserscript(options: RunUserscriptOptions): Promise<User
 function describe(error: unknown): string {
   if (error instanceof Error) return `${error.name}: ${error.message}`;
   return String(error);
+}
+
+function rebaseInjectionError(error: string): string {
+  const where = parseErrorLocation(error);
+  return where ? `${error} (line ${where.line}, column ${where.column})` : error;
+}
+
+function looksLikeIife(code: string): boolean {
+  const head = code.trimStart();
+  return (
+    head.startsWith('(function') ||
+    head.startsWith('(async function') ||
+    head.startsWith('(()') ||
+    head.startsWith('(async ()') ||
+    head.startsWith('!function')
+  );
+}
+
+/** Chrome JSON-serializes the return. A DOM node or a cyclic value must be an error, not `{}`. */
+function nonJsonReturn(value: unknown): string | null {
+  if (value === undefined || value === null || typeof value !== 'object') return null;
+  if (typeof (value as { nodeType?: unknown }).nodeType === 'number') {
+    const name = (value as { nodeName?: string }).nodeName || 'DOM node';
+    return `return value is a ${name}, which cannot be sent back. Return plain JSON.`;
+  }
+  try {
+    JSON.stringify(value);
+  } catch (error) {
+    return `return value is not JSON (${describe(error)})`;
+  }
+  return null;
+}
+
+export interface ProgressLine {
+  level: ConsoleLevel;
+  text: string;
+  at: number;
+}
+
+let activeScriptId = '';
+let progressListener: ((scriptId: string, line: ProgressLine) => void) | undefined;
+
+/** The run manager subscribes so console lines reach the log before the script returns. */
+export function setUserscriptProgressListener(
+  listener: ((scriptId: string, line: ProgressLine) => void) | undefined,
+): void {
+  progressListener = listener;
+}
+
+/** Called from the extension when a userscript world messages `nanobrowser.userscript.progress`. */
+export function notifyUserscriptProgress(message: { level?: unknown; text?: unknown; at?: unknown }): void {
+  if (!progressListener || !activeScriptId) return;
+  const level = message.level === 'warn' || message.level === 'error' ? message.level : 'log';
+  progressListener(activeScriptId, {
+    level,
+    text: String(message.text ?? ''),
+    at: typeof message.at === 'number' ? message.at : Date.now(),
+  });
+}
+
+/** Sets the stop flag in the userscript world. `execute()` itself cannot be aborted. */
+export async function signalUserscriptStop(tabId: number, api?: UserScriptsApi): Promise<void> {
+  const userScripts = api ?? chromeUserScriptsApi();
+  if (!userScripts) return;
+  await userScripts.execute({
+    target: { tabId },
+    world: 'USER_SCRIPT',
+    worldId: USERSCRIPT_WORLD_ID,
+    injectImmediately: true,
+    js: [{ code: 'globalThis.__nbUserscriptStop = true;' }],
+  });
 }

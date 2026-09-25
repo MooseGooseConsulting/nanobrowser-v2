@@ -683,6 +683,102 @@ describe('the agent\'s userscript loop (R-09/R-10, O-03)', () => {
   });
 });
 
+describe('userscript read, summary, and save', () => {
+  it('returns the source of a saved script', async () => {
+    const h = harness('in-page', {
+      resolveUserscript: async (id) =>
+        id === 'bundled-ebay-ram-comps'
+          ? {
+              id,
+              name: 'ebay-ram-comps',
+              matches: ['*://www.ebay.com/*'],
+              code: 'return { summary: [] };',
+              updatedAt: 0,
+            }
+          : undefined,
+    });
+
+    await expect(h.tools.readUserscript('bundled-ebay-ram-comps')).resolves.toContain('return { summary: [] };');
+  });
+
+  it('leaves summary in the reply when rows are huge', async () => {
+    const h = harness('in-page');
+    h.userscriptResult = {
+      scriptId: 's1',
+      ok: true,
+      value: { summary: { kits: 2 }, meta: { source: 'ebay.com' }, log: [], rows: [{ blob: 'x'.repeat(80_000) }] },
+      console: [],
+      durationMs: 5,
+    };
+
+    const reply = await h.tools.runUserscript('s1');
+    expect(reply).toContain('"kits":2');
+    expect(reply).toContain('rows are not in this reply');
+    expect(reply).not.toContain('x'.repeat(80));
+  });
+
+  it('keeps the last error line when the first lines are noise', () => {
+    const lines = [
+      { level: 'error' as const, text: 'challenge page', at: 0 },
+      ...Array.from({ length: 50 }, (_, index) => ({ level: 'log' as const, text: `noise ${index}`, at: index + 1 })),
+    ];
+    const out = formatUserscriptConsole(lines, 40);
+    expect(out).toContain('[error] challenge page');
+    expect(out).not.toContain('[log] noise 0');
+  });
+
+  it('lets save_file write rows collected before a throw', async () => {
+    const saved: string[] = [];
+    const h = harness('in-page', {
+      saveArtifact: async (_filename, content) => {
+        saved.push(content);
+        return { path: '/artifacts/rows.json', bytes: content.length };
+      },
+    });
+    h.userscriptResult = {
+      scriptId: 's1',
+      ok: false,
+      error: 'boom',
+      value: { summary: [], rows: [{ item_id: '1' }], log: [], meta: {} },
+      console: [],
+      durationMs: 5,
+    };
+
+    await expect(h.tools.runUserscript('s1')).rejects.toThrow('boom');
+    const reply = await h.tools.saveFile('rows.json', undefined, true);
+    expect(reply).toContain('rows.json');
+    expect(saved[0]).toContain('"item_id": "1"');
+  });
+
+  it('persists the summary when the rows exceed 8 MiB and does not encode those rows', async () => {
+    const saved: string[] = [];
+    const h = harness('in-page', {
+      saveArtifact: async (_filename, content) => {
+        saved.push(content);
+        return { path: '/artifacts/rows.json', bytes: content.length };
+      },
+    });
+    const huge = 'Z'.repeat(8 * 1024 * 1024 + 1000);
+    h.userscriptResult = {
+      scriptId: 's1',
+      ok: true,
+      value: { summary: { kits: 1 }, log: ['page 1'], meta: { source: 'ebay.com' }, rows: [huge] },
+      console: [],
+      durationMs: 5,
+    };
+
+    await h.tools.runUserscript('s1');
+    const reply = await h.tools.saveFile('rows.json', undefined, true);
+    expect(reply).toContain('rows exceeded 8 MiB');
+    expect(saved[0]).toContain('"kits": 1');
+    expect(saved[0]).toContain('rows_dropped');
+    expect(saved[0]).not.toContain(huge.slice(0, 100));
+    const dataUrl = String(h.driver.calls.find((call) => call.name === 'saveFile')?.args[0]);
+    expect(dataUrl.startsWith('data:')).toBe(true);
+    expect(dataUrl).not.toContain(huge.slice(0, 80));
+  });
+});
+
 describe('formatUserscriptConsole', () => {
   it('is empty for a script that logged nothing, so the reply stays short', () => {
     expect(formatUserscriptConsole([])).toBe('');
@@ -691,8 +787,8 @@ describe('formatUserscriptConsole', () => {
   it('caps the number of lines and says how many it dropped', () => {
     const lines = Array.from({ length: 6 }, (_, i) => ({ level: 'log' as const, text: `line ${i}`, at: i }));
     const out = formatUserscriptConsole(lines, 4);
-    expect(out).toContain('[log] line 3');
-    expect(out).not.toContain('[log] line 4');
+    expect(out).toContain('[log] line 5');
+    expect(out).not.toContain('[log] line 0');
     expect(out).toContain('… 2 more console lines');
   });
 
@@ -702,8 +798,8 @@ describe('formatUserscriptConsole', () => {
       { level: 'log' as const, text: 'b'.repeat(50), at: 2 },
     ];
     const out = formatUserscriptConsole(lines, 10, 60);
-    expect(out).toContain('a'.repeat(50));
-    expect(out).not.toContain('b'.repeat(50));
+    expect(out).toContain('b'.repeat(50));
+    expect(out).not.toContain('a'.repeat(50));
     expect(out).toContain('… 1 more console line');
   });
 });

@@ -29,7 +29,9 @@ import {
 } from '@/src/messaging';
 import type { Config, InputFidelity, ModelSource, ObserveMode } from '@/src/storage';
 import type { ExtLogEntry } from './errorLog';
-import { handleUserscriptMessage as defaultHandleUserscript } from '@/src/userscripts';
+import { handleUserscriptMessage as defaultHandleUserscript, signalUserscriptStop } from '@/src/userscripts';
+import { userscriptArtifactBody } from './pageTools';
+import { sessionUserscriptValueStore } from './durability';
 import type { HostRunEndEvent, StartOptions, StartResult } from './runManager';
 
 /** Ten minutes: long enough that the panel never waits on the catalog twice, short enough to notice a new model. */
@@ -57,6 +59,7 @@ export interface HostPort {
   onRunAbort(handler: (msg: { runId: string }) => void): () => void;
   appendLog(entry: ExtLogEntry): void;
   onExtReload(handler: () => void): () => void;
+  saveArtifact?(runId: string, filename: string, content: string): Promise<{ path: string; bytes: number }>;
 }
 
 /** The slice of `RunManager` the worker uses. */
@@ -115,6 +118,8 @@ const PANEL_TYPES: ReadonlySet<string> = new Set<keyof PanelToWorker>([
   'userscript.list',
   'userscript.save',
   'userscript.delete',
+  'userscript.stop',
+  'userscript.saveResult',
   'runlog.replay',
   'log.append',
 ]);
@@ -170,6 +175,8 @@ export function createWorker(deps: WorkerDeps): Worker {
   const cacheMs = deps.modelsCacheMs ?? MODELS_CACHE_MS;
   const panels = new Set<PanelChannel>();
   let modelsCache: { at: number; models: ModelInfo[] } | undefined;
+  let panelUserscriptValue: unknown;
+  let panelHasUserscriptValue = false;
 
   const broadcast = <K extends keyof WorkerToPanel>(type: K, payload: WorkerToPanel[K]): void => {
     for (const channel of [...panels]) channel.send(type, payload);
@@ -248,6 +255,44 @@ export function createWorker(deps: WorkerDeps): Worker {
         // The panel has no native port; the worker is its only route to ext.log.
         deps.host.appendLog(message.payload);
         return;
+      case 'userscript.stop': {
+        const tabId = await deps.runManager.resolveTabId();
+        if (tabId === undefined) {
+          reply(channel, { type: 'error', payload: { message: 'no target tab', inReplyTo: 'userscript.stop' } });
+          return;
+        }
+        await signalUserscriptStop(tabId);
+        return;
+      }
+      case 'userscript.saveResult': {
+        if (!panelHasUserscriptValue) {
+          reply(channel, {
+            type: 'error',
+            payload: { message: 'no userscript result to save', inReplyTo: 'userscript.saveResult' },
+          });
+          return;
+        }
+        if (!deps.host.saveArtifact) {
+          reply(channel, {
+            type: 'error',
+            payload: { message: 'the host cannot save a file', inReplyTo: 'userscript.saveResult' },
+          });
+          return;
+        }
+        const packed = userscriptArtifactBody(panelUserscriptValue);
+        const filename = message.payload.filename || 'userscript.json';
+        const artifact = await deps.host.saveArtifact('panel', filename, packed.body);
+        reply(channel, {
+          type: 'userscript.saved',
+          payload: {
+            filename,
+            path: artifact.path,
+            bytes: artifact.bytes,
+            ...(packed.droppedRows ? { note: 'rows exceeded 8 MiB and were left out; summary and log were saved' } : {}),
+          },
+        });
+        return;
+      }
       case 'userscript.run':
       case 'userscript.list':
       case 'userscript.save':
@@ -260,6 +305,17 @@ export function createWorker(deps: WorkerDeps): Worker {
             ? { emit: (event: RunEvent) => broadcast('run.event', { runId: activeRunId, event }) }
             : {}),
         });
+        if (result?.type === 'userscript.result' && result.payload.value !== undefined) {
+          panelUserscriptValue = result.payload.value;
+          panelHasUserscriptValue = true;
+          if (activeRunId) {
+            void sessionUserscriptValueStore(activeRunId)
+              ?.save(result.payload.value)
+              .catch((error: unknown) => {
+                console.warn('[nanobrowser] could not persist the panel userscript value', error);
+              });
+          }
+        }
         if (result) reply(channel, result);
         return;
       }
