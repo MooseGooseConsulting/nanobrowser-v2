@@ -17,7 +17,9 @@ export interface UserscriptMetadata {
 const BLOCK = /(?:^|\n)[ \t]*\/{1,2}[ \t]*==UserScript==[ \t]*\n([\s\S]*?)\n[ \t]*\/{1,2}[ \t]*==\/UserScript==[ \t]*/;
 
 /** Pulls `@name` and `@match` out of a pasted userscript. Returns null when there is no block. */
-export function parseUserscriptMetadata(code: string): UserscriptMetadata | null {
+export function parseUserscriptMetadata(source: string): UserscriptMetadata | null {
+  // A paste from a Windows editor or an old Mac file can carry CRLF or bare CR.
+  const code = source.replace(/\r\n?/g, '\n');
   const found = BLOCK.exec(code);
   if (!found) return null;
   const header = found[1] ?? '';
