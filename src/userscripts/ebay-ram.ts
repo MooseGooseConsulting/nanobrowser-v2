@@ -11,8 +11,9 @@ const queries = (args && args.queries) || [
   '32GB PC4-2933Y', '64GB PC4-2933Y', '128GB PC4-2933Y',
   '32GB PC4-3200AA', '64GB PC4-3200AA', '128GB PC4-3200AA',
   '32GB PC5-4800B', '32GB PC5-5600B', '64GB PC5-4800B', '64GB PC5-5600B', '128GB DDR5 RDIMM',
-].slice(0, args && args.limitQueries ? args.limitQueries : undefined);
-const pages = args && args.pages ? args.pages : 4;
+].slice(0, args && typeof args.limitQueries === 'number' ? args.limitQueries : undefined);
+// typeof, not truthiness: limitQueries 0 or pages 0 means none, not the full default.
+const pages = args && typeof args.pages === 'number' ? args.pages : 4;
 const perPage = 240;
 const delayMs = 800;
 
@@ -94,6 +95,35 @@ if (args && typeof args.html === 'string') {
   return { summary: [], meta: { mode: 'html' }, log: [], rows: parseCards(args.html, 'bin', 'fixture', 1) };
 }
 
+// One line per comparable spec: median and low per-stick cost for sold and for
+// buy-it-now. Excluded titles (junk, laptop, UDIMM, unparsed) and retail or
+// compatible-brand listings stay in rows but are not comps.
+function summarize(rows) {
+  const groups = new Map();
+  for (const r of rows) {
+    if (r.exclude || r.retail || r.per_stick == null) continue;
+    const key = [r.mode, r.gen, r.speed, r.stick_gb, r.module].join('|');
+    if (!groups.has(key)) {
+      groups.set(key, { mode: r.mode, gen: r.gen, speed: r.speed, stick_gb: r.stick_gb, module: r.module, prices: [] });
+    }
+    groups.get(key).prices.push(r.per_stick);
+  }
+  const out = [];
+  for (const g of groups.values()) {
+    const p = g.prices.slice().sort(function (a, b) { return a - b; });
+    const mid = Math.floor(p.length / 2);
+    const median = p.length % 2 ? p[mid] : (p[mid - 1] + p[mid]) / 2;
+    out.push({
+      mode: g.mode, gen: g.gen, speed: g.speed, stick_gb: g.stick_gb, module: g.module,
+      n: p.length, median_per_stick: Math.round(median * 100) / 100, min_per_stick: p[0],
+    });
+  }
+  out.sort(function (a, b) {
+    return a.gen - b.gen || a.speed - b.speed || a.stick_gb - b.stick_gb || (a.mode < b.mode ? -1 : a.mode > b.mode ? 1 : 0);
+  });
+  return out;
+}
+
 function finish(raw, log, stoppedEarly, reason) {
   const seen = new Map();
   for (const r of raw) {
@@ -111,7 +141,7 @@ function finish(raw, log, stoppedEarly, reason) {
     }));
   }
   return {
-    summary: [],
+    summary: summarize(rows),
     meta: { source: 'ebay.com', stopped_early: stoppedEarly, reason: reason || null },
     log: log,
     rows: rows,

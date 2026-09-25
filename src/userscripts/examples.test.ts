@@ -437,6 +437,61 @@ describe('ebay-ram-comps seed', () => {
     expect(document.querySelector('button')).toBeNull();
   });
 
+  it('summarises comparable listings by spec and leaves retail and excluded titles out', async () => {
+    const card = (id: string, title: string, price: string) =>
+      `<li class="s-card"><span class="s-card__title">${title}</span><span class="s-card__price">$${price}</span><a href="https://www.ebay.com/itm/${id}">x</a></li>`;
+    const html = [
+      card('1', '32GB DDR4 3200 RDIMM', '40.00'),
+      card('2', '32GB DDR4 3200 RDIMM Samsung', '60.00'),
+      card('3', '32GB DDR4 3200 compatible', '20.00'),
+      card('4', '32GB DDR4 3200 for parts', '5.00'),
+    ].join('');
+    const previous = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(html)) as typeof fetch;
+    try {
+      const result = await runUserscript({
+        tabId: 1,
+        script: ram,
+        url: 'https://www.ebay.com/',
+        args: { queries: ['32GB PC4-3200AA'], pages: 1 },
+        api: vmUserScriptsApi(),
+      });
+
+      expect(result.ok).toBe(true);
+      const value = result.value as { summary: Array<Record<string, unknown>>; rows: unknown[] };
+      expect(value.rows).toHaveLength(8);
+      expect(value.summary).toEqual([
+        { mode: 'bin', gen: 4, speed: 3200, stick_gb: 32, module: 'RDIMM', n: 2, median_per_stick: 50, min_per_stick: 40 },
+        { mode: 'sold', gen: 4, speed: 3200, stick_gb: 32, module: 'RDIMM', n: 2, median_per_stick: 50, min_per_stick: 40 },
+      ]);
+    } finally {
+      globalThis.fetch = previous;
+    }
+  });
+
+  it('treats limitQueries 0 as no queries rather than the full list', async () => {
+    const urls: string[] = [];
+    const previous = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      urls.push(String(input));
+      return new Response('');
+    }) as typeof fetch;
+    try {
+      const result = await runUserscript({
+        tabId: 1,
+        script: ram,
+        url: 'https://www.ebay.com/',
+        args: { limitQueries: 0 },
+        api: vmUserScriptsApi(),
+      });
+      expect(result.ok).toBe(true);
+      expect(urls).toEqual([]);
+      expect((result.value as { rows: unknown[] }).rows).toEqual([]);
+    } finally {
+      globalThis.fetch = previous;
+    }
+  });
+
   it('refuses to run on a page that is not eBay before any fetch', async () => {
     const api = vmUserScriptsApi();
     const result = await runUserscript({
