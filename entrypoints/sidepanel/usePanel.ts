@@ -49,6 +49,8 @@ export interface PanelApi {
   scriptsStatus: AreaStatus;
   scriptResult?: UserscriptRunResult;
   scriptRunStatus: AreaStatus;
+  /** Where Save JSON wrote the last result, once the host confirms it. */
+  scriptSaved?: WorkerToPanel['userscript.saved'];
 
   log: RunLogState;
   /** True between sending `run.start` and the worker's first event for that run. */
@@ -63,6 +65,8 @@ export interface PanelApi {
   abortRun: () => void;
   saveScript: (script: Userscript) => void;
   runScript: (scriptId: string, code: string) => void;
+  stopScript: () => void;
+  saveScriptResult: (value: unknown) => void;
   deleteScript: (id: string) => void;
 }
 
@@ -75,6 +79,7 @@ const WORKER_TYPES: ReadonlySet<string> = new Set<keyof WorkerToPanel>([
   'readiness',
   'userscript.result',
   'userscript.list',
+  'userscript.saved',
   'runlog.replay',
   'error',
 ]);
@@ -129,6 +134,7 @@ export function usePanel(): PanelApi {
   const [scriptsStatus, setScriptsStatus] = useState<AreaStatus>('idle');
   const [scriptResult, setScriptResult] = useState<UserscriptRunResult | undefined>(undefined);
   const [scriptRunStatus, setScriptRunStatus] = useState<AreaStatus>('idle');
+  const [scriptSaved, setScriptSaved] = useState<WorkerToPanel['userscript.saved'] | undefined>(undefined);
 
   const [log, dispatch] = useReducer(runLogReducer, initialRunLogState);
   const [starting, setStarting] = useState(false);
@@ -213,6 +219,9 @@ export function usePanel(): PanelApi {
         case 'userscript.result':
           setScriptResult(message.payload);
           setScriptRunStatus('ready');
+          return;
+        case 'userscript.saved':
+          setScriptSaved(message.payload);
           return;
         case 'error':
           setWorkerError(message.payload.message);
@@ -304,6 +313,7 @@ export function usePanel(): PanelApi {
     scriptsStatus,
     scriptResult,
     scriptRunStatus,
+    scriptSaved,
     log,
     starting,
     refreshModels,
@@ -324,8 +334,21 @@ export function usePanel(): PanelApi {
     runScript: useCallback(
       (scriptId: string, code: string) => {
         setScriptResult(undefined);
+        setScriptSaved(undefined);
         setScriptRunStatus('waiting');
         send('userscript.run', { scriptId, code });
+      },
+      [send],
+    ),
+    stopScript: useCallback(() => {
+      send('userscript.stop', {});
+    }, [send]),
+    saveScriptResult: useCallback(
+      (value: unknown) => {
+        // The worker already holds this object from the run. The argument is what
+        // the panel test asserts; the message does not carry the body.
+        void value;
+        send('userscript.saveResult', { filename: 'userscript.json' });
       },
       [send],
     ),

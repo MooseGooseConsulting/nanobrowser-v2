@@ -165,6 +165,28 @@ describe('userscript catalog', () => {
       expect(after.map((s) => s.name)).not.toContain('ebay-search-extract');
     });
 
+    it('offers ebay-ram-comps once to a profile that already has the older seeds', async () => {
+      const older = BUNDLED_USERSCRIPTS.filter((seed) => seed.name !== 'ebay-ram-comps');
+      await userscriptsItem.setValue(
+        older.map((seed) => ({
+          id: seed.id,
+          name: seed.name,
+          matches: [...seed.matches],
+          code: seed.code,
+          updatedAt: 1,
+        })),
+      );
+      await seededNamesItem.setValue(older.map((seed) => seed.name));
+
+      const offered = await seedDefaults();
+      const ram = offered.filter((script) => script.name === 'ebay-ram-comps');
+      expect(ram).toHaveLength(1);
+
+      await deleteUserscript(ram[0]!.id);
+      const again = await seedDefaults();
+      expect(again.map((script) => script.name)).not.toContain('ebay-ram-comps');
+    });
+
     it('is idempotent across repeated calls', async () => {
       const first = await seedDefaults();
       const second = await seedDefaults();

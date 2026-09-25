@@ -240,7 +240,7 @@ describe('createPageToolset: every valid call routes to the matching PageTools m
       expect(byName.get(blocked)).toBeUndefined();
     }
     // Reads, navigation, the terminal tools, and the read-only userscript loop stay.
-    for (const kept of ['snapshot', 'screenshot', 'extract_text', 'get_box', 'scroll', 'navigate', 'run_userscript', 'list_userscripts', 'save_file', 'wait', 'done', 'blocked']) {
+    for (const kept of ['snapshot', 'screenshot', 'extract_text', 'get_box', 'scroll', 'navigate', 'run_userscript', 'list_userscripts', 'read_userscript', 'save_file', 'wait', 'done', 'blocked']) {
       expect(byName.get(kept)).toBeDefined();
     }
     expect(byName.size).toBe(all.length);

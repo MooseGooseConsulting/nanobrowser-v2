@@ -20,7 +20,14 @@ import type { RunEvent, RunId, Userscript } from '@/src/messaging';
 import type { WriteUserscriptRequest } from '@/src/agent/tools';
 import type { Config, ModelSource } from '@/src/storage';
 import type { InputTier } from '@/src/input';
-import { listUserscripts, matchesAny, resolveUserscript, seedDefaults, writeAgentUserscript } from '@/src/userscripts';
+import {
+  listUserscripts,
+  matchesAny,
+  resolveUserscript,
+  seedDefaults,
+  setUserscriptProgressListener,
+  writeAgentUserscript,
+} from '@/src/userscripts';
 import type { AgentWriteResult } from '@/src/userscripts';
 import {
   EscalatableInput,
@@ -213,6 +220,17 @@ export class RunManager {
     this.#deps = deps;
   }
 
+  /** The tab's URL now, so a navigate changes which scripts the list and the prompt show. */
+  async #liveUrl(tab: TargetTab): Promise<string> {
+    try {
+      const live = await this.#deps.tabs.get(tab.id);
+      if (live?.url) return live.url;
+    } catch {
+      // The tab closed. The URL from start is the last one we have.
+    }
+    return tab.url;
+  }
+
   /** Subscribes to every event of every run. Returns an unsubscribe. */
   onEvent(listener: (runId: RunId, event: RunEvent) => void): () => void {
     this.#listeners.add(listener);
@@ -356,7 +374,8 @@ export class RunManager {
       input,
       observe: config.observe,
       runUserscript: this.#deps.runUserscript,
-      listUserscripts: () => (this.#deps.listUserscriptCatalog ?? defaultListUserscriptsForAgent)(tab.url),
+      listUserscripts: async () =>
+        (this.#deps.listUserscriptCatalog ?? defaultListUserscriptsForAgent)(await this.#liveUrl(tab)),
       // Whole-catalog resolution for the read-only preflight: unlike the display
       // list above, it must see scripts matching wherever the run navigated to.
       resolveUserscript,
@@ -370,7 +389,7 @@ export class RunManager {
     });
 
     const listAvailable = this.#deps.listAvailableUserscripts ?? defaultListAvailableUserscripts;
-    const availableUserscripts = await listAvailable(tab.url).catch((error: unknown) => {
+    const availableUserscripts = await listAvailable(await this.#liveUrl(tab)).catch((error: unknown) => {
       console.warn('[nanobrowser] could not list available userscripts', error);
       return [];
     });
@@ -392,6 +411,10 @@ export class RunManager {
       return this.#refuse(runId, `could not attach input to the tab: ${describe(error)}`);
     }
 
+    setUserscriptProgressListener((scriptId, line) => {
+      publish({ kind: 'userscript.output', scriptId, level: line.level, text: line.text, at: line.at });
+    });
+
     const start = this.#deps.start ?? defaultStartRun;
     const handle = start({
       prompt,
@@ -403,6 +426,7 @@ export class RunManager {
       tabId: tab.id,
       url: tab.url,
       availableUserscripts,
+      refreshUserscripts: async () => listAvailable(await this.#liveUrl(tab)),
       ...(this.#deps.checkpointer ? { checkpointer: this.#deps.checkpointer } : {}),
     });
 
@@ -422,6 +446,7 @@ export class RunManager {
         }),
       )
       .then(async (ended) => {
+        setUserscriptProgressListener(undefined);
         // R-13 hygiene: the escalated session is held for exactly one run.
         await input.detach().catch((error: unknown) => {
           console.warn('[nanobrowser] input detach failed', error);
