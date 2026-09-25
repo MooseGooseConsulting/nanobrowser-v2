@@ -21,6 +21,7 @@ import {
   type SaveArtifact,
 } from './pageTools';
 import { memoryStores, type UserscriptValueStore } from './durability';
+import { EBAY_RAM_COMPS, I03_PAGE_ACCESS } from '@/src/userscripts/examples';
 
 interface Call {
   name: string;
@@ -458,6 +459,17 @@ describe('read-only runs (M9 #13)', () => {
     expect(h.userscriptRuns).toEqual(['reader']);
   });
 
+  it('runs a bundled seed as shipped but scans one the user edited in place', async () => {
+    const shipped: Userscript = { ...I03_PAGE_ACCESS, updatedAt: 0 };
+    const edited: Userscript = { ...EBAY_RAM_COMPS, code: 'form.submit();', updatedAt: 0 };
+    const resolve = async (idOrName: string) => [shipped, edited].find((s) => s.id === idOrName);
+    const h = harness('in-page', { readOnly: true, resolveUserscript: resolve });
+
+    await h.tools.runUserscript(shipped.id);
+    await expect(h.tools.runUserscript(edited.id)).rejects.toThrow(`read-only run: ${edited.id}`);
+    expect(h.userscriptRuns).toEqual([shipped.id]);
+  });
+
   it('refuses run_userscript when the source cannot be verified', async () => {
     const withoutCatalog = harness('in-page', { readOnly: true });
     await expect(withoutCatalog.tools.runUserscript('s1')).rejects.toThrow('no catalog in this run');
@@ -790,6 +802,19 @@ describe('formatUserscriptConsole', () => {
     expect(out).toContain('[log] line 5');
     expect(out).not.toContain('[log] line 0');
     expect(out).toContain('… 2 more console lines');
+  });
+
+  it('keeps an early error inside both caps and counts what it dropped', () => {
+    const lines = [
+      { level: 'error' as const, text: 'challenge page', at: 0 },
+      ...Array.from({ length: 10 }, (_, i) => ({ level: 'log' as const, text: `noise ${i}`, at: i + 1 })),
+    ];
+    const out = formatUserscriptConsole(lines, 4, 60);
+    const shown = out.split('\n').filter((line) => line.startsWith('['));
+    expect(shown).toHaveLength(3);
+    expect(shown.join('\n').length).toBeLessThanOrEqual(60);
+    expect(shown.at(-1)).toBe('[error] challenge page');
+    expect(out).toContain('… 8 more console lines');
   });
 
   it('caps by size too, so one enormous log line cannot crowd out the result', () => {

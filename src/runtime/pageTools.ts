@@ -49,6 +49,7 @@ import { toRunEvents } from '@/src/userscripts/debug';
 import type { AgentWriteResult } from '@/src/userscripts/authoring';
 import type { UserscriptValueStore } from './durability';
 import { isReadOnlyScript } from '@/src/agent/policy';
+import { BUNDLED_USERSCRIPTS } from '@/src/userscripts/examples';
 
 /** The slice of {@link PageDriver} the runtime uses. `PageDriver` satisfies it structurally. */
 export interface RuntimeDriver {
@@ -383,16 +384,22 @@ export function formatUserscriptConsole(
   const lastError = [...lines].reverse().find((line) => line.level === 'error');
   const kept: string[] = [];
   let used = 0;
+  let keptError = false;
   for (const line of lines.slice(-maxLines).reverse()) {
     const rendered = `[${line.level}] ${line.text}`;
     if (used + rendered.length > maxChars) break;
     kept.push(rendered);
+    if (line === lastError) keptError = true;
     used += rendered.length + 1;
   }
   kept.reverse();
-  if (lastError) {
-    const rendered = `[${lastError.level}] ${lastError.text}`;
-    if (!kept.includes(rendered)) kept.push(rendered);
+  if (lastError && !keptError) {
+    // Make room for the error inside both caps instead of growing past them.
+    const rendered = `[${lastError.level}] ${lastError.text}`.slice(0, maxChars);
+    while (kept.length > 0 && (kept.length + 1 > maxLines || used + rendered.length > maxChars)) {
+      used -= (kept.shift() ?? '').length + 1;
+    }
+    kept.push(rendered);
   }
 
   const dropped = lines.length - kept.length;
@@ -400,7 +407,6 @@ export function formatUserscriptConsole(
   return `\nconsole:\n${kept.join('\n')}${more}`;
 }
 
-/** What the model sees. A comps object echoes summary, not the row dump. */
 /** Host artifact cap. A larger comps object keeps summary and log and drops rows. */
 export const MAX_SAVE_BYTES = 8 * 1024 * 1024;
 
@@ -424,6 +430,7 @@ export function userscriptArtifactBody(value: unknown): { body: string; droppedR
   return { body, droppedRows: true };
 }
 
+/** What the model sees. A comps object echoes summary, not the row dump. */
 export function formatUserscriptValue(value: unknown): string {
   if (value === undefined) return '(no value)';
   if (value && typeof value === 'object' && 'summary' in value) {
@@ -496,8 +503,11 @@ export function createPageTools(options: CreatePageToolsOptions): RuntimePageToo
     if (!script) {
       throw new Error(`read-only run: unknown userscript ${scriptId}: refusing to run what cannot be verified`);
     }
-    // Bundled seeds are ours. The regex also matches comments and `.value =`.
-    if (script.id.startsWith('bundled-')) return;
+    // A bundled seed exactly as shipped is ours, and the regex also trips on its
+    // comments and `.value =`. A seed the user edited in place keeps its bundled id,
+    // so the id alone proves nothing: only unmodified seed code skips the scan.
+    const seed = BUNDLED_USERSCRIPTS.find((candidate) => candidate.id === script.id);
+    if (seed && seed.code === script.code) return;
     const check = isReadOnlyScript(script.code);
     if (!check.ok) throw new Error(`read-only run: ${scriptId} ${check.reason}`);
   }
@@ -693,9 +703,6 @@ export function createPageTools(options: CreatePageToolsOptions): RuntimePageToo
         droppedRows = packed.droppedRows;
       }
       if (body === undefined) throw new Error('save_file has no content to save');
-      if (!fromLastUserscript && new TextEncoder().encode(body).length > MAX_SAVE_BYTES) {
-        throw new Error(`save_file exceeds the ${MAX_SAVE_BYTES}-byte cap`);
-      }
       const bytes = new TextEncoder().encode(body).length;
       if (bytes > MAX_SAVE_BYTES) {
         throw new Error(`save_file exceeds the ${MAX_SAVE_BYTES}-byte cap (${bytes} bytes)`);
