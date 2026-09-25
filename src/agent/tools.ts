@@ -15,6 +15,8 @@ import * as z from 'zod';
 import { tool } from '@langchain/core/tools';
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { FollowerSignal } from '@/src/messaging/contract';
+import type { ObserveMode } from '@/src/storage';
+import { allowedInReadOnly } from './policy';
 
 /** Zod mirror of the contract's {@link FollowerSignal} (R-03, verbatim vocabulary). */
 export const FollowerSignalSchema = z.enum([
@@ -39,6 +41,14 @@ export interface ScreenshotResult {
   height: number;
 }
 
+/** Viewport box of one element, in CSS pixels (the space `InputTier` acts in). */
+export interface ElementBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 /** Scroll target: a direction keyword or an element ref from the snapshot. */
 export type ScrollTarget = 'up' | 'down' | 'top' | 'bottom' | (string & {});
 
@@ -58,7 +68,10 @@ export interface PageTools {
   snapshot(): Promise<SnapshotResult>;
   screenshot(): Promise<ScreenshotResult>;
   extractText(maxChars?: number, startChar?: number): Promise<string>;
+  /** Viewport box of one ref, so `both` mode can correlate refs to screenshot regions. */
+  getBox(ref: string): Promise<ElementBox>;
   click(ref: string): Promise<string>;
+  hover(ref: string): Promise<string>;
   type(ref: string, text: string): Promise<string>;
   press(key: string): Promise<string>;
   scroll(target: ScrollTarget): Promise<string>;
@@ -129,7 +142,9 @@ export const TOOL_NAMES = [
   'snapshot',
   'screenshot',
   'extract_text',
+  'get_box',
   'click',
+  'hover',
   'type',
   'press',
   'scroll',
@@ -152,6 +167,24 @@ export const TERMINAL_TOOLS: Record<string, 'done' | 'blocked'> = {
   done: 'done',
   blocked: 'blocked',
 };
+
+/**
+ * Tools that only read. Their success is not evidence the page changed, so it does
+ * not reset the repeat-failure counter in `src/agent/graph.ts`. Everything else that
+ * succeeds counts as progress. `wait` is here too: pausing performs no action, so a
+ * failure alternating with waits is still the same futile loop. `save_file` writes
+ * a local artifact, not page state, so alternating it with a failing page action is
+ * the same loop wearing a different hat.
+ */
+export const READ_TOOL_NAMES: ReadonlySet<string> = new Set([
+  'snapshot',
+  'screenshot',
+  'extract_text',
+  'get_box',
+  'list_userscripts',
+  'wait',
+  'save_file',
+]);
 
 export interface PageToolset {
   /** Every Follower tool, in the order the model sees them. */
@@ -195,8 +228,13 @@ export function toolResultText(value: unknown, max = MAX_TOOL_RESULT_CHARS): str
 
 /**
  * Builds the Follower toolset over a {@link PageTools} implementation.
+ *
+ * In a read-only run (#13) the acting tools are not bound at all: the model
+ * cannot even see them, so it learns the boundary from the tool list rather
+ * than from refusals. The runtime refuses them in depth anyway
+ * (`src/runtime/pageTools.ts`) in case the shapes ever drift apart.
  */
-export function createPageToolset(page: PageTools): PageToolset {
+export function createPageToolset(page: PageTools, options: { readOnly?: boolean } = {}): PageToolset {
   const all: StructuredToolInterface[] = [
     tool(
       async () => {
@@ -252,6 +290,20 @@ export function createPageToolset(page: PageTools): PageToolset {
     tool(async ({ ref }) => page.click(ref), {
       name: 'click',
       description: 'Click one element. Give the ref from the snapshot, nothing else.',
+      schema: z.object({ ref: refField, ...controlEnvelope }),
+    }),
+    tool(async ({ ref }) => JSON.stringify(await page.getBox(ref)), {
+      name: 'get_box',
+      description:
+        'Get the viewport box of one element as JSON {x, y, width, height} in CSS pixels. ' +
+        'Use this with a screenshot to correlate a ref to the region you see.',
+      schema: z.object({ ref: refField, ...controlEnvelope }),
+    }),
+    tool(async ({ ref }) => page.hover(ref), {
+      name: 'hover',
+      description:
+        'Move the pointer over one element without clicking, e.g. to open a hover menu ' +
+        'before clicking something inside it. Give the ref from the snapshot.',
       schema: z.object({ ref: refField, ...controlEnvelope }),
     }),
     tool(async ({ ref, text }) => page.type(ref, text), {
@@ -421,7 +473,9 @@ export function createPageToolset(page: PageTools): PageToolset {
     }),
   ];
 
-  return { all, byName: new Map(all.map((t) => [t.name, t])) };
+  if (!options.readOnly) return { all, byName: new Map(all.map((t) => [t.name, t])) };
+  const readOnlyAll = all.filter((t) => allowedInReadOnly(t.name));
+  return { all: readOnlyAll, byName: new Map(readOnlyAll.map((t) => [t.name, t])) };
 }
 
 /**
@@ -452,6 +506,93 @@ export const planTool = tool(
     }),
   },
 );
+
+/**
+ * How many observation reads the Leader may pull per replan (M4).
+ *
+ * The reads exist so a replan can check what actually happened — "pull
+ * evidence" — not so the Leader can drive the page step by step as a second
+ * Follower. A weak model that spends its whole turn reading never replans, so
+ * the graph refuses reads past this cap and tells it to call `set_plan`.
+ */
+export const LEADER_READ_CAP = 2;
+
+/** Names of the Leader's read tools. Distinct from the Follower's so the run
+ * log never confuses who observed what (the `role` field agrees with the name). */
+export const LEADER_READ_TOOL_NAMES = ['leader_snapshot', 'leader_screenshot', 'leader_extract_text'] as const;
+
+export type LeaderReadToolName = (typeof LEADER_READ_TOOL_NAMES)[number];
+
+/**
+ * The page reads the Leader may pull. A subset of {@link PageTools} — reads
+ * only, and no `run_userscript`: a script can write page state, and which
+ * scripts are read-only is the M9 policy question, still open.
+ */
+export interface LeaderReads {
+  snapshot(): Promise<SnapshotResult>;
+  screenshot(): Promise<ScreenshotResult>;
+  extractText(maxChars?: number, startChar?: number): Promise<string>;
+}
+
+/**
+ * The Leader's read-only observation subset, bound alongside {@link planTool}.
+ *
+ * Filtered by the run's observe mode like the Follower's own observations: a `dom`
+ * run must not send screenshots anywhere, and a `pixels` run must not send DOM
+ * text. Absent mode binds everything (callers that predate the filter).
+ */
+export function createLeaderReadTools(
+  page: LeaderReads,
+  options: { observe?: ObserveMode } = {},
+): StructuredToolInterface[] {
+  const observe = options.observe ?? 'both';
+  const tools: StructuredToolInterface[] = [];
+  if (observe !== 'pixels') {
+    tools.push(
+      tool(async () => (await page.snapshot()).text, {
+        name: 'leader_snapshot',
+        description:
+          'Read the page as text once, to check what actually happened before re-planning. ' +
+          'This pulls evidence for the plan; it does not act. At most 2 reads per turn.',
+        schema: z.object({}),
+      }),
+    );
+  }
+  if (observe !== 'dom') {
+    tools.push(
+      tool(
+        async () => {
+          const shot = await page.screenshot();
+          return `screenshot ${shot.width}x${shot.height}`;
+        },
+        {
+          name: 'leader_screenshot',
+          description:
+            'Look at the visible page once, to check what actually happened before re-planning. ' +
+            'This pulls evidence for the plan; it does not act. At most 2 reads per turn.',
+          schema: z.object({}),
+        },
+      ),
+    );
+  }
+  if (observe !== 'pixels') {
+    tools.push(
+      tool(async ({ maxChars, startChar }) => page.extractText(maxChars, startChar), {
+        name: 'leader_extract_text',
+        description:
+          'Read the page as plain text once, to check what actually happened before re-planning. ' +
+          'This pulls evidence for the plan; it does not act. At most 2 reads per turn.',
+        schema: z.object({
+          maxChars: z.number().int().min(1).max(60_000).optional()
+            .describe('Character cap on the returned text. Default 20000, max 60000.'),
+          startChar: z.number().int().min(0).optional()
+            .describe('Start reading from this offset.'),
+        }),
+      }),
+    );
+  }
+  return tools;
+}
 
 /* ------------------------------------------------------------------------- */
 /* Test double                                                               */
@@ -520,9 +661,19 @@ export class FakePageTools implements PageTools {
     return 'extracted text';
   }
 
+  async getBox(ref: string): Promise<ElementBox> {
+    this.#record('getBox', ref);
+    return { x: 0, y: 0, width: 10, height: 10 };
+  }
+
   async click(ref: string): Promise<string> {
     this.#record('click', ref);
     return `clicked ${ref}`;
+  }
+
+  async hover(ref: string): Promise<string> {
+    this.#record('hover', ref);
+    return `hovered ${ref}`;
   }
 
   async type(ref: string, text: string): Promise<string> {

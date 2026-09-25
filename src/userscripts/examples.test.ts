@@ -34,7 +34,7 @@ const THREAD_LIST = `
 `;
 
 const observe = {
-  id: 'hyperagent-observe',
+  id: HYPERAGENT_OBSERVE.id,
   name: HYPERAGENT_OBSERVE.name,
   matches: [...HYPERAGENT_OBSERVE.matches],
   code: HYPERAGENT_OBSERVE.code,
@@ -113,7 +113,7 @@ describe('bundled hyperagent-observe example', () => {
 });
 
 const ebaySearchExtract = {
-  id: 'ebay-search-extract',
+  id: EBAY_SEARCH_EXTRACT.id,
   name: EBAY_SEARCH_EXTRACT.name,
   matches: [...EBAY_SEARCH_EXTRACT.matches],
   code: EBAY_SEARCH_EXTRACT.code,
@@ -347,7 +347,7 @@ describe('bundled i03-page-access probe', () => {
   it('runs from the catalog entry and reports what the world reaches', async () => {
     const result = await runUserscript({
       tabId: 1,
-      script: { id: 'i03', ...I03_PAGE_ACCESS, updatedAt: 0 },
+      script: { ...I03_PAGE_ACCESS, updatedAt: 0 },
       url: 'https://hyperagent.com/threads',
       api: vmUserScriptsApi(),
     });
@@ -374,7 +374,7 @@ describe('bundled i03-page-access probe', () => {
     const before = document.body.innerHTML;
     const result = await runUserscript({
       tabId: 1,
-      script: { id: 'i03', ...I03_PAGE_ACCESS, updatedAt: 0 },
+      script: { ...I03_PAGE_ACCESS, updatedAt: 0 },
       url: 'https://hyperagent.com/threads',
       api: vmUserScriptsApi(),
     });

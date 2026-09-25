@@ -6,7 +6,7 @@ settings:
 
 overrides:
   shell-quote: '>=1.10.0'
-  adm-zip: '>=0.6.0'
+  adm-zip: '>=0.6.1'
   tmp: '>=0.2.7'
   ajv@>=7.0.0 <8.18.0: '>=8.20.0'
   uuid@<11.1.1: '>=11.1.1'
