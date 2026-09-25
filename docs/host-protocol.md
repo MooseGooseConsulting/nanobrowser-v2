@@ -350,9 +350,11 @@ request-shape tweak does not invalidate a recording. File: `<key>.json`.
 ```
 
 `record` performs the real request, streams to the extension as usual, and writes the entry when
-the stream ends. `replay` makes **no network call and needs no secret**: it emits the recorded
-chunks then `llm.end`. A request with no matching cassette fails loudly with
-`llm.error` / `cassette_miss` — it never silently falls through to the network.
+the stream ends. Writing the entry is best-effort: `llm.end` has already gone out, so a failed
+write (disk full, permissions, a refused non-regular file) is logged as a warning in `host.log` and
+never produces a second terminal message for the same `id`. `replay` makes **no network call and
+needs no secret**: it emits the recorded chunks then `llm.end`. A request with no matching cassette
+fails loudly with `llm.error` / `cassette_miss` — it never silently falls through to the network.
 
 ## Secrets
 

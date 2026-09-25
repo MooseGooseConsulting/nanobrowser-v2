@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Dispatcher } from '../src/dispatcher.ts';
 import { CHUNK_BYTES } from '../src/protocol.ts';
 import { setInjector, NullInjector, type InputInjector } from '../src/input/index.ts';
@@ -221,6 +221,18 @@ describe('cassettes', () => {
     expect(entry.status).toBe(200);
     expect(entry.chunks).toHaveLength(2);
     expect(Buffer.from(entry.chunks[0], 'base64').toString('utf8')).toBe('hello ');
+  });
+
+  it('does not send a second terminal error when recording fails after upstream success', async () => {
+    h = await makeHarness({ cassetteMode: 'record' });
+    vi.spyOn(h.cassettes, 'write').mockRejectedValue(new Error('ENOSPC'));
+    h.fetch.enqueueStream(200, [utf8('hello')]);
+
+    await h.dispatcher.handle(req);
+
+    expect(h.sent.map((m) => m.type)).toEqual(['llm.chunk', 'llm.end']);
+    expect(h.sent.filter((m) => m.type === 'llm.error')).toHaveLength(0);
+    expect(h.sent.at(-1)).toMatchObject({ type: 'llm.end', id: 'c1', status: 200 });
   });
 
   it('replay serves the recorded chunks with no network call', async () => {
