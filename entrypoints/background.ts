@@ -73,7 +73,8 @@ export default defineBackground(() => {
       if (!script) {
         return { scriptId, ok: false, error: `unknown userscript: ${scriptId}`, console: [], durationMs: 0 };
       }
-      return runUserscript({ tabId, script, ...(args ? { args } : {}) });
+      // Agent runs stream console lines into the run log; panel runs do not.
+      return runUserscript({ tabId, script, reportProgress: true, ...(args ? { args } : {}) });
     },
     saveLastRunId: setLastRunId,
     // M6: the replay ring and the last-userscript value survive a worker

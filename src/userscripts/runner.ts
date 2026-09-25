@@ -200,6 +200,8 @@ export const DEFAULT_DEADLINE_MS = 120_000;
 export interface WrapOptions {
   deadlineMs?: number;
   args?: unknown;
+  /** Tags this run's progress messages. Without one the script streams nothing. */
+  progressToken?: string;
 }
 
 const WRAPPER_PREFIX_HEAD = `(async () => {
@@ -209,12 +211,16 @@ const WRAPPER_PREFIX_HEAD = `(async () => {
   const __nbDeadline = `;
 
 const WRAPPER_PREFIX_TAIL = `;
-  __nbG.__nbUserscriptStop = false;
+  // A stop bumps an epoch rather than setting a flag every run clears on start, so
+  // starting a second script cannot cancel a stop meant for the first. The partial
+  // is per run: a global would hand one run's partial to the next run's timeout.
+  const __nbStopEpoch = __nbG.__nbUserscriptStopEpoch || 0;
+  let __nbPartial;
   const args = __nbArgs;
   const nb = {
-    get stopped() { return __nbG.__nbUserscriptStop === true; },
-    get partial() { return __nbG.__nbUserscriptPartial; },
-    set partial(value) { __nbG.__nbUserscriptPartial = value; },
+    get stopped() { return (__nbG.__nbUserscriptStopEpoch || 0) !== __nbStopEpoch; },
+    get partial() { return __nbPartial; },
+    set partial(value) { __nbPartial = value; },
   };
   const __nbLog = [];
   let __nbBytes = 0;
@@ -235,8 +241,8 @@ const WRAPPER_PREFIX_TAIL = `;
     __nbLog.push(line);
     try {
       const rt = __nbG.chrome && __nbG.chrome.runtime;
-      if (rt && typeof rt.sendMessage === 'function') {
-        const sent = rt.sendMessage({ type: 'nanobrowser.userscript.progress', level: line.level, text: line.text, at: line.at });
+      if (__nbProgressToken && rt && typeof rt.sendMessage === 'function') {
+        const sent = rt.sendMessage({ type: 'nanobrowser.userscript.progress', token: __nbProgressToken, level: line.level, text: line.text, at: line.at });
         if (sent && typeof sent.then === 'function') sent.then(undefined, function () {});
       }
     } catch (e) {}
@@ -291,13 +297,13 @@ const WRAPPER_SUFFIX = `
       __nbTimeout,
     ]);
   } catch (__nbCaught) {
-    if (__nbCaught && __nbCaught.__nbTimeout && __nbG.__nbUserscriptPartial !== undefined) {
+    if (__nbCaught && __nbCaught.__nbTimeout && __nbPartial !== undefined) {
       __nbOk = true;
-      __nbValue = __nbG.__nbUserscriptPartial;
+      __nbValue = __nbPartial;
       __nbError = null;
     } else {
       __nbOk = false;
-      if (__nbG.__nbUserscriptPartial !== undefined) __nbValue = __nbG.__nbUserscriptPartial;
+      if (__nbPartial !== undefined) __nbValue = __nbPartial;
       __nbError = {
         name: (__nbCaught && __nbCaught.name) || 'Error',
         message: (__nbCaught && __nbCaught.message) || __nbText(__nbCaught),
@@ -337,7 +343,8 @@ const WRAPPER_SUFFIX = `
 export function wrapperPrefix(options: WrapOptions = {}): string {
   const deadline = options.deadlineMs ?? DEFAULT_DEADLINE_MS;
   const args = JSON.stringify(options.args ?? {});
-  return `${WRAPPER_PREFIX_HEAD}${deadline};\n  const __nbArgs = ${args}${WRAPPER_PREFIX_TAIL}`;
+  const token = JSON.stringify(options.progressToken ?? '');
+  return `${WRAPPER_PREFIX_HEAD}${deadline};\n  const __nbArgs = ${args};\n  const __nbProgressToken = ${token}${WRAPPER_PREFIX_TAIL}`;
 }
 
 /** Lines the wrapper adds above the user's first line, for the default wrap. */
@@ -394,14 +401,24 @@ export interface RunUserscriptOptions {
   args?: unknown;
   /** Overrides the 120s ceiling for this run. */
   deadlineMs?: number;
+  /**
+   * Streams this run's console lines to the progress listener while it runs. Only
+   * agent runs set it, so a panel run never lands in an agent run's log.
+   */
+  reportProgress?: boolean;
   api?: UserScriptsApi;
   tabs?: TabsApi;
   env?: AvailabilityEnv;
   now?: () => number;
 }
 
-function failure(scriptId: string, error: string, durationMs = 0): UserscriptRunResult {
-  return { scriptId, ok: false, error, console: [], durationMs };
+function failure(
+  scriptId: string,
+  error: string,
+  durationMs = 0,
+  consoleLines: UserscriptRunResult['console'] = [],
+): UserscriptRunResult {
+  return { scriptId, ok: false, error, console: consoleLines, durationMs };
 }
 
 /**
@@ -442,23 +459,33 @@ export async function runUserscript(options: RunUserscriptOptions): Promise<User
 
   await ensureWorldConfigured(api);
 
-  activeScriptId = scriptId;
+  // Each execution gets its own token, so overlapping runs keep their own script id
+  // and one finishing never unregisters another.
+  const progressToken = options.reportProgress ? `${scriptId}:${++progressCounter}` : undefined;
+  if (progressToken) activeProgress.set(progressToken, scriptId);
   const started = now();
   const source = options.code ?? script.code;
   let results: chrome.userScripts.InjectionResult<WrappedOutcome>[];
   try {
     results = await api.execute<WrappedOutcome>({
       target: { tabId },
-      js: [{ code: wrapUserscript(source, { args: options.args, deadlineMs: options.deadlineMs }) }],
+      js: [
+        {
+          code: wrapUserscript(source, {
+            args: options.args,
+            deadlineMs: options.deadlineMs,
+            ...(progressToken ? { progressToken } : {}),
+          }),
+        },
+      ],
       world: 'USER_SCRIPT',
       worldId: USERSCRIPT_WORLD_ID,
       injectImmediately: true,
     });
   } catch (error) {
-    activeScriptId = '';
     return failure(scriptId, describe(error), now() - started);
   } finally {
-    activeScriptId = '';
+    if (progressToken) activeProgress.delete(progressToken);
   }
 
   const elapsed = now() - started;
@@ -471,20 +498,22 @@ export async function runUserscript(options: RunUserscriptOptions): Promise<User
     return failure(scriptId, 'unrecognised injection result', elapsed);
   }
 
+  const captured = outcome.console ?? [];
+  const consoleLines = outcome.truncated
+    ? [...captured, { level: 'warn' as const, text: '[output truncated]', at: now() }]
+    : captured;
+
+  // These failures come after the script ran, so its console is still the best clue.
   if (outcome.ok && outcome.value === undefined && looksLikeIife(source)) {
     return failure(
       scriptId,
       'this script returns nothing. Return the JSON from the top level instead of wrapping it in a function.',
       elapsed,
+      consoleLines,
     );
   }
   const jsonProblem = nonJsonReturn(outcome.value);
-  if (jsonProblem) return failure(scriptId, jsonProblem, elapsed);
-
-  const captured = outcome.console ?? [];
-  const consoleLines = outcome.truncated
-    ? [...captured, { level: 'warn' as const, text: '[output truncated]', at: now() }]
-    : captured;
+  if (jsonProblem) return failure(scriptId, jsonProblem, elapsed, consoleLines);
 
   return {
     scriptId,
@@ -538,7 +567,9 @@ export interface ProgressLine {
   at: number;
 }
 
-let activeScriptId = '';
+/** Progress token -> script id, for executions that stream progress. */
+const activeProgress = new Map<string, string>();
+let progressCounter = 0;
 let progressListener: ((scriptId: string, line: ProgressLine) => void) | undefined;
 
 /** The run manager subscribes so console lines reach the log before the script returns. */
@@ -549,10 +580,16 @@ export function setUserscriptProgressListener(
 }
 
 /** Called from the extension when a userscript world messages `nanobrowser.userscript.progress`. */
-export function notifyUserscriptProgress(message: { level?: unknown; text?: unknown; at?: unknown }): void {
-  if (!progressListener || !activeScriptId) return;
+export function notifyUserscriptProgress(message: {
+  token?: unknown;
+  level?: unknown;
+  text?: unknown;
+  at?: unknown;
+}): void {
+  const scriptId = typeof message.token === 'string' ? activeProgress.get(message.token) : undefined;
+  if (!progressListener || !scriptId) return;
   const level = message.level === 'warn' || message.level === 'error' ? message.level : 'log';
-  progressListener(activeScriptId, {
+  progressListener(scriptId, {
     level,
     text: String(message.text ?? ''),
     at: typeof message.at === 'number' ? message.at : Date.now(),
@@ -568,6 +605,6 @@ export async function signalUserscriptStop(tabId: number, api?: UserScriptsApi):
     world: 'USER_SCRIPT',
     worldId: USERSCRIPT_WORLD_ID,
     injectImmediately: true,
-    js: [{ code: 'globalThis.__nbUserscriptStop = true;' }],
+    js: [{ code: 'globalThis.__nbUserscriptStopEpoch = (globalThis.__nbUserscriptStopEpoch || 0) + 1;' }],
   });
 }
