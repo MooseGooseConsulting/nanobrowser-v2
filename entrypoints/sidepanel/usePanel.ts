@@ -90,6 +90,22 @@ function asWorkerMessage(envelope: Envelope<unknown>): WorkerMessage | undefined
 type PanelChannel = Channel<HubOutbound | WorkerToPanel[keyof WorkerToPanel], HubInbound | PanelToWorker[keyof PanelToWorker]>;
 
 /**
+ * The configured Follower's catalog vision flag, if the fetched catalog names it.
+ * Same id on both gateways prefers the configured source (or openrouter, the run's
+ * default, when no source is configured). A source mismatch is unknown, not a
+ * fallback: with a partial catalog the surviving gateway's flag describes a model
+ * the run is not routed to.
+ */
+export function followerVisionFor(models: ModelInfo[], config: Config): boolean | undefined {
+  const candidates = models.filter((m) => m.id === config.followerModel);
+  const wantSource = config.followerModelSource ?? 'openrouter';
+  const follower = candidates.find((m) => m.source === wantSource) ?? candidates[0];
+  if (!follower) return undefined;
+  if (follower.source !== undefined && follower.source !== wantSource) return undefined;
+  return follower.vision;
+}
+
+/**
  * The panel's single long-lived connection to the service worker. One port carries both
  * the scaffold's hub heartbeat (the hello/pong indicator) and the whole message contract,
  * so a broadcast run event is never delivered to the same panel twice.
@@ -257,9 +273,13 @@ export function usePanel(): PanelApi {
       dispatch({ type: 'clear' });
       setWorkerError(undefined);
       setStarting(true);
-      send('run.start', { prompt, config });
+      // The worker refuses pixels/both for a known text-only Follower (M5 closes
+      // O-06); the catalog vision flag rides along so the guard can fire. Unknown
+      // (model absent from the fetched catalog) stays omitted, which refuses nothing.
+      const followerVision = followerVisionFor(models, config);
+      send('run.start', { prompt, config, ...(followerVision === undefined ? {} : { followerVision }) });
     },
-    [send],
+    [send, models],
   );
 
   const withRunId = useCallback(
