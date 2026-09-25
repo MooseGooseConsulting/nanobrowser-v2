@@ -67,6 +67,8 @@ export interface RunManagerPort {
   resume(runId: RunId): boolean;
   abort(runId: RunId): boolean;
   replay(runId: RunId): RunEvent[];
+  /** Rehydrates one run's replay buffer from the durable store (M6). No-op when already in memory. */
+  restoreReplay(runId: RunId): Promise<void>;
   navigateActiveTab(url: string): Promise<void>;
   resolveTabId(): Promise<number | undefined>;
   readonly activeRunId: RunId | undefined;
@@ -77,6 +79,8 @@ export interface WorkerDeps {
   runManager: RunManagerPort;
   /** The panel's stored configuration, used by the dev trigger which sends none. */
   getConfig: () => Promise<Config>;
+  /** Last watched run id (`session:lastRunId`), restored once at worker startup. */
+  getLastRunId?: () => Promise<string | null>;
   handleUserscript?: typeof defaultHandleUserscript;
   extensionVersion?: string;
   modelsCacheMs?: number;
@@ -156,6 +160,7 @@ export function applyRunOptions(config: Config, options?: Record<string, unknown
   if (Number.isInteger(interval) && interval > 0) next.planningInterval = interval;
   const maxSteps = Number(options.maxSteps);
   if (Number.isInteger(maxSteps) && maxSteps > 0) next.maxSteps = maxSteps;
+  if (typeof options.readOnly === 'boolean') next.readOnly = options.readOnly;
   return next;
 }
 
@@ -212,7 +217,7 @@ export function createWorker(deps: WorkerDeps): Worker {
     switch (message.type) {
       case 'run.start': {
         const { prompt, config } = message.payload;
-        await deps.runManager.start({ prompt, config });
+        await deps.runManager.start({ prompt, config, followerVision: message.payload.followerVision });
         return;
       }
       case 'run.pause':
@@ -232,6 +237,10 @@ export function createWorker(deps: WorkerDeps): Worker {
         return;
       case 'runlog.replay': {
         const { runId } = message.payload;
+        // After a service-worker restart the buffer lives only in the durable
+        // store (M6): restore first so the reopened panel replays the partial
+        // log instead of an empty one.
+        await deps.runManager.restoreReplay(runId);
         reply(channel, { type: 'runlog.replay', payload: { runId, events: deps.runManager.replay(runId) } });
         return;
       }
@@ -321,6 +330,9 @@ export function createWorker(deps: WorkerDeps): Worker {
     }
 
     try {
+      // nb-run sends no vision metadata, so followerVision stays unknown (allowed):
+      // the pixels/text-only refusal only fires on the panel path, which looks the
+      // follower up in its fetched catalog. A dev-trigger vision option is future work.
       const { done } = await deps.runManager.start({ prompt: msg.prompt, config, runId: msg.runId });
       const ended = await done;
       end(ended.status, ended.message, ended.steps);
@@ -364,6 +376,19 @@ export function createWorker(deps: WorkerDeps): Worker {
       });
     }
   });
+
+  // A restart mid-run must terminate the run even when no panel ever reopens:
+  // restore the last watched run once, so an unattended dev/CLI run gets its
+  // clean terminal event and nb-run its run.end instead of hanging. Best effort;
+  // a missing id or store simply means there is nothing to restore.
+  if (deps.getLastRunId) {
+    const getLastRunId = deps.getLastRunId;
+    void getLastRunId()
+      .then((runId) => (runId ? deps.runManager.restoreReplay(runId) : undefined))
+      .catch((error: unknown) => {
+        console.warn('[nanobrowser] could not restore the last run at startup', error);
+      });
+  }
 
   return {
     connect,

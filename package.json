@@ -9,7 +9,8 @@
     "postinstall": "wxt prepare",
     "typecheck": "tsc --noEmit",
     "test": "vitest run && bash scripts/check-invariants.sh",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "harness": "bash scripts/harness.sh"
   },
   "dependencies": {
     "@langchain/core": "1.2.9",

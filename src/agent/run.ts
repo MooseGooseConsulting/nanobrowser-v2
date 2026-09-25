@@ -100,9 +100,10 @@ export function startRun(options: StartRunOptions): RunHandle {
     planningInterval: config.planningInterval,
     maxSteps: config.maxSteps,
     observe: config.observe,
+    readOnly: config.readOnly ?? false,
     leaderModel: models.leader,
     followerModel: models.follower,
-    toolset: createPageToolset(tools),
+    toolset: createPageToolset(tools, { readOnly: config.readOnly ?? false }),
     page: tools,
     availableUserscripts,
   };
@@ -196,7 +197,7 @@ export function startRun(options: StartRunOptions): RunHandle {
       ended = {
         kind: 'run.ended',
         status,
-        message: ENDED_MESSAGE[status],
+        message: (snapshot.values.endNote as string | null) ?? ENDED_MESSAGE[status],
         steps: snapshot.values.stepCount ?? 0,
         at: Date.now(),
       };
