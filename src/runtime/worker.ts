@@ -175,8 +175,9 @@ export function createWorker(deps: WorkerDeps): Worker {
   const cacheMs = deps.modelsCacheMs ?? MODELS_CACHE_MS;
   const panels = new Set<PanelChannel>();
   let modelsCache: { at: number; models: ModelInfo[] } | undefined;
-  let panelUserscriptValue: unknown;
-  let panelHasUserscriptValue = false;
+  // Each panel saves its own last result. One shared slot let a second panel's run
+  // replace the value between the first panel's Run and its Save JSON.
+  const panelUserscriptValues = new WeakMap<PanelChannel, unknown>();
 
   const broadcast = <K extends keyof WorkerToPanel>(type: K, payload: WorkerToPanel[K]): void => {
     for (const channel of [...panels]) channel.send(type, payload);
@@ -265,7 +266,7 @@ export function createWorker(deps: WorkerDeps): Worker {
         return;
       }
       case 'userscript.saveResult': {
-        if (!panelHasUserscriptValue) {
+        if (!panelUserscriptValues.has(channel)) {
           reply(channel, {
             type: 'error',
             payload: { message: 'no userscript result to save', inReplyTo: 'userscript.saveResult' },
@@ -279,7 +280,7 @@ export function createWorker(deps: WorkerDeps): Worker {
           });
           return;
         }
-        const packed = userscriptArtifactBody(panelUserscriptValue);
+        const packed = userscriptArtifactBody(panelUserscriptValues.get(channel));
         const filename = message.payload.filename || 'userscript.json';
         const artifact = await deps.host.saveArtifact('panel', filename, packed.body);
         reply(channel, {
@@ -306,8 +307,7 @@ export function createWorker(deps: WorkerDeps): Worker {
             : {}),
         });
         if (result?.type === 'userscript.result' && result.payload.value !== undefined) {
-          panelUserscriptValue = result.payload.value;
-          panelHasUserscriptValue = true;
+          panelUserscriptValues.set(channel, result.payload.value);
           if (activeRunId) {
             void sessionUserscriptValueStore(activeRunId)
               ?.save(result.payload.value)

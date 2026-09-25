@@ -165,6 +165,17 @@ describe('editor error line and save', () => {
     const area = screen.getByLabelText('Code') as HTMLTextAreaElement;
     expect(area.scrollTop).toBe(11 * 16);
     expect(screen.getByTestId('script-lines').textContent).toContain('12');
+    expect(area.value).toBe(code);
+    expect(area.selectionStart).toBe(code.indexOf('const line11 '));
+  });
+
+  it('says where Save JSON wrote the file once the host confirms it', () => {
+    setup({
+      result: { scriptId: SCRIPT.id, ok: true, value: { rows: [] }, console: [], durationMs: 4 },
+      saved: { filename: 'userscript.json', path: '/artifacts/panel/userscript.json', bytes: 12 },
+    });
+
+    expect(screen.getByTestId('script-saved').textContent).toContain('/artifacts/panel/userscript.json');
   });
 
   it('saves the result value when Save JSON is clicked', async () => {

@@ -50,6 +50,7 @@ export function UserscriptsSection({
   onRefresh,
   onStop,
   onSaveResult,
+  saved,
 }: {
   scripts: Userscript[];
   scriptsStatus: AreaStatus;
@@ -61,6 +62,7 @@ export function UserscriptsSection({
   onRefresh: () => void;
   onStop?: () => void;
   onSaveResult?: (value: unknown) => void;
+  saved?: { filename: string; path: string; bytes: number; note?: string };
 }) {
   const [draft, setDraft] = useState<Userscript>(BLANK);
   const [matchesText, setMatchesText] = useState(() => draft.matches.join(' '));
@@ -93,7 +95,8 @@ export function UserscriptsSection({
     const area = codeRef.current;
     if (!match || !area) return;
     const line = Number(match[1]);
-    const before = draft.code.split('\n').slice(0, Math.max(0, line - 1)).join('\n').length;
+    // The newline that ends the previous line belongs before this line's first character.
+    const before = line > 1 ? draft.code.split('\n').slice(0, line - 1).join('\n').length + 1 : 0;
     area.focus();
     area.setSelectionRange(before, before);
     area.scrollTop = (line - 1) * 16;
@@ -264,6 +267,12 @@ export function UserscriptsSection({
               <pre data-testid="script-value" className="mt-1 max-h-40 overflow-auto rounded bg-raised p-2 font-mono text-xs text-ink">
                 {cappedJson(result.value)}
               </pre>
+              {saved ? (
+                <p data-testid="script-saved" className="mt-1 text-xs text-muted">
+                  Saved {saved.filename} to <span className="font-mono">{saved.path}</span> ({saved.bytes} bytes)
+                  {saved.note ? `. ${saved.note}` : ''}
+                </p>
+              ) : null}
             </div>
             <div>
               <p className="text-[11px] font-semibold tracking-wide text-muted uppercase">Console</p>
