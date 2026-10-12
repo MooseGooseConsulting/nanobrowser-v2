@@ -7,9 +7,10 @@ tool telling them no.
 
 ## Models and money
 
-Use **free OpenRouter models** for runs, defaults, scripts and docs. The pair the user
-named is `nvidia/nemotron-3-ultra-550b-a55b:free` (Leader) and
-`nvidia/nemotron-3.5-lightning:free` (Follower).
+Use **free OpenRouter models** for runs, defaults, scripts and docs. Agent-initiated
+runs use `nvidia/nemotron-3.5-lightning:free` on both seats. Do not start a run on
+`nvidia/nemotron-3-ultra-550b-a55b:free`: on 2026-10-12 it failed 10 of 11 browse runs
+and the user said it cannot do anything. It stays selectable in the panel.
 
 Never start a run on a paid model without asking first. On 2026-09-03 a run was made on a
 paid pair without permission, and the user said: "i didn't authorize a paid pair... just use

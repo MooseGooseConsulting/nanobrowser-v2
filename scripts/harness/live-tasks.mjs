@@ -13,7 +13,9 @@
  */
 import fs from 'node:fs';
 
-export const LIVE_LEADER_DEFAULT = 'nvidia/nemotron-3-ultra-550b-a55b:free';
+// One pair, both seats. Model rotation is off (scripts/live.sh). nemotron-3-ultra was the
+// weak leader in the 2026-10-12 runs; lightning is the pinned choice until that changes.
+export const LIVE_LEADER_DEFAULT = 'nvidia/nemotron-3.5-lightning:free';
 export const LIVE_FOLLOWER_DEFAULT = 'nvidia/nemotron-3.5-lightning:free';
 
 export const TASK_IDS = [
@@ -125,6 +127,8 @@ export function buildTask(id, expected, baseUrl, models = {}) {
     observe: 'dom',
     inputFidelity: 'in-page',
     planningInterval: 5,
+    // Every task opens a fresh tab; the extension closes it after the run.
+    closeTabWhenDone: true,
   };
   switch (id) {
     case 'ebay':

@@ -19,7 +19,7 @@
  * Event cortège and pointer-field realism follow
  * docs/research/trusted-input-and-stealth.md §hygiene rules 4, 5, 7 and 12.
  */
-import { resolveRef } from './snapshot';
+import { existingRef, resolveRef } from './snapshot';
 import { jitterInBox, planPath } from '../input/humanize';
 
 export interface ActionResult {
@@ -364,15 +364,56 @@ function actionPoint(el: HTMLElement): { point: Point } | { error: string } {
   const doc = el.ownerDocument;
   const canVerify = !!doc && typeof doc.elementFromPoint === 'function';
   let lastVerdict: AimVerdict = 'unverifiable';
+  let lastPoint: Point | undefined;
   for (const point of tries) {
     if (!canVerify) return { point };
     const verdict = verifyAim(el, doc, point);
     if (verdict === 'confirmed' || verdict === 'unverifiable') return { point };
     lastVerdict = verdict;
+    lastPoint = point;
   }
-  return lastVerdict === 'outside'
-    ? { error: 'element is outside the viewport at its click point' }
-    : { error: 'element is occluded at its click point by another element' };
+  if (lastVerdict === 'outside') return { error: 'element is outside the viewport at its click point' };
+  const probed = lastPoint ? tryHit(doc, lastPoint.clientX, lastPoint.clientY) : undefined;
+  const by = probed?.tested && probed.hit ? describeOccluder(probed.hit) : 'another element';
+  return { error: `element is occluded at its click point by ${by}` };
+}
+
+/** Visible-ish text with a space between nodes, so "privacy" + "Accept" do not run together. */
+function textOf(el: Element): string {
+  const parts: string[] = [];
+  const doc = el.ownerDocument;
+  const walker = doc?.createTreeWalker(el, 4 /* NodeFilter.SHOW_TEXT */);
+  for (let n = walker?.nextNode(); n && parts.join(' ').length < 80; n = walker!.nextNode()) parts.push(n.nodeValue ?? '');
+  return parts.join(' ');
+}
+
+/**
+ * Names what covers the target, so the agent can deal with it (close a cookie banner,
+ * dismiss an autocomplete list) instead of retrying the same click. Live runs on four
+ * sites refused eight clicks with only "another element" to go on.
+ */
+function describeOccluder(hit: Element): string {
+  const attr = (e: Element, n: string) => e.getAttribute?.(n) ?? '';
+  // The closest landmark-ish container says more than the leaf (a <span> in a banner).
+  let box: Element | null = hit;
+  for (let i = 0; box && i < 12; i++, box = box.parentElement) {
+    const role = attr(box, 'role');
+    const idc = `${box.id} ${typeof box.className === 'string' ? box.className : ''}`;
+    if (/dialog|banner|alert|listbox|menu/.test(role) || /cookie|consent|gdpr|modal|overlay|popup|autocomplete|suggest/i.test(idc)) break;
+  }
+  const subject = box ?? hit;
+  // The ref is resolved from the subject, not from the leaf hit: when the point lands on
+  // an interactive child of the described container (the "Accept" button inside the
+  // consent dialog), the child's own ref would act on the child — submitting the consent —
+  // instead of the dialog the description just named. An interactive child never sits on
+  // the subject's ancestor chain, so this chain cannot hand out the child's ref.
+  let refd: Element | null = subject;
+  let ref: string | undefined;
+  for (let i = 0; refd && i < 8 && !ref; i++, refd = refd.parentElement) ref = existingRef(refd);
+  const id = subject.id ? `#${subject.id}` : '';
+  const role = attr(subject, 'role') ? ` role="${attr(subject, 'role')}"` : '';
+  const text = (attr(subject, 'aria-label') || textOf(subject)).replace(/\s+/g, ' ').trim().slice(0, 60);
+  return `<${subject.localName}${id}${role}>${text ? ` "${text}"` : ''}${ref ? ` [ref=${ref}]` : ''}`;
 }
 
 /**
@@ -735,13 +776,108 @@ export function press(key: string): ActionResult {
   if (!target) return fail('no focused element to receive the key');
   const code = codeFor(key);
   const init: KeyboardEventInit = { key, code, bubbles: true, cancelable: true, composed: true };
-  dispatch(target, new KeyboardEvent('keydown', init));
+  const keydown = new KeyboardEvent('keydown', init);
+  dispatch(target, keydown);
   // keypress only ever fired for character-producing keys; Enter is the historical exception.
+  let keypress: KeyboardEvent | null = null;
   if (key.length === 1 || key === 'Enter') {
-    dispatch(target, new KeyboardEvent('keypress', init));
+    keypress = new KeyboardEvent('keypress', init);
+    dispatch(target, keypress);
   }
   dispatch(target, new KeyboardEvent('keyup', init));
+  // Implicit submission was the default action of the Enter keypress, and a canceled
+  // keydown cancels it too — a site canceling either has said Enter is not a submit.
+  if (key === 'Enter' && !keydown.defaultPrevented && !keypress?.defaultPrevented) implicitSubmit(target);
   return { ok: true };
+}
+
+/**
+ * Enter in a text field submits its form: the browser's implicit submission, which an
+ * untrusted keydown never triggers. Without it a plain HTML search box could not be
+ * submitted at all; live runs on TechMikeNY and ServeTheHome typed the query and
+ * pressed Enter repeatedly with the page never moving.
+ *
+ * Shaped like the browser's own implicit submission (HTML §4.10.22.3): when the form
+ * has a submit button, the *default button* is activated — that click carries the
+ * button's own handler, its name/value pair and its `formaction`, which a blind
+ * `requestSubmit()` discards. Only a buttonless form submits via `requestSubmit` (so the
+ * page's own validation and submit handlers still run), and only while at most one field
+ * blocks implicit submission: with two or more, a real browser does nothing on Enter.
+ */
+function implicitSubmit(target: Element): void {
+  const field = target as HTMLInputElement;
+  if (target.localName !== 'input' || !field.form) return;
+  if (!TEXT_SUBMIT_TYPES.has((field.type || 'text').toLowerCase())) return;
+  const form = field.form;
+  const button = defaultSubmitButton(form);
+  if (button) {
+    // Activation, not a synthetic submit: `.click()` IS the default button's activation
+    // behaviour, so the handler, name/value and formaction all apply as if clicked.
+    button.click();
+    return;
+  }
+  if (blockingFieldCount(form) > 1) return;
+  // requestSubmit throws only for an invalid submitter; the next observation shows
+  // whether the page moved, which is what the agent checks anyway.
+  try {
+    if (typeof form.requestSubmit === 'function') form.requestSubmit();
+    else form.submit();
+  } catch {
+    /* see above */
+  }
+}
+
+const TEXT_SUBMIT_TYPES: ReadonlySet<string> = new Set(['text', 'search', 'email', 'url', 'tel', 'password', 'number']);
+
+/** The input types Chrome counts as blocking implicit submission on a buttonless form. */
+const BLOCKING_INPUT_TYPES: ReadonlySet<string> = new Set([
+  'text',
+  'search',
+  'url',
+  'tel',
+  'email',
+  'password',
+  'date',
+  'month',
+  'week',
+  'time',
+  'datetime-local',
+  'number',
+]);
+
+/** The spec's default button: the first submit button in tree order that is not disabled.
+ *
+ * The `.type` IDL property, not the attribute, decides "submit button": a `<button>`
+ * with a missing, empty or invalid `type` attribute is still in the Submit Button state
+ * (HTML §4.10.6), and the IDL normalizes case. An attribute-only selector would miss all
+ * of those and drop the very common typeless `<button>Search</button>` into the
+ * buttonless requestSubmit path, losing the button's own handler.
+ */
+function defaultSubmitButton(form: HTMLFormElement): HTMLButtonElement | HTMLInputElement | null {
+  for (const el of Array.from(form.querySelectorAll('button, input'))) {
+    const button = el as HTMLButtonElement;
+    const type = (button.type || '').toLowerCase();
+    if (type !== 'submit' && type !== 'image') continue;
+    if (!button.disabled) return button;
+  }
+  return null;
+}
+
+/**
+ * Fields that block a buttonless form's implicit submission: text-ish inputs that are
+ * neither disabled nor readonly. Checked against the spec's list, which is wider than
+ * `TEXT_SUBMIT_TYPES` — a date field cannot be *submitted from* with Enter here (we do
+ * not press keys into it), but it still blocks a form's implicit submission.
+ */
+function blockingFieldCount(form: HTMLFormElement): number {
+  let count = 0;
+  for (const el of Array.from(form.elements)) {
+    if (el.localName !== 'input') continue;
+    const input = el as HTMLInputElement;
+    if (input.disabled || input.readOnly) continue;
+    if (BLOCKING_INPUT_TYPES.has((input.type || '').toLowerCase())) count += 1;
+  }
+  return count;
 }
 
 /**

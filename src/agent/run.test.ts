@@ -102,23 +102,21 @@ describe('safety valve (R-04)', () => {
 describe('repeat-failure stall detection (M2)', () => {
   const alwaysBogus = (): FakeTurn => ({ kind: 'tool', name: 'bogus_tool', args: {} });
 
-  it('ends with an error naming the action when the same action fails identically twice', async () => {
+  it('hands back to the Leader after two identical failures, and ends only when the failure survives the replan', async () => {
     const { events, ended } = await harness({
       maxSteps: 10,
       planningInterval: 5,
       follower: alwaysBogus,
     });
 
-    // Stops after 2 failing steps, long before the step budget.
-    expect(ended).toMatchObject({ kind: 'run.ended', status: 'error', steps: 2 });
-    expect(ended.message).toContain(
-      'the follower repeated the same failing action 2 times (bogus_tool): no such tool: bogus_tool',
-    );
-    const signals = events.filter((e) => e.kind === 'follower.signal');
-    expect(signals.at(-1)).toMatchObject({ signal: 'CONTINUE' });
-    expect((signals.at(-1) as Extract<RunEvent, { kind: 'follower.signal' }>).note).toContain(
-      'the follower repeated the same failing action 2 times (bogus_tool): no such tool: bogus_tool',
-    );
+    const signals = events.filter((e) => e.kind === 'follower.signal') as Array<Extract<RunEvent, { kind: 'follower.signal' }>>;
+    // The second failure goes back to the Leader with the reason, not to the end of the run.
+    expect(signals[1]).toMatchObject({ signal: 'RETURN_TO_LEADER' });
+    expect(signals[1]!.note).toContain('the follower repeated the same failing action 2 times (bogus_tool): no such tool: bogus_tool');
+    expect(events.filter((e) => e.kind === 'leader.plan')).toHaveLength(2);
+    // Still failing identically after the replan: stuck, long before the step budget.
+    expect(ended).toMatchObject({ kind: 'run.ended', status: 'error', steps: 4 });
+    expect(ended.message).toContain('the follower repeated the same failing action 4 times (bogus_tool): no such tool: bogus_tool');
   });
 
   it('counts identical failures across prose turns, like the live allow-list loop', async () => {
@@ -131,7 +129,7 @@ describe('repeat-failure stall detection (M2)', () => {
           : { kind: 'tool', name: 'bogus_tool', args: {} },
     });
 
-    expect(ended).toMatchObject({ kind: 'run.ended', status: 'error', steps: 3 });
+    expect(ended).toMatchObject({ kind: 'run.ended', status: 'error', steps: 5 });
   });
 
   it('resets the repeat counter when a page-changing action succeeds between failures', async () => {
@@ -157,7 +155,7 @@ describe('repeat-failure stall detection (M2)', () => {
           : { kind: 'tool', name: 'bogus_tool', args: {} },
     });
 
-    expect(ended).toMatchObject({ kind: 'run.ended', status: 'error', steps: 3 });
+    expect(ended).toMatchObject({ kind: 'run.ended', status: 'error', steps: 5 });
   });
 
   it('does not let waits break the repeat chain either: waiting is not progress', async () => {
@@ -170,7 +168,7 @@ describe('repeat-failure stall detection (M2)', () => {
           : { kind: 'tool', name: 'bogus_tool', args: {} },
     });
 
-    expect(ended).toMatchObject({ kind: 'run.ended', status: 'error', steps: 3 });
+    expect(ended).toMatchObject({ kind: 'run.ended', status: 'error', steps: 5 });
   });
 
   it('does not let file saves break the repeat chain either: saving is not page progress', async () => {
@@ -183,7 +181,7 @@ describe('repeat-failure stall detection (M2)', () => {
           : { kind: 'tool', name: 'bogus_tool', args: {} },
     });
 
-    expect(ended).toMatchObject({ kind: 'run.ended', status: 'error', steps: 3 });
+    expect(ended).toMatchObject({ kind: 'run.ended', status: 'error', steps: 5 });
   });
 
   it('trips when the same action is refused as a batch extra every turn', async () => {
@@ -199,8 +197,8 @@ describe('repeat-failure stall detection (M2)', () => {
       }),
     });
 
-    expect(ended).toMatchObject({ kind: 'run.ended', status: 'error', steps: 2 });
-    expect(ended.message).toContain('the follower repeated the same failing action 2 times (bogus_tool)');
+    expect(ended).toMatchObject({ kind: 'run.ended', status: 'error', steps: 4 });
+    expect(ended.message).toContain('the follower repeated the same failing action 4 times (bogus_tool)');
   });
 
   it('treats the same-shaped call failing with a different error as a new failure', async () => {

@@ -3,6 +3,10 @@
 #
 #   scripts/live.sh setup              build, register the host, get the extension connected
 #   scripts/live.sh test [task,...]    run fixture tasks in real Chrome and score each one
+#   scripts/live.sh activities [id,...] [--repeat N]   the agent performs real activities: by default
+#                                      browse; deep jobs (filter_sort, site_median, compare_sites)
+#                                      rotate across shop sites the same way; live telemetry, verdict, waste.
+#                                      Positional ids accumulate across arguments (commas work too)
 #   scripts/live.sh run "<prompt>" [--url <url>]   one ad-hoc run with the free pair
 #   scripts/live.sh status | logs
 #
@@ -16,9 +20,10 @@
 # 127.0.0.1. The eBay task runs from the harness tier (see below).
 #
 # Environment: NB_LIVE_CHROME, NB_LIVE_CHROME_DIR (browser and its config dir),
-# NB_LIVE_LEADER, NB_LIVE_FOLLOWER (model ids), NB_LIVE_TIMEOUT (seconds per run),
-# NB_LIVE_CONNECT_WAIT, and NB_LIVE_REINSTALL_HOST=1 to point the registered dev host at
-# this checkout when setup reports it runs from another one.
+# NB_LIVE_LEADER, NB_LIVE_FOLLOWER (model ids; both default to nemotron-3.5-lightning,
+# and nothing rotates a pair in — set either to override),
+# NB_LIVE_TIMEOUT (seconds per run), NB_LIVE_CONNECT_WAIT, and NB_LIVE_REINSTALL_HOST=1 to
+# point the registered dev host at this checkout when setup reports it runs from another one.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -30,7 +35,11 @@ else DATA="${XDG_DATA_HOME:-$HOME/.local/share}/nanobrowser"; fi
 EXT_DIR="$ROOT/.output/chrome-mv3"
 CHROME="${NB_LIVE_CHROME:-$(command -v google-chrome-stable || command -v google-chrome || true)}"
 CHROME_DIR="${NB_LIVE_CHROME_DIR:-$HOME/.config/google-chrome}"
-LEADER="${NB_LIVE_LEADER:-nvidia/nemotron-3-ultra-550b-a55b:free}"
+# One pair, both seats. Least-recently-used pair rotation is gone: it spent runs on pairs
+# already known to be weak (nemotron-ultra) and made a day of results incomparable.
+# nemotron-3.5-lightning is the pinned choice until that decision changes.
+# NB_LIVE_LEADER / NB_LIVE_FOLLOWER still override either seat.
+LEADER="${NB_LIVE_LEADER:-nvidia/nemotron-3.5-lightning:free}"
 FOLLOWER="${NB_LIVE_FOLLOWER:-nvidia/nemotron-3.5-lightning:free}"
 RUN_TIMEOUT="${NB_LIVE_TIMEOUT:-600}"
 CONNECT_WAIT="${NB_LIVE_CONNECT_WAIT:-300}"
@@ -40,7 +49,7 @@ DEFAULT_TASKS="inventory,userscript_debug,escalation,readonly,login,redaction,st
 step() { printf '\n== %s\n' "$*"; }
 die() { echo "live: $*" >&2; exit 1; }
 
-usage() { sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; }
 
 # Same derivation as host/install.sh: the manifest key pins the id across rebuilds.
 ext_id() {
@@ -260,7 +269,8 @@ cmd_test() {
     # Pin everything the panel also stores, or its last choice leaks in: a Kilo source
     # would route the Nemotron ids to the wrong gateway, a read-only toggle would block
     # the writes a task's verdict requires.
-    local opt_args=(--option leaderModelSource=openrouter --option followerModelSource=openrouter)
+    # closeTabWhenDone: every task opens a fresh tab; the extension closes it after the run.
+    local opt_args=(--option leaderModelSource=openrouter --option followerModelSource=openrouter --option closeTabWhenDone=true)
     while IFS= read -r kv; do opt_args+=(--option "$kv"); done \
       < <(jq -r '.options | {readOnly: false} + . | to_entries[] | "\(.key)=\(.value)"' "$tj")
 
@@ -335,9 +345,113 @@ cmd_test() {
   [ "$fail" -eq 0 ]
 }
 
+# The agent performs each activity for real (scripts/harness/activities.mjs): real eBay,
+# the free pair, your Chrome. Each step prints as it happens; the verdict comes only from
+# what the run log shows, and the report names the workflow and token waste it saw.
+cmd_activities() {
+  local list=() repeat=1 a pin=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --repeat) repeat="$2"; shift 2 ;;
+      # Pin browse to one site and query, e.g. to compare model pairs on the same page.
+      --site) pin+=(--site "$2"); shift 2 ;;
+      --query) pin+=(--query "$2"); shift 2 ;;
+      # Positional ids accumulate across arguments; commas and spaces split within one.
+      *) read -ra names <<<"$(tr ',' ' ' <<<"$1")"; list+=("${names[@]}"); shift ;;
+    esac
+  done
+  # The everyday loop is browse, rotating across sites; deep jobs by name (filter_sort,
+  # site_median, compare_sites) rotate across shop sites the same way. eBay activities are
+  # the exception: they run on ebay.com every time, so a repeat is a batch on one site.
+  [ "${#list[@]}" -gt 0 ] || list=(browse)
+  host_up || die "the extension is not connected; run scripts/live.sh setup first"
+  host/bin/nb-status >/dev/null || die "the OpenRouter key is not ready (host/bin/nb-status)"
+  if [ "$repeat" -gt 1 ] && [[ " ${list[*]} " == *' ebay_'* ]]; then
+    echo "NOTE: eBay activities are pinned to ebay.com every run; repeating one hammers a single site. One or two runs, then return to the rotating rungs."
+  fi
+
+  local prof_args=() regs
+  [ -n "${NB_LIVE_CHROME_DIR:-}" ] && prof_args+=(--user-data-dir="$CHROME_DIR")
+  regs="$(registrations)"
+  [ "$(grep -c . <<<"$regs")" -eq 1 ] && prof_args+=(--profile-directory="$(cut -f1 <<<"$regs")")
+
+  mkdir -p "$ROOT/runs"
+  local out; out="$(mktemp -d "$ROOT/runs/activities-$(date -u +%Y%m%dT%H%M%SZ)-XXXX")" || die "could not create a results dir"
+  local history="$ROOT/runs/history.jsonl"
+  trap cleanup_test EXIT
+  trap 'exit 130' INT TERM
+  echo "models: leader=$LEADER follower=$FOLLOWER   results -> $out"
+  : >"$out/summary.txt"
+  local pass=0 fail=0 invalid=0 trial
+  for a in "${list[@]}"; do
+    for trial in $(seq "$repeat"); do
+      step "activity $a ($trial/$repeat)"
+      local tj="$out/$a-$trial-task.json"
+      # M1's gate (3dd8e64) makes `task` refuse a legacy eBay activity without --legacy;
+      # naming one here is the opt-in, so pass it for ebay_* and nothing else.
+      local legacy=()
+      [[ "$a" == ebay_* ]] && legacy+=(--legacy)
+      # The redirection below creates $tj before the command runs; a failed or partial
+      # task file would be found by `board`, which JSON.parses every *-task.json, so
+      # delete it rather than leave an empty one behind.
+      node "$HARNESS/activities.mjs" task --activity "$a" --history "$history" "${legacy[@]}" "${pin[@]}" >"$tj" \
+        || { rm -f "$tj"; fail=$((fail + 1)); continue; }
+      local url prompt; url="$(jq -r .url "$tj")"; prompt="$(jq -r .prompt "$tj")"
+      echo "$(jq -r .title "$tj")  ($url)"
+      local opt_args=(--option leaderModelSource=openrouter --option followerModelSource=openrouter
+        --option "leaderModel=$LEADER" --option "followerModel=$FOLLOWER" --option closeTabWhenDone=true)
+      while IFS= read -r kv; do opt_args+=(--option "$kv"); done \
+        < <(jq -r '.options | {readOnly: false} + . | to_entries[] | "\(.key)=\(.value)"' "$tj")
+
+      if ! timeout 15 "$CHROME" "${prof_args[@]}" "$url" >/dev/null 2>&1; then
+        echo "could not open a fresh tab for $a; not starting it"
+        fail=$((fail + 1)); echo "FAIL     $a  (no fresh tab)" >>"$out/summary.txt"; continue
+      fi
+      sleep 3
+
+      local run_id="act-$(date +%s)-$RANDOM-$a"
+      ACTIVE_RUN="$run_id"
+      # Backgrounded and waited on, as in cmd_test, so Ctrl-C cancels the run at once.
+      # pipefail is on, so the wait status keeps nb-run's own exit through the pipe
+      # (`activities.mjs live` ends 0 on EOF); 124 means the timeout fired. Closing
+      # nb-run does not stop the run in the extension, so cancel it exactly as cmd_test
+      # does, and keep ACTIVE_RUN set until that is done: an interrupt landing before
+      # the handling can still reach the cleanup trap.
+      { timeout "$RUN_TIMEOUT" host/bin/nb-run "$prompt" --url "$url" --run-id "$run_id" "${opt_args[@]}" \
+          2>"$out/$a-$trial-nb-run.stderr" \
+          | node "$HARNESS/activities.mjs" live --log "$out/$a-$trial-stream.jsonl"; } &
+      RUN_PID=$!
+      wait "$RUN_PID"
+      local rc=$?
+      RUN_PID=""
+      if [ "$rc" -eq 124 ]; then
+        echo "timed out after ${RUN_TIMEOUT}s; cancelling $run_id"
+        host/bin/nb-cancel "$run_id" >/dev/null 2>&1 || true
+      fi
+      ACTIVE_RUN=""
+      local runlog="$out/$a-$trial-runlog.jsonl"
+      cp "$DATA/runs/$run_id.jsonl" "$runlog" 2>/dev/null || cp "$out/$a-$trial-stream.jsonl" "$runlog"
+
+      node "$HARNESS/activities.mjs" score --activity "$a" --task "$tj" --runlog "$runlog" \
+        --artifacts "$DATA/artifacts/$run_id" --json "$out/$a-$trial-report.json" --history "$history" \
+        | tee "$out/$a-$trial-report.txt"
+      case "${PIPESTATUS[0]}" in
+        0) pass=$((pass + 1)); echo "PASS     $a #$trial  $(jq -r .title "$tj")  run=$run_id" >>"$out/summary.txt" ;;
+        3) invalid=$((invalid + 1)); echo "INVALID  $a #$trial  $(jq -r .title "$tj")  run=$run_id" >>"$out/summary.txt" ;;
+        *) fail=$((fail + 1)); echo "FAIL     $a #$trial  $(jq -r .title "$tj")  run=$run_id" >>"$out/summary.txt" ;;
+      esac
+    done
+  done
+  step "summary"
+  cat "$out/summary.txt"
+  echo "$pass passed, $fail failed, $invalid invalid   (history: $history)"
+  [ "$fail" -eq 0 ]
+}
+
 case "${1:-}" in
   setup) cmd_setup ;;
   test) shift; cmd_test "${1:-}" ;;
+  activities) shift; cmd_activities "$@" ;;
   run) shift
        exec scripts/e2e.sh --skip-build --leader "$LEADER" --follower "$FOLLOWER" \
          --leader-source openrouter --follower-source openrouter --prompt "$@" ;;

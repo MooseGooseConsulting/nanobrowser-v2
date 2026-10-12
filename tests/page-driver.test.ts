@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { INJECTED_FILE, PageDriver } from '@/src/page/driver';
+import { recordTabReplaced, resetTabReplacements } from '@/src/page/tabReplacement';
 import type { ChromeApi, TabUpdateInfo } from '@/src/page/driver';
 import type { PageRequest, PageResponse } from '@/src/page/handler';
 
@@ -148,6 +149,53 @@ describe('ensureInjected', () => {
       ok: false,
       error: 'injected script did not respond to ping',
     });
+  });
+
+  it('re-resolves the tab id before the post-injection ping, not only in send()', async () => {
+    // Regression: the entry ping and the executeScript are both awaited, and a
+    // `tabs.onReplaced` swap recorded between them leaves the *injection* itself aimed at a
+    // dead id. `send()` re-resolves afterwards, so it saw the replacement fine — but
+    // `ensureInjected` had already failed on its own post-injection ping to the dead id, and
+    // the op never ran. Ping the id that exists.
+    resetTabReplacements();
+    const sentTo: number[] = [];
+    let injected = false;
+    const api: ChromeApi = {
+      scripting: {
+        async executeScript() {
+          recordTabReplaced(2, 1);
+          injected = true;
+          return [];
+        },
+      },
+      tabs: {
+        async sendMessage(tabId, message) {
+          sentTo.push(tabId);
+          if (message.op !== 'ping') {
+            if (tabId === 1) throw new Error('No tab with id: 1');
+            return { ok: true };
+          }
+          // Nothing is injected yet on the id the caller named, and the tab is gone once
+          // the swap lands, so only the replacement can answer.
+          if (!injected || tabId === 1) throw new Error('Could not establish connection.');
+          return { ok: true, pong: true, url: '', title: '', devicePixelRatio: 1, width: 0, height: 0 };
+        },
+        update: async () => ({}),
+        get: async () => ({ windowId: 1 }),
+        captureVisibleTab: async () => 'data:image/png;base64,AAAA',
+        onUpdated: { addListener: () => {}, removeListener: () => {} },
+      },
+    };
+
+    const driver = new PageDriver(api);
+    try {
+      expect(await driver.ensureInjected(1)).toEqual({ ok: true });
+      // The injection went to the id the caller named, but every ping after the swap went to
+      // the replacement, so the injection is not judged dead for a tab that is gone.
+      expect(sentTo).toEqual([1, 2]);
+    } finally {
+      resetTabReplacements();
+    }
   });
 
   it('re-injects after invalidate(), which navigation triggers', async () => {

@@ -1,0 +1,27 @@
+# pnpm 10.8+ and 12 read settings from here. The `pnpm.overrides` field in package.json is
+# ignored by pnpm 12, which made every `pnpm install --frozen-lockfile` fail with
+# ERR_PNPM_LOCKFILE_CONFIG_MISMATCH — so `pnpm typecheck`, `pnpm test` and scripts/e2e.sh
+# were all red before an install could even run. The values below are unchanged from that
+# field, and both lockfiles stay byte-identical.
+#
+# `packages` is deliberately empty: this repo is two separate installs (root and host, each
+# with its own pnpm-lock.yaml, which is what CI runs). Naming a package here would turn the
+# tree into a pnpm workspace, and a root install would then relink host/node_modules against
+# the root store and break `pnpm --dir host test` with MODULE_NOT_FOUND.
+packages: []
+
+# Security overrides, formerly package.json `pnpm.overrides`.
+overrides:
+  shell-quote: '>=1.10.0'
+  adm-zip: '>=0.6.1'
+  tmp: '>=0.2.7'
+  ajv@>=7.0.0 <8.18.0: '>=8.20.0'
+  uuid@<11.1.1: '>=11.1.1'
+
+# pnpm 10 and 12 refuse to install when a dependency carries an unapproved build script.
+# spawn-sync (via fx-runner, from WXT) has a postinstall that is a no-op on any Node with
+# child_process.spawnSync: it only rewrites its own package.json around a try-thread-sleep
+# devDependency this tree does not declare. Answering the question once, here, keeps a fresh
+# clone green instead of failing every install.
+allowBuilds:
+  spawn-sync: true

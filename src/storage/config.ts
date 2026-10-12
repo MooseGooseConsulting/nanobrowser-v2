@@ -31,6 +31,11 @@ export interface Config {
    * existed has no opinion here and must keep behaving exactly as before.
    */
   readOnly?: boolean;
+  /**
+   * Close the run's tab once the run has ended. Off unless a caller asks: the live
+   * harness opens a fresh tab per run and was leaving every one of them open.
+   */
+  closeTabWhenDone?: boolean;
 }
 
 export const DEFAULT_CONFIG: Config = {

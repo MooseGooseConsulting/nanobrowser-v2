@@ -91,6 +91,11 @@ function newSnapshotRefs(): void {
   refCounter = 0;
 }
 
+/** The ref the last snapshot gave `el`, if any. Never mints one: a lookup is not a snapshot. */
+export function existingRef(el: Element): string | undefined {
+  return elementToRef.get(el);
+}
+
 function refFor(el: Element): string {
   const existing = elementToRef.get(el);
   if (existing) return existing;

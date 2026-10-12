@@ -16,6 +16,7 @@ import type { PageRequest, PageResponse, PingResult } from './handler';
 import type { ExtractTextOptions, ExtractTextResult } from './extractText';
 import type { SnapshotOptions, SnapshotResult } from './snapshot';
 import type { ActionResult, BoxResult, ScrollOptions, TypeOptions } from './actions';
+import { currentTabId, trackTabReplacements, type TabReplacedEvent } from './tabReplacement';
 
 /** Build-output path of the unlisted script. Must match the entrypoint's file name. */
 export const INJECTED_FILE = 'injected-content.js';
@@ -40,6 +41,8 @@ export interface ChromeApi {
       addListener(fn: (tabId: number, info: TabUpdateInfo) => void): void;
       removeListener(fn: (tabId: number, info: TabUpdateInfo) => void): void;
     };
+    /** Optional so test fakes need not model it; the real API always has it. */
+    onReplaced?: TabReplacedEvent;
   };
   /** Absent unless the `downloads` permission is granted. */
   downloads?: {
@@ -95,6 +98,7 @@ export class PageDriver {
 
   constructor(api: ChromeApi = chromeApi(), options: { navigateTimeoutMs?: number; opTimeoutMs?: number } = {}) {
     this.api = api;
+    trackTabReplacements(api.tabs.onReplaced);
     this.navigateTimeoutMs = options.navigateTimeoutMs ?? 30_000;
     this.opTimeoutMs = options.opTimeoutMs ?? 20_000;
   }
@@ -126,6 +130,7 @@ export class PageDriver {
    * to one frame per tab.
    */
   async ensureInjected(tabId: number): Promise<ActionResult> {
+    tabId = currentTabId(tabId);
     if (await this.ping(tabId)) {
       this.injected.add(tabId);
       return { ok: true };
@@ -141,6 +146,10 @@ export class PageDriver {
     } catch (err) {
       return { ok: false, error: `injection failed: ${errorOf(err)}` };
     }
+    // A `tabs.onReplaced` swap recorded while the entry ping and the executeScript above were
+    // in flight makes the id injected above the dead one; pinging it reports "no injected
+    // script" and fails a live injection the replacement tab would have answered on.
+    tabId = currentTabId(tabId);
     if (!(await this.ping(tabId))) {
       return { ok: false, error: 'injected script did not respond to ping' };
     }
@@ -172,12 +181,17 @@ export class PageDriver {
   private async send<T extends PageResponse>(tabId: number, request: PageRequest): Promise<T> {
     const ready = await this.ensureInjected(tabId);
     if (!ready.ok) return ready as T;
+    // Injection waited through ping/inject/ping round trips; the tab id can be replaced
+    // while it runs (prerender activation, a redirect chain). Re-resolve here and target
+    // *that* id: sending to the id the injection started on fails "No tab with id" and
+    // cost a live run its whole remaining session.
+    const target = currentTabId(tabId);
     try {
-      const res = await this.withTimeout(this.api.tabs.sendMessage(tabId, request), `page op "${request.op}"`);
+      const res = await this.withTimeout(this.api.tabs.sendMessage(target, request), `page op "${request.op}"`);
       if (!res) return { ok: false, error: 'no response from page' } as T;
       return res as T;
     } catch (err) {
-      this.injected.delete(tabId);
+      this.injected.delete(target);
       return { ok: false, error: errorOf(err) } as T;
     }
   }
@@ -236,7 +250,7 @@ export class PageDriver {
     if (!metrics.ok) return { ok: false, error: metrics.error ?? 'page did not report metrics' };
     let windowId: number;
     try {
-      const tab = await this.api.tabs.get(tabId);
+      const tab = await this.api.tabs.get(currentTabId(tabId));
       if (typeof tab.windowId !== 'number') return { ok: false, error: 'tab has no window' };
       windowId = tab.windowId;
     } catch (err) {
@@ -270,14 +284,16 @@ export class PageDriver {
    * injection state is dropped up front: the page script does not survive a navigation.
    */
   async navigate(tabId: number, url: string): Promise<ActionResult> {
+    tabId = currentTabId(tabId);
     this.invalidate(tabId);
     const { onUpdated } = this.api.tabs;
     return new Promise<ActionResult>((resolve) => {
       let settled = false;
       let timer: ReturnType<typeof setTimeout> | undefined;
 
+      // Compared against the current id, so a tab swapped mid-navigation still settles it.
       const listener = (updatedTabId: number, info: TabUpdateInfo): void => {
-        if (updatedTabId !== tabId || info.status !== 'complete') return;
+        if (updatedTabId !== currentTabId(tabId) || info.status !== 'complete') return;
         finish({ ok: true });
       };
 

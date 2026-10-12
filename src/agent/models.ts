@@ -38,6 +38,49 @@ function baseUrlFor(source: ModelSource): string {
   return source === 'kilo' ? KILO_BASE_URL : DEFAULT_BASE_URL;
 }
 
+/**
+ * Waits between retries of a rate-limited model call: about a minute in all. LangChain
+ * core (1.2.12) stops at once on a 429 with no Retry-After header ("headerless_429",
+ * classed as capacity, not retried), and that is exactly what OpenRouter's free tier
+ * sends. Live, one such 429 ended runs on gemma-4 and laguna after 0 to 4 steps.
+ */
+export const RATE_LIMIT_DELAYS_MS: readonly number[] = [2_000, 4_000, 8_000, 16_000, 30_000];
+
+/** Retries 429s itself, honouring Retry-After (capped at 60 s), and stops waiting on abort. */
+export function retryRateLimited(
+  fetch: typeof globalThis.fetch,
+  delaysMs: readonly number[] = RATE_LIMIT_DELAYS_MS,
+): typeof globalThis.fetch {
+  return async (input, init) => {
+    for (let attempt = 0; ; attempt++) {
+      const res = await fetch(input, init);
+      if (res.status !== 429 || attempt >= delaysMs.length) return res;
+      const wait = retryAfterDelayMs(res.headers.get('retry-after'), delaysMs[attempt]!);
+      await res.body?.cancel().catch(() => undefined);
+      if (wait > 0) await sleep(wait, init?.signal ?? undefined);
+    }
+  };
+}
+
+/** Delay to the next attempt, in milliseconds, from one 429's Retry-After header. */
+export function retryAfterDelayMs(headerValue: string | null, fallbackMs: number): number {
+  const raw = headerValue?.trim();
+  if (!raw) return fallbackMs;
+  if (/^-?\d+(\.\d+)?$/.test(raw)) return Number(raw) > 0 ? Math.min(Number(raw) * 1000, 60_000) : 0;
+  const date = Date.parse(raw);
+  if (Number.isNaN(date)) return fallbackMs;
+  // A provider-issued date in the past is the same "go again now" as a 0.
+  return date > Date.now() ? Math.min(date - Date.now(), 60_000) : 0;
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason ?? new Error('aborted'));
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => (clearTimeout(timer), reject(signal.reason ?? new Error('aborted'))), { once: true });
+  });
+}
+
 export interface CreateChatModelOptions {
   /** The provider's own model id, e.g. "nvidia/nemotron-3.5-lightning:free". Never prefixed with a source. */
   model: string;
@@ -47,6 +90,8 @@ export interface CreateChatModelOptions {
   source?: ModelSource;
   baseURL?: string;
   temperature?: number;
+  /** Test seam: waits between rate-limit retries. */
+  rateLimitDelaysMs?: readonly number[];
 }
 
 /**
@@ -107,7 +152,7 @@ function errorResponse(status: number, message: string, upstream: Headers): Resp
  * them, not just the visible completion.
  */
 export function createChatModel(options: CreateChatModelOptions): ChatOpenAI {
-  const { model, fetch, source = 'openrouter', baseURL = baseUrlFor(source), temperature = 0 } = options;
+  const { model, fetch, source = 'openrouter', baseURL = baseUrlFor(source), temperature = 0, rateLimitDelaysMs } = options;
   const isOpenRouter = source === 'openrouter';
   return new ChatOpenAI({
     model,
@@ -119,7 +164,8 @@ export function createChatModel(options: CreateChatModelOptions): ChatOpenAI {
     // "Cannot read properties of undefined (reading 'message')", which is LangChain
     // dereferencing `generations[0][0]` after a 200 with no `choices`. The check is
     // provider-agnostic, so there is no reason to leave either gateway unguarded.
-    configuration: { baseURL, fetch: hardenEmptyChoices(fetch) },
+    // Retry outside the hardening, so a 429 reported inside a 200 body is retried too.
+    configuration: { baseURL, fetch: retryRateLimited(hardenEmptyChoices(fetch), rateLimitDelaysMs) },
     // `provider.data_collection` is an OpenRouter-specific field; Kilo does not use it,
     // and sending it there breaks models whose Kilo endpoint would otherwise work
     // (live evidence: meta/muse-spark-1.3-contributor 404s on OpenRouter under `deny`

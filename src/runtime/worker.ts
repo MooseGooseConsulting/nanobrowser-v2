@@ -166,6 +166,7 @@ export function applyRunOptions(config: Config, options?: Record<string, unknown
   const maxSteps = Number(options.maxSteps);
   if (Number.isInteger(maxSteps) && maxSteps > 0) next.maxSteps = maxSteps;
   if (typeof options.readOnly === 'boolean') next.readOnly = options.readOnly;
+  if (typeof options.closeTabWhenDone === 'boolean') next.closeTabWhenDone = options.closeTabWhenDone;
   return next;
 }
 

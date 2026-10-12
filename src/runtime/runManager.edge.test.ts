@@ -256,3 +256,51 @@ describe('RunManager: input.detach() runs when the run ends, on every path', () 
     detachSpy.mockRestore();
   });
 });
+
+describe('RunManager: the run/tab stays reserved until tabs.remove settles', () => {
+  it('refuses a new start while the run tab is still being closed, and releases the slot only after', async () => {
+    let releaseRemove!: () => void;
+    const removeSettled = new Promise<void>((resolve) => {
+      releaseRemove = resolve;
+    });
+    const removed: number[] = [];
+    const scripted = scriptedStart();
+    const rm = manager({
+      start: scripted.start,
+      tabs: {
+        ...tabsPort('https://example.test/'),
+        remove: async (tabId) => {
+          removed.push(tabId);
+          await removeSettled;
+        },
+      },
+    });
+
+    const { done } = await rm.start({ prompt: 'go', config: { ...config, closeTabWhenDone: true } });
+    scripted.finishWith({ kind: 'run.ended', status: 'done', message: 'ok', steps: 1, at: 2 });
+
+    // Let the end-of-run chain reach the tabs.remove await and park there.
+    await vi.waitFor(() => expect(removed).toEqual([3]));
+
+    // While the removal is still pending the run and its tab are reserved: a
+    // start racing the close is refused instead of being aimed at the active
+    // tab — which, right now, is the very tab that is mid-remove.
+    const second = await rm.start({ prompt: 'go again', config });
+    expect(second.ok).toBe(false);
+    await expect(second.done).resolves.toMatchObject({
+      status: 'error',
+      message: expect.stringContaining('a run is already in progress'),
+    });
+    expect(rm.activeRunId).toBe('run-1');
+
+    // Once the removal settles, the slot is released and usable again.
+    releaseRemove();
+    await done;
+    expect(rm.activeRunId).toBeUndefined();
+
+    const third = await rm.start({ prompt: 'go once more', config });
+    expect(third.ok).toBe(true);
+    scripted.finishWith({ kind: 'run.ended', status: 'done', message: 'ok', steps: 1, at: 2 });
+    await third.done;
+  });
+});

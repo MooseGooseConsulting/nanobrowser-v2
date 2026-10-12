@@ -33,6 +33,8 @@ void _signalParity;
 export interface SnapshotResult {
   text: string;
   tokens?: number;
+  /** The page the snapshot was taken of, so the run log records where the agent was. */
+  url?: string;
 }
 
 export interface ScreenshotResult {
@@ -475,9 +477,16 @@ export function createPageToolset(page: PageTools, options: { readOnly?: boolean
     tool(async ({ summary }) => page.done(summary), {
       name: 'done',
       description:
-        'The whole objective is finished. Say what was accomplished. This ends the run.',
+        'The whole objective is finished. This ends the run, and summary is what the user gets back.',
       schema: z.object({
-        summary: z.string().describe('What was accomplished, in one or two sentences.'),
+        // Was "What was accomplished, in one or two sentences." Live runs asked for JSON got
+        // prose like "extracted the title and price" instead: the schema outranked the task.
+        summary: z
+          .string()
+          .describe(
+            'The result the user asked for, with the actual values you read. If the objective names a format ' +
+              '(JSON, a list, a table), this is exactly that output and nothing else. Otherwise one or two sentences.',
+          ),
         ...controlEnvelope,
       }),
     }),
