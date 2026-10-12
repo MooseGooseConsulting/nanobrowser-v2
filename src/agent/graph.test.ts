@@ -241,7 +241,10 @@ describe('observe modes (R-08)', () => {
     const pixels = await harness({ maxSteps: 1, observe: 'pixels', follower: alwaysContinue });
     expect(imageBlocks(pixels.follower)).toContain('image');
     expect(pixels.page.names).toContain('screenshot');
-    expect(pixels.page.names).not.toContain('snapshot');
+    // Pixels mode takes a snapshot per successful capture too — but only for the
+    // observation's url (the run log and the harness scorer key on it); its text
+    // never reaches the model. Pinned by the no-DOM-text assertion below.
+    expect(pixels.page.names).toContain('snapshot');
     expect(pick(pixels.events, 'observation')[0]).toMatchObject({
       mode: 'pixels',
       hasScreenshot: true,
@@ -260,6 +263,13 @@ describe('observe modes (R-08)', () => {
     expect(imageBlocks(both.follower)).toContain('image');
     expect(both.page.names).toContain('snapshot');
     expect(both.page.names).toContain('screenshot');
+  });
+
+  it('withholds DOM text from the follower in pixels mode even though the url probe reads a snapshot', async () => {
+    const pixels = await harness({ maxSteps: 1, observe: 'pixels', follower: alwaysContinue });
+    const prompt = JSON.stringify(pixels.follower.calls.map((c) => c.messages));
+    expect(prompt).not.toContain('page: [e1]');
+    expect(prompt).toContain('Screenshot of the visible page');
   });
 });
 

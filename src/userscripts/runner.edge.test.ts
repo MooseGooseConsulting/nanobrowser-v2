@@ -3,9 +3,12 @@
  * Two edge cases the review called out as explicitly required and missing
  * from `runner.test.ts`: a script with no top-level `return`, and a genuine
  * asynchronous/callback throw (not a manually dispatched `ErrorEvent`).
+ * Plus the mid-flight tab-swap regression: the target is re-resolved just
+ * before `execute()` and the allow-list check repeats when it changed.
  */
 import { describe, expect, it, beforeEach } from 'vitest';
 import type { Userscript } from '@/src/messaging';
+import { recordTabReplaced, resetTabReplacements } from '@/src/page/tabReplacement';
 import { resetWorldConfiguration, runUserscript } from './runner';
 import { vmUserScriptsApi } from './testing';
 
@@ -63,5 +66,71 @@ describe('runUserscript: a genuine asynchronous throw', () => {
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain('rejected');
+  });
+});
+
+/**
+ * Chrome can swap a tab's id between the allow-list check and the injection
+ * (`chrome.tabs.onReplaced`, prerender/redirect chains). The runner resolves the
+ * target once more right before `execute()`, and repeats the URL check whenever
+ * the target changed — the swap is what makes an unchecked page reachable.
+ */
+describe('runUserscript: the target tab is re-resolved before execute', () => {
+  beforeEach(() => {
+    resetWorldConfiguration();
+    resetTabReplacements();
+  });
+
+  it('re-checks the replacement tab and refuses it when its URL is out of scope', async () => {
+    // The replacement is recorded the moment the first URL is resolved — the same
+    // instant `chrome.tabs.onReplaced` would fire during a live run.
+    const tabs = {
+      get: async (tabId: number) => {
+        recordTabReplaced(9, 7);
+        return tabId === 7 ? { url: URL_IN_SCOPE } : { url: 'https://example.com/' };
+      },
+    };
+    const api = vmUserScriptsApi();
+
+    const result = await runUserscript({ tabId: 7, script: script('return 1;'), api, tabs });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/refused: https:\/\/example\.com\/ is not in this script's allow-list/);
+    expect(api.injections).toHaveLength(0);
+  });
+
+  it('injects into the replacement tab when its URL is in scope', async () => {
+    const tabs = {
+      get: async (_tabId: number) => {
+        recordTabReplaced(9, 7);
+        return { url: URL_IN_SCOPE };
+      },
+    };
+    const api = vmUserScriptsApi();
+
+    await expect(runUserscript({ tabId: 7, script: script('return 1;'), api, tabs })).resolves.toMatchObject({
+      ok: true,
+    });
+    expect(api.injections).toHaveLength(1);
+    expect(api.injections[0]!.target).toEqual({ tabId: 9 });
+  });
+
+  it('cannot verify a changed target from a caller-supplied URL alone, and refuses', async () => {
+    // The caller's `url` describes the tab it started on; once Chrome replaced it,
+    // only a live resolution could vouch for the new target, and there is no tabs
+    // seam to ask. Refusing beats injecting into an unverified page.
+    const api = {
+      execute: async () => {
+        throw new Error('execute must not be reached: the changed target could not be verified');
+      },
+      configureWorld: async () => {
+        recordTabReplaced(9, 7);
+      },
+    };
+
+    const result = await runUserscript({ tabId: 7, script: script('return 1;'), url: URL_IN_SCOPE, api });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('cannot resolve the tab URL');
   });
 });

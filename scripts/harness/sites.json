@@ -1,0 +1,4675 @@
+[
+ {
+  "name": "eBay",
+  "url": "https://www.ebay.com",
+  "host": "ebay.com",
+  "searchUrlTemplate": "https://www.ebay.com/sch/i.html?_nkw={q}",
+  "country": "US",
+  "kind": "marketplace",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "servers",
+   "networking",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Bot challenge likely on rapid repeated searches; filter to used/refurbished condition for parts.",
+  "segment": "us-marketplaces",
+  "walled": true
+ },
+ {
+  "name": "TechMikeNY",
+  "url": "https://techmikeny.com",
+  "host": "techmikeny.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "servers",
+   "storage",
+   "networking",
+   "cpu",
+   "psu",
+   "ram"
+  ],
+  "loginToBrowse": false,
+  "notes": "Brooklyn NY. Refurbished Dell/HP servers, drives, RAID cards, CPUs, PSUs, networking parts. Search URL not confirmed.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "GSA Auctions",
+  "url": "https://www.gsaauctions.gov",
+  "host": "gsaauctions.gov",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "enterprise-surplus",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Federal surplus (GSA) lots, including computer lot sales; lot pages are public. Search pattern not confirmed.",
+  "segment": "surplus-liquidation"
+ },
+ {
+  "name": "eBay UK",
+  "url": "https://www.ebay.co.uk",
+  "host": "ebay.co.uk",
+  "searchUrlTemplate": "https://www.ebay.co.uk/sch/i.html?_nkw={q}",
+  "country": "GB",
+  "kind": "marketplace",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "servers",
+   "networking",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Large marketplace, mixed new and used; heavy automated search may trigger bot checks. Search pattern from memory, not re-fetched.",
+  "segment": "uk-ie",
+  "walled": true
+ },
+ {
+  "name": "Kleinanzeigen",
+  "url": "https://www.kleinanzeigen.de/",
+  "host": "kleinanzeigen.de",
+  "searchUrlTemplate": "https://www.kleinanzeigen.de/s-{q}/k0",
+  "country": "DE",
+  "kind": "classifieds",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Largest German classifieds, confirmed in search. Template from memory, not fetched; expect aggressive bot checks on automated searching.",
+  "segment": "europe"
+ },
+ {
+  "name": "eBay Canada",
+  "url": "https://www.ebay.ca",
+  "host": "ebay.ca",
+  "searchUrlTemplate": "https://www.ebay.ca/sch/i.html?_nkw={q}",
+  "country": "CA",
+  "kind": "marketplace",
+  "sells": [
+   "gpu",
+   "ram",
+   "cpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "desktops",
+   "laptops"
+  ],
+  "loginToBrowse": false,
+  "notes": "Mixed new and used stock; filter by Used or Refurbished condition. Regional sch/i.html pattern not separately confirmed in this pass.",
+  "segment": "americas-apac",
+  "walled": true
+ },
+ {
+  "name": "ServeTheHome Forums For Sale",
+  "url": "https://forums.servethehome.com/",
+  "host": "forums.servethehome.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "forum-marketplace",
+  "sells": [
+   "servers",
+   "ram",
+   "cpu",
+   "storage",
+   "networking",
+   "motherboard",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Enterprise and server hardware FS threads confirmed (Supermicro, ECC RAM, Xeon). Search pattern not confirmed.",
+  "segment": "forums-enthusiast"
+ },
+ {
+  "name": "Amazon Renewed (UK)",
+  "url": "https://www.amazon.co.uk/",
+  "host": "amazon.co.uk",
+  "searchUrlTemplate": "https://www.amazon.co.uk/s?k={q}",
+  "country": "GB",
+  "kind": "marketplace",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors",
+   "gpu",
+   "cpu",
+   "ram",
+   "storage",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Separate domain. Renewed and Amazon Warehouse condition filters must be applied on the page.",
+  "segment": "retail-renewed"
+ },
+ {
+  "name": "Mercari",
+  "url": "https://www.mercari.com",
+  "host": "mercari.com",
+  "searchUrlTemplate": "https://www.mercari.com/search/?keyword={q}",
+  "country": "US",
+  "kind": "marketplace",
+  "sells": [
+   "ram",
+   "gpu",
+   "storage",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "App-first marketplace; PC parts are thin, best for GPUs, RAM and laptops; bot challenges possible.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "UNIXSurplus",
+  "url": "https://unixsurplus.com",
+  "host": "unixsurplus.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "servers",
+   "cpu",
+   "ram",
+   "storage",
+   "gpu",
+   "networking",
+   "motherboard",
+   "psu"
+  ],
+  "loginToBrowse": false,
+  "notes": "Used/refurbished server CPUs, RAM, HBAs, NICs, Tesla GPUs; B2B focus. Search URL not confirmed.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "B-Stock",
+  "url": "https://bstock.com",
+  "host": "bstock.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "liquidation",
+  "sells": [
+   "laptops",
+   "desktops",
+   "servers",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "B2B pallet and truckload auction marketplace; PC and notebook category pages exist, registration needed to bid. Search pattern not confirmed.",
+  "segment": "surplus-liquidation"
+ },
+ {
+  "name": "CeX (Computer Exchange) UK",
+  "url": "https://uk.webuy.com",
+  "host": "uk.webuy.com",
+  "searchUrlTemplate": "https://uk.webuy.com/search?stext={q}",
+  "country": "GB",
+  "kind": "trade-in-store",
+  "sells": [
+   "gpu",
+   "cpu",
+   "ram",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed used GPU product pages (RX 5700 XT, GTX 960, RX 6700 XT) with trade-in prices and RAM listings. Search pattern from memory.",
+  "segment": "uk-ie"
+ },
+ {
+  "name": "eBay.de",
+  "url": "https://www.ebay.de/",
+  "host": "ebay.de",
+  "searchUrlTemplate": "https://www.ebay.de/sch/i.html?_nkw={q}",
+  "country": "DE",
+  "kind": "marketplace",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "servers",
+   "networking",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Same search path as eBay.com; country domain is separate. Heavy bot detection on automated traffic.",
+  "segment": "europe",
+  "walled": true
+ },
+ {
+  "name": "Newegg Canada",
+  "url": "https://www.newegg.ca",
+  "host": "newegg.ca",
+  "searchUrlTemplate": "https://www.newegg.ca/p/pl?d={q}",
+  "country": "CA",
+  "kind": "refurbisher",
+  "sells": [
+   "gpu"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed refurbished RTX 3090 listing sold by Newegg.ca. Search template is the standard p/pl?d= form, not re-checked. Other refurbished parts not checked.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "Linus Tech Tips Forum Marketplace",
+  "url": "https://linustechtips.com/",
+  "host": "linustechtips.com",
+  "searchUrlTemplate": "",
+  "country": "global",
+  "kind": "forum-marketplace",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Marketplace (buy/sell) subforum exists on the LTT forum; exact section URL and search pattern not confirmed in this pass.",
+  "segment": "forums-enthusiast"
+ },
+ {
+  "name": "Amazon Renewed (Germany)",
+  "url": "https://www.amazon.de/",
+  "host": "amazon.de",
+  "searchUrlTemplate": "https://www.amazon.de/s?k={q}",
+  "country": "DE",
+  "kind": "marketplace",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors",
+   "gpu",
+   "cpu",
+   "ram",
+   "storage",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Separate domain. Amazon Warehouse (Gebraucht) listings are the used tier; apply the condition filter.",
+  "segment": "retail-renewed"
+ },
+ {
+  "name": "Facebook Marketplace",
+  "url": "https://www.facebook.com/marketplace",
+  "host": "facebook.com",
+  "searchUrlTemplate": "https://www.facebook.com/marketplace/search/?query={q}",
+  "country": "US",
+  "kind": "classifieds",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": true,
+  "notes": "Login wall and aggressive automation detection; results are location-based.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "PC Server & Parts (PCSP)",
+  "url": "https://pcserverandparts.com",
+  "host": "pcserverandparts.com",
+  "searchUrlTemplate": "https://pcserverandparts.com/search.php?search_query={q}",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "servers",
+   "desktops",
+   "ram",
+   "cpu",
+   "storage",
+   "networking"
+  ],
+  "loginToBrowse": false,
+  "notes": "Michigan. Refurbished Dell/HPE/Lenovo servers, workstations, RAM, CPUs. BigCommerce search pattern from site schema.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "Salvex",
+  "url": "https://www.salvex.com",
+  "host": "salvex.com",
+  "searchUrlTemplate": "https://www.salvex.com/listings/index.cfm?search={q}",
+  "country": "US",
+  "kind": "marketplace",
+  "sells": [
+   "cpu",
+   "gpu",
+   "ram",
+   "storage",
+   "desktops",
+   "laptops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Surplus and salvage marketplace with a computer parts category; search template verified. Membership needed to bid.",
+  "segment": "surplus-liquidation"
+ },
+ {
+  "name": "musicMagpie",
+  "url": "https://www.musicmagpie.co.uk",
+  "host": "musicmagpie.co.uk",
+  "searchUrlTemplate": "",
+  "country": "GB",
+  "kind": "retailer-used-section",
+  "sells": [
+   "desktops",
+   "laptops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed refurbished desktop PC and MacBook category pages with 12-month warranty; little or no loose PC-component stock seen.",
+  "segment": "uk-ie"
+ },
+ {
+  "name": "asgoodasnew",
+  "url": "https://asgoodasnew.de/",
+  "host": "asgoodasnew.de",
+  "searchUrlTemplate": "",
+  "country": "DE",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed in search. Mostly Apple devices (MacBook, iMac), so PC-part coverage is thin.",
+  "segment": "europe"
+ },
+ {
+  "name": "Mercado Libre Mexico",
+  "url": "https://www.mercadolibre.com.mx",
+  "host": "mercadolibre.com.mx",
+  "searchUrlTemplate": "https://listado.mercadolibre.com.mx/{q}",
+  "country": "MX",
+  "kind": "marketplace",
+  "sells": [
+   "gpu",
+   "ram",
+   "cpu",
+   "storage",
+   "desktops",
+   "laptops"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed used GPU and RAM listings marked Usado under listado.mercadolibre.com.mx/computacion/componentes-pc/memorias-ram/.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "Jawa",
+  "url": "https://www.jawa.com/",
+  "host": "jawa.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "marketplace",
+  "sells": [
+   "gpu",
+   "cpu",
+   "ram",
+   "storage",
+   "motherboard",
+   "desktops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "US marketplace for used PC parts and gaming PCs, launched around 2021 with low-volume listings; confirm it is still active before scheduling runs.",
+  "segment": "forums-enthusiast"
+ },
+ {
+  "name": "Best Buy Canada (Open Box)",
+  "url": "https://www.bestbuy.ca/",
+  "host": "bestbuy.ca",
+  "searchUrlTemplate": "",
+  "country": "CA",
+  "kind": "retailer-used-section",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors",
+   "gpu",
+   "storage",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Separate domain from bestbuy.com. Search URL pattern not confirmed, so it is left empty.",
+  "segment": "retail-renewed"
+ },
+ {
+  "name": "OfferUp",
+  "url": "https://offerup.com",
+  "host": "offerup.com",
+  "searchUrlTemplate": "https://offerup.com/search/?q={q}",
+  "country": "US",
+  "kind": "marketplace",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Mobile-first; web search shows a subset of listings; location comes from IP.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "The Server Store",
+  "url": "https://www.theserverstore.com",
+  "host": "theserverstore.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "servers",
+   "storage",
+   "networking"
+  ],
+  "loginToBrowse": false,
+  "notes": "Texas. Used and refurbished servers, bulk quotes. Search URL not confirmed.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "ATR Store",
+  "url": "https://www.atrstore.com",
+  "host": "atrstore.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "ram",
+   "servers",
+   "laptops",
+   "desktops"
+  ],
+  "loginToBrowse": false,
+  "notes": "Retail arm of ATR with RAM and DDR3/4/5 and ECC memory listings; pickup at seven US locations.",
+  "segment": "surplus-liquidation"
+ },
+ {
+  "name": "Scan UK (refurbished and used)",
+  "url": "https://www.scan.co.uk",
+  "host": "scan.co.uk",
+  "searchUrlTemplate": "https://www.scan.co.uk/search?q={q}",
+  "country": "GB",
+  "kind": "retailer-used-section",
+  "sells": [
+   "cpu",
+   "gpu",
+   "ram",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "networking"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed refurbished CPU product page (Ryzen 7 5700X refurbished, now sold out) and refurbished Corsair range. Stock comes and goes. Search pattern from memory.",
+  "segment": "uk-ie"
+ },
+ {
+  "name": "ComputerStore Berlin",
+  "url": "https://www.computerstoreberlin.de/Home",
+  "host": "computerstoreberlin.de",
+  "searchUrlTemplate": "",
+  "country": "DE",
+  "kind": "refurbisher",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "desktops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed in search: tested used GPUs, CPUs, RAM, SSDs and refurbished PCs. Search URL not confirmed.",
+  "segment": "europe"
+ },
+ {
+  "name": "Mercado Libre Argentina",
+  "url": "https://www.mercadolibre.com.ar",
+  "host": "mercadolibre.com.ar",
+  "searchUrlTemplate": "https://listado.mercadolibre.com.ar/{q}",
+  "country": "AR",
+  "kind": "marketplace",
+  "sells": [
+   "gpu",
+   "ram",
+   "cpu",
+   "storage",
+   "desktops",
+   "laptops"
+  ],
+  "loginToBrowse": false,
+  "notes": "Same listado layout as Mexico. Argentina search path not verified in this pass.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "Tweakers Vraag & Aanbod",
+  "url": "https://tweakers.net/aanbod/",
+  "host": "tweakers.net",
+  "searchUrlTemplate": "",
+  "country": "NL",
+  "kind": "forum-marketplace",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "networking",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Dutch V&A confirmed (tweakers.net/aanbod user pages and V&A FAQ). Mix of private and business sellers. Search pattern not confirmed.",
+  "segment": "forums-enthusiast"
+ },
+ {
+  "name": "Microsoft Store Certified Refurbished",
+  "url": "https://www.microsoft.com/en-us/store/b/certified-refurbished",
+  "host": "microsoft.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed Certified Refurbished Surface laptops and tablets (microsoft.com/en-us/d/... product pages). Surface only, no desktops or parts.",
+  "segment": "retail-renewed"
+ },
+ {
+  "name": "Craigslist",
+  "url": "https://www.craigslist.org",
+  "host": "craigslist.org",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "classifieds",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "servers",
+   "networking",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Per-city subdomains (e.g. sfbay.craigslist.org/search/sss?query=...); pick a city per run.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "ServerParts4Less",
+  "url": "https://www.serverparts4less.com",
+  "host": "serverparts4less.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "servers",
+   "storage",
+   "ram",
+   "cpu",
+   "motherboard",
+   "psu"
+  ],
+  "loginToBrowse": false,
+  "notes": "Refurbished and new server parts, drives, memory; end-of-life hardware focus. Search URL not confirmed.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "Wisconsin Surplus Online Auction",
+  "url": "https://bid.wisconsinsurplus.com",
+  "host": "bid.wisconsinsurplus.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "auction",
+  "sells": [
+   "laptops",
+   "desktops",
+   "servers",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Wisconsin state surplus auctions run for state and university agencies; lot pages show MacBooks, EliteBooks and Cisco servers.",
+  "segment": "surplus-liquidation"
+ },
+ {
+  "name": "Overclockers UK (clearance and B-grade)",
+  "url": "https://www.overclockers.co.uk",
+  "host": "overclockers.co.uk",
+  "searchUrlTemplate": "",
+  "country": "GB",
+  "kind": "retailer-used-section",
+  "sells": [
+   "gpu",
+   "cpu",
+   "ram",
+   "storage",
+   "motherboard",
+   "psu",
+   "desktops",
+   "laptops"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed /clearance/graphics-cards page with B-grade GPUs. New stock is mixed in on main category pages. Search URL not confirmed.",
+  "segment": "uk-ie"
+ },
+ {
+  "name": "Pixel2Point",
+  "url": "https://pixel2point.de/",
+  "host": "pixel2point.de",
+  "searchUrlTemplate": "",
+  "country": "DE",
+  "kind": "refurbisher",
+  "sells": [
+   "gpu"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed in search: refurbished GPUs only (RTX 20/30/40 series). Small shop.",
+  "segment": "europe"
+ },
+ {
+  "name": "Mercado Livre Brasil",
+  "url": "https://www.mercadolivre.com.br",
+  "host": "mercadolivre.com.br",
+  "searchUrlTemplate": "https://lista.mercadolivre.com.br/{q}",
+  "country": "BR",
+  "kind": "marketplace",
+  "sells": [
+   "gpu",
+   "ram",
+   "cpu",
+   "storage",
+   "desktops",
+   "laptops"
+  ],
+  "loginToBrowse": false,
+  "notes": "Brazilian site uses the lista. path. Not verified in this pass.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "ComputerBase Forum (Biete/Tausche PC-Hardware and Deal-Index)",
+  "url": "https://www.computerbase.de/forum/",
+  "host": "computerbase.de",
+  "searchUrlTemplate": "",
+  "country": "DE",
+  "kind": "forum-marketplace",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "desktops",
+   "other"
+  ],
+  "loginToBrowse": true,
+  "notes": "The Deal-Index marketplace is restricted to members with 200+ posts and 90+ days' registration, so it is likely invisible to an anonymous browser. The Biete/Tausche forum is the open part.",
+  "segment": "forums-enthusiast"
+ },
+ {
+  "name": "Decluttr",
+  "url": "https://www.decluttr.com/",
+  "host": "decluttr.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "trade-in-store",
+  "sells": [
+   "laptops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Buy-back and resale of used electronics, mostly phones and consoles. Computer and component coverage is limited.",
+  "segment": "retail-renewed"
+ },
+ {
+  "name": "Swappa",
+  "url": "https://swappa.com",
+  "host": "swappa.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "marketplace",
+  "sells": [
+   "laptops",
+   "desktops",
+   "gpu",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Verified: used computers, laptops, GPUs and monitors; phone-first, RAM and CPU listings sparse.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "TDS Inc (tdstrade.com)",
+  "url": "https://www.tdstrade.com",
+  "host": "tdstrade.com",
+  "searchUrlTemplate": "",
+  "country": "global",
+  "kind": "enterprise-surplus",
+  "sells": [
+   "servers",
+   "storage",
+   "networking",
+   "ram",
+   "gpu"
+  ],
+  "loginToBrowse": false,
+  "notes": "Surplus enterprise hardware since 1994; inventory and quote-driven. HQ location not confirmed.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "Virginia Tech Surplus (via Matthews Auctioneers)",
+  "url": "https://www.matthewsauctioneers.com",
+  "host": "matthewsauctioneers.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "auction",
+  "sells": [
+   "laptops",
+   "desktops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "University surplus auctions run by an auctioneer; lots of Dell, Apple and Samsung laptops. Past-event pages are public.",
+  "segment": "surplus-liquidation"
+ },
+ {
+  "name": "Ex-Display Marketplace",
+  "url": "https://ex-display.co.uk",
+  "host": "ex-display.co.uk",
+  "searchUrlTemplate": "",
+  "country": "GB",
+  "kind": "liquidation",
+  "sells": [
+   "gpu",
+   "desktops",
+   "laptops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed used, clearance and ex-display graphics card category, which showed No products found at the time of the check. Inventory is thin.",
+  "segment": "uk-ie"
+ },
+ {
+  "name": "ESM-Computer",
+  "url": "https://www.esm-computer.de/",
+  "host": "esm-computer.de",
+  "searchUrlTemplate": "",
+  "country": "DE",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed in search: used business laptops, desktops and monitors. Few standalone parts.",
+  "segment": "europe"
+ },
+ {
+  "name": "Mercado Libre Colombia",
+  "url": "https://www.mercadolibre.com.co",
+  "host": "mercadolibre.com.co",
+  "searchUrlTemplate": "https://listado.mercadolibre.com.co/{q}",
+  "country": "CO",
+  "kind": "marketplace",
+  "sells": [
+   "gpu",
+   "ram",
+   "cpu",
+   "storage",
+   "desktops",
+   "laptops"
+  ],
+  "loginToBrowse": false,
+  "notes": "Separate domain; same Mercado Libre listing layout. Search path not verified in this pass.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "Hardwareluxx Schwarzes Brett",
+  "url": "https://www.hardwareluxx.de/community/",
+  "host": "hardwareluxx.de",
+  "searchUrlTemplate": "",
+  "country": "DE",
+  "kind": "forum-marketplace",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "desktops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Schwarzes Brett (classifieds board) confirmed by its marketplace rules page. German-language; search pattern not confirmed.",
+  "segment": "forums-enthusiast"
+ },
+ {
+  "name": "CDW Certified Refurbished",
+  "url": "https://www.cdw.com/",
+  "host": "cdw.com",
+  "searchUrlTemplate": "https://www.cdw.com/search/?key={q}",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors",
+   "servers",
+   "networking",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Business-focused certified refurbished PCs and laptops. Search pattern not confirmed live; account sign-in may be needed for pricing.",
+  "segment": "retail-renewed"
+ },
+ {
+  "name": "ShopGoodwill",
+  "url": "https://shopgoodwill.com",
+  "host": "shopgoodwill.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "auction",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "servers",
+   "networking",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Goodwill online auctions; mixed used and salvage condition; search URL not verified.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "ITRenew",
+  "url": "https://www.itrenew.com",
+  "host": "itrenew.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "servers",
+   "storage",
+   "networking"
+  ],
+  "loginToBrowse": false,
+  "notes": "Sesame recertified hyperscale hardware; quote-driven B2B, catalog may require request. Search URL not confirmed.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "MSU Surplus Store",
+  "url": "https://msusurplusstore.com",
+  "host": "msusurplusstore.com",
+  "searchUrlTemplate": "https://msusurplusstore.com/search?q={q}",
+  "country": "US",
+  "kind": "retailer-used-section",
+  "sells": [
+   "desktops",
+   "laptops",
+   "servers",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Michigan State University surplus shop with a Shopify storefront; search template verified (results for dell).",
+  "segment": "surplus-liquidation"
+ },
+ {
+  "name": "Back Market UK",
+  "url": "https://www.backmarket.co.uk/en-gb",
+  "host": "backmarket.co.uk",
+  "searchUrlTemplate": "",
+  "country": "GB",
+  "kind": "marketplace",
+  "sells": [
+   "desktops",
+   "laptops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed refurbished desktop listings (HP EliteDesk, Dell OptiPlex) with 12-month warranty. Mostly whole machines, with few loose components. Search URL not confirmed.",
+  "segment": "uk-ie"
+ },
+ {
+  "name": "RAM-König",
+  "url": "https://en.ram-koenig.de/",
+  "host": "en.ram-koenig.de",
+  "searchUrlTemplate": "",
+  "country": "DE",
+  "kind": "refurbisher",
+  "sells": [
+   "ram",
+   "storage",
+   "desktops",
+   "laptops",
+   "servers",
+   "motherboard",
+   "cpu",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed in search: has a PC Arbeitsspeicher and HDD/SSD category, plus refurbished mini PCs and workstations. Mostly business gear.",
+  "segment": "europe"
+ },
+ {
+  "name": "Mercado Libre Chile",
+  "url": "https://www.mercadolibre.cl",
+  "host": "mercadolibre.cl",
+  "searchUrlTemplate": "https://listado.mercadolibre.cl/{q}",
+  "country": "CL",
+  "kind": "marketplace",
+  "sells": [
+   "gpu",
+   "ram",
+   "cpu",
+   "storage",
+   "desktops",
+   "laptops"
+  ],
+  "loginToBrowse": false,
+  "notes": "Separate domain; same Mercado Libre listing layout. Search path not verified in this pass.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "HardForum (Hard|Forum) For Sale / Trade",
+  "url": "https://hardforum.com/forums/for-sale-trade.17/",
+  "host": "hardforum.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "forum-marketplace",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "servers",
+   "networking",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "FS/FT forum confirmed live with recent threads (NAS, server parts, DDR5). XenForo; search pattern not confirmed.",
+  "segment": "forums-enthusiast"
+ },
+ {
+  "name": "OWC (Other World Computing)",
+  "url": "https://eshop.macsales.com/",
+  "host": "eshop.macsales.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops",
+   "desktops",
+   "ram",
+   "storage",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Refurbished Macs plus upgrade RAM and SSD parts. Strong Mac upgrade component range. Domain for the store is eshop.macsales.com.",
+  "segment": "retail-renewed"
+ },
+ {
+  "name": "Bonanza",
+  "url": "https://www.bonanza.com",
+  "host": "bonanza.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "marketplace",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "servers",
+   "networking",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "eBay-like marketplace with some used PC parts; search URL not verified.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "Mulligan Technologies",
+  "url": "https://mulligantechnologies.com",
+  "host": "mulligantechnologies.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "networking",
+   "servers",
+   "gpu"
+  ],
+  "loginToBrowse": false,
+  "notes": "Missouri. Refurbished Cisco switches, routers, servers and GPUs; quote requests for many SKUs.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "UNLV Surplus Center",
+  "url": "https://unlv-surplus-store.myshopify.com",
+  "host": "unlv-surplus-store.myshopify.com",
+  "searchUrlTemplate": "https://unlv-surplus-store.myshopify.com/search?q={q}",
+  "country": "US",
+  "kind": "retailer-used-section",
+  "sells": [
+   "desktops",
+   "laptops"
+  ],
+  "loginToBrowse": false,
+  "notes": "UNLV surplus Shopify store; search template verified. Sells to individuals only and PCs ship with Linux.",
+  "segment": "surplus-liquidation"
+ },
+ {
+  "name": "Cash Converters UK (online shop)",
+  "url": "https://www.cashconverters.co.uk/shop",
+  "host": "cashconverters.co.uk",
+  "searchUrlTemplate": "",
+  "country": "GB",
+  "kind": "retailer-used-section",
+  "sells": [
+   "desktops",
+   "laptops",
+   "gpu",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed online shop with a Desktop PCs & Monitors and PC Gaming section. Store stock varies by branch.",
+  "segment": "uk-ie"
+ },
+ {
+  "name": "ITSCO",
+  "url": "https://www.itsco.de/computer",
+  "host": "itsco.de",
+  "searchUrlTemplate": "",
+  "country": "DE",
+  "kind": "refurbisher",
+  "sells": [
+   "desktops",
+   "laptops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed in search: refurbished business desktops (Dell, HP, Fujitsu). Parts are minor.",
+  "segment": "europe"
+ },
+ {
+  "name": "Mercado Libre Peru",
+  "url": "https://www.mercadolibre.com.pe",
+  "host": "mercadolibre.com.pe",
+  "searchUrlTemplate": "https://listado.mercadolibre.com.pe/{q}",
+  "country": "PE",
+  "kind": "marketplace",
+  "sells": [
+   "gpu",
+   "ram",
+   "cpu",
+   "storage",
+   "desktops",
+   "laptops"
+  ],
+  "loginToBrowse": false,
+  "notes": "Separate domain; same Mercado Libre listing layout. Search path not verified in this pass.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "Whirlpool Forums For Sale",
+  "url": "https://forums.whirlpool.net.au/",
+  "host": "forums.whirlpool.net.au",
+  "searchUrlTemplate": "",
+  "country": "AU",
+  "kind": "forum-marketplace",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Australian general forum with a For Sale area. Only the homepage and an archive were confirmed. Verify the For Sale forum path.",
+  "segment": "forums-enthusiast"
+ },
+ {
+  "name": "We Sell Mac",
+  "url": "https://www.wesellmac.com/",
+  "host": "wesellmac.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops",
+   "desktops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Named in Macfax as a second-tier used and refurbished Mac shop. Mac-only.",
+  "segment": "retail-renewed"
+ },
+ {
+  "name": "HiBid",
+  "url": "https://hibid.com",
+  "host": "hibid.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "auction",
+  "sells": [
+   "ram",
+   "storage",
+   "laptops",
+   "desktops",
+   "monitors",
+   "networking",
+   "servers",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Verified: many small-house auctions with computer, DDR5 and hard-drive lots; many are local pickup only.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "Multi-Link Communications (MLCP)",
+  "url": "https://www.mlcp.com",
+  "host": "mlcp.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "networking"
+  ],
+  "loginToBrowse": false,
+  "notes": "Refurbished and pre-owned Cisco routers, switches, Juniper, Adtran, Extreme. Search URL not confirmed.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "UF Surplus",
+  "url": "https://surplus.ufl.edu",
+  "host": "surplus.ufl.edu",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "retailer-used-section",
+  "sells": [
+   "desktops",
+   "laptops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "University of Florida surplus; Buy Now page lists tested desktops and laptops, plus auctions on GovDeals and Public Surplus.",
+  "segment": "surplus-liquidation"
+ },
+ {
+  "name": "Cash Generator UK (pre-owned)",
+  "url": "https://cashgenerator.co.uk",
+  "host": "cashgenerator.co.uk",
+  "searchUrlTemplate": "",
+  "country": "GB",
+  "kind": "retailer-used-section",
+  "sells": [
+   "desktops",
+   "laptops",
+   "gpu",
+   "storage",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed Pre-Owned Grade A/B desktops, SSD and gaming desktop listings. Many items are collection-only from branches.",
+  "segment": "uk-ie"
+ },
+ {
+  "name": "ServerShop24",
+  "url": "https://www.servershop24.de/en/components/graphic-cards/",
+  "host": "servershop24.de",
+  "searchUrlTemplate": "",
+  "country": "DE",
+  "kind": "refurbisher",
+  "sells": [
+   "gpu",
+   "cpu",
+   "ram",
+   "storage",
+   "servers"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed in search: refurbished server GPUs (Quadro, A-series, L40) and components. Enterprise-oriented, so consumer GPUs are rare.",
+  "segment": "europe"
+ },
+ {
+  "name": "OLX Brasil",
+  "url": "https://www.olx.com.br",
+  "host": "olx.com.br",
+  "searchUrlTemplate": "https://www.olx.com.br/brasil?q={q}",
+  "country": "BR",
+  "kind": "classifieds",
+  "sells": [
+   "gpu",
+   "ram",
+   "cpu",
+   "storage",
+   "motherboard",
+   "desktops",
+   "laptops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed used listings in informatica/placas-de-video and informatica/pecas-de-hardware with condition Usado. Search template is OLX's standard form, not re-checked.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "OCAU Trading Forums",
+  "url": "https://forums.overclockers.com.au/",
+  "host": "forums.overclockers.com.au",
+  "searchUrlTemplate": "",
+  "country": "AU",
+  "kind": "forum-marketplace",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": true,
+  "notes": "Trading and marketplace forums are hidden until the account is about 3 to 6 months old (confirmed by forum threads), so an anonymous browser will see little.",
+  "segment": "forums-enthusiast"
+ },
+ {
+  "name": "iPowerResale",
+  "url": "https://www.ipowerresale.com/",
+  "host": "ipowerresale.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops",
+   "desktops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Named in Macfax as a used-Mac shop. Verified only from a secondary source; the site was not opened.",
+  "segment": "retail-renewed"
+ },
+ {
+  "name": "BidSpotter",
+  "url": "https://www.bidspotter.com",
+  "host": "bidspotter.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "auction",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors",
+   "servers",
+   "networking",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Government and business surplus auctions; not verified this session.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "Digital Warehouse (UsedCisco.com)",
+  "url": "https://usedcisco.com",
+  "host": "usedcisco.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "networking"
+  ],
+  "loginToBrowse": false,
+  "notes": "Pre-owned Cisco, Juniper, Alcatel routers and switches since 1996. Search URL not confirmed.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "GVSU Surplus Store",
+  "url": "https://gvsusurplusstore.com",
+  "host": "gvsusurplusstore.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "retailer-used-section",
+  "sells": [
+   "desktops",
+   "laptops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Grand Valley State surplus webstore open to the public; items tested before listing. Search pattern not confirmed.",
+  "segment": "surplus-liquidation"
+ },
+ {
+  "name": "Ebuyer",
+  "url": "https://www.ebuyer.com",
+  "host": "ebuyer.com",
+  "searchUrlTemplate": "https://www.ebuyer.com/search?q={q}",
+  "country": "GB",
+  "kind": "retailer-used-section",
+  "sells": [
+   "desktops",
+   "laptops",
+   "monitors",
+   "gpu"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed refurbished PCs category and refurbished laptop listings. Loose RAM and GPU refurb stock not confirmed. Search pattern from memory.",
+  "segment": "uk-ie"
+ },
+ {
+  "name": "GEKKO Computer",
+  "url": "https://www.gekko-computer.de/",
+  "host": "gekko-computer.de",
+  "searchUrlTemplate": "",
+  "country": "DE",
+  "kind": "refurbisher",
+  "sells": [
+   "servers",
+   "ram",
+   "cpu",
+   "gpu"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed in search: used servers plus a component range (GPU, RAM, CPU). Enterprise-focused.",
+  "segment": "europe"
+ },
+ {
+  "name": "Yapo.cl",
+  "url": "https://www.yapo.cl",
+  "host": "yapo.cl",
+  "searchUrlTemplate": "",
+  "country": "CL",
+  "kind": "classifieds",
+  "sells": [
+   "ram",
+   "gpu",
+   "desktops",
+   "storage",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed used GPU, RAM and gaming PC listings across Chile. Search URL not verified.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "Hardware Canucks Buy/Sell & Trade",
+  "url": "https://hardwarecanucks.com/forum/forums/buy-sell-trade.46/",
+  "host": "hardwarecanucks.com",
+  "searchUrlTemplate": "",
+  "country": "CA",
+  "kind": "forum-marketplace",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "BST forum confirmed with live 2026 sell listings (CPUs, RAM, mobos). Posting needs 25 posts but reading is open. Some threads say FS/WTB sections are separate.",
+  "segment": "forums-enthusiast"
+ },
+ {
+  "name": "Techable",
+  "url": "https://www.techable.com/",
+  "host": "techable.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops",
+   "desktops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Named in Macfax as a used-Mac shop. Verified only from a secondary source; the site was not opened.",
+  "segment": "retail-renewed"
+ },
+ {
+  "name": "AllSurplus",
+  "url": "https://www.allsurplus.com",
+  "host": "allsurplus.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "auction",
+  "sells": [
+   "laptops",
+   "desktops",
+   "servers",
+   "networking",
+   "monitors",
+   "storage",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Ritchie Bros. surplus platform; many lots are pickup-only; not verified this session.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "PB Networks",
+  "url": "https://www.pb-networks.com",
+  "host": "pb-networks.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "networking"
+  ],
+  "loginToBrowse": false,
+  "notes": "New, used and refurbished Cisco switches, routers, firewalls. Source page was http; https not verified.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "University of Michigan Dispo Direct",
+  "url": "https://dispo.umich.edu",
+  "host": "dispo.umich.edu",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "enterprise-surplus",
+  "sells": [
+   "laptops",
+   "desktops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "UMich property disposition; electronics and computers page with lots of Dell and HP laptops sold on bid basis.",
+  "segment": "surplus-liquidation"
+ },
+ {
+  "name": "Compuwyze",
+  "url": "https://compuwyze.co.uk",
+  "host": "compuwyze.co.uk",
+  "searchUrlTemplate": "",
+  "country": "GB",
+  "kind": "refurbisher",
+  "sells": [
+   "ram",
+   "servers",
+   "desktops"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed refurbished server RAM and ECC category with 12-month RTB warranty. Server-oriented. Search URL not confirmed.",
+  "segment": "uk-ie"
+ },
+ {
+  "name": "Computer Shop Hamburg (SO-Computertechnik)",
+  "url": "https://computershophamburg.de/",
+  "host": "computershophamburg.de",
+  "searchUrlTemplate": "",
+  "country": "DE",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops",
+   "desktops"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed in search: refurbished laptops and PCs, and buys used equipment. Parts not seen.",
+  "segment": "europe"
+ },
+ {
+  "name": "Logg Hardstore",
+  "url": "https://logg.com.ar",
+  "host": "logg.com.ar",
+  "searchUrlTemplate": "",
+  "country": "AR",
+  "kind": "refurbisher",
+  "sells": [
+   "gpu"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed reconditioned (REACONDICIONADA) RTX 3060 product page with a warranty-style listing. Site search not verified.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "Ars Technica OpenForum FS/FT",
+  "url": "https://arstechnica.com/civis/",
+  "host": "arstechnica.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "forum-marketplace",
+  "sells": [
+   "cpu",
+   "ram",
+   "storage",
+   "networking",
+   "desktops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Ars OpenForum (civis, XenForo) has FS threads confirmed with 2026 dates. Low volume.",
+  "segment": "forums-enthusiast"
+ },
+ {
+  "name": "Computer Upgrade King",
+  "url": "https://www.computerupgradeking.com/",
+  "host": "computerupgradeking.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "ram",
+   "cpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "desktops",
+   "laptops",
+   "servers",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Used and refurbished computer parts and systems. Existence was not verified by search; confirm before first use.",
+  "segment": "retail-renewed"
+ },
+ {
+  "name": "GovDeals",
+  "url": "https://www.govdeals.com",
+  "host": "govdeals.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "auction",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors",
+   "servers",
+   "networking",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Government surplus; buyer registration needed to bid; not verified this session.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "Hula Networks",
+  "url": "https://www.hulanetworks.com",
+  "host": "hulanetworks.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "networking"
+  ],
+  "loginToBrowse": false,
+  "notes": "Silicon Valley. Certified pre-owned Cisco, Juniper, Extreme, Foundry gear; trade-in offered.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "UCSD Surplus Sales Online",
+  "url": "https://surplus.ucsd.edu",
+  "host": "surplus.ucsd.edu",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "retailer-used-section",
+  "sells": [
+   "desktops",
+   "laptops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "UC San Diego surplus with fixed-price Buy Now computer listings (iMacs, Dell OptiPlex and Latitude); Browse by category pages are public.",
+  "segment": "surplus-liquidation"
+ },
+ {
+  "name": "Servero",
+  "url": "https://servero.co.uk",
+  "host": "servero.co.uk",
+  "searchUrlTemplate": "",
+  "country": "GB",
+  "kind": "refurbisher",
+  "sells": [
+   "ram",
+   "servers"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed refurbished server memory product pages (ECC RDIMM). Server-oriented, with listings often out of stock. Search URL not confirmed.",
+  "segment": "uk-ie"
+ },
+ {
+  "name": "afb (afbshop.de)",
+  "url": "https://www.afbshop.de/",
+  "host": "afbshop.de",
+  "searchUrlTemplate": "",
+  "country": "DE",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed in search: refurbished notebooks and PCs with warranty, plus a PC category. Parts not seen. Sister site afb-group.de is B2B.",
+  "segment": "europe"
+ },
+ {
+  "name": "DWG Computacion",
+  "url": "https://www.dwg.com.ar",
+  "host": "dwg.com.ar",
+  "searchUrlTemplate": "",
+  "country": "AR",
+  "kind": "refurbisher",
+  "sells": [
+   "gpu"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed reconditioned RTX 3080 listing with a 3-month warranty. Site search not verified.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "Sweclockers Köp & Sälj",
+  "url": "https://www.sweclockers.com/forum/",
+  "host": "sweclockers.com",
+  "searchUrlTemplate": "",
+  "country": "SE",
+  "kind": "forum-marketplace",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Swedish enthusiast forum with a Köp & Sälj (buy and sell) subforum. Not confirmed through search in this pass; verify forum path.",
+  "segment": "forums-enthusiast"
+ },
+ {
+  "name": "Framework Marketplace",
+  "url": "https://frame.work/marketplace",
+  "host": "frame.work",
+  "searchUrlTemplate": "",
+  "country": "global",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops",
+   "ram",
+   "storage",
+   "motherboard",
+   "psu",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Official Framework laptop marketplace with used and open-box modules and laptops. Existence not verified by search; confirm before first use.",
+  "segment": "retail-renewed"
+ },
+ {
+  "name": "GovLiquidation",
+  "url": "https://www.govliquidation.com",
+  "host": "govliquidation.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "liquidation",
+  "sells": [
+   "laptops",
+   "desktops",
+   "servers",
+   "networking",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Federal surplus pallets with registration required; not verified this session.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "BrightStar Systems",
+  "url": "https://brightstarsystems.com",
+  "host": "brightstarsystems.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "networking"
+  ],
+  "loginToBrowse": false,
+  "notes": "Cisco Refresh Partner; certified used Cisco switches and routers, Nexus and Catalyst lines.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "Colorado State University Surplus Property",
+  "url": "https://surplus.colostate.edu",
+  "host": "surplus.colostate.edu",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "retailer-used-section",
+  "sells": [
+   "laptops",
+   "desktops",
+   "ram",
+   "storage",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Sales floor plus online auctions; says it sells RAM sticks and drives as-is, and breaks down non-working units for parts.",
+  "segment": "surplus-liquidation"
+ },
+ {
+  "name": "Bidspotter",
+  "url": "https://www.bidspotter.co.uk",
+  "host": "bidspotter.co.uk",
+  "searchUrlTemplate": "",
+  "country": "GB",
+  "kind": "auction",
+  "sells": [
+   "servers",
+   "desktops",
+   "laptops",
+   "networking",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Not verified in this session; listed from prior knowledge as a UK auction aggregator for business IT surplus. Lots are mostly corporate clearance.",
+  "segment": "uk-ie"
+ },
+ {
+  "name": "GSD / RETEQ",
+  "url": "https://www.gsd.eu/produkte-services/",
+  "host": "gsd.eu",
+  "searchUrlTemplate": "",
+  "country": "DE",
+  "kind": "refurbisher",
+  "sells": [
+   "desktops",
+   "laptops",
+   "monitors"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed in search: RETEQ-certified refurbished business PCs for private and trade buyers. Mainly prebuilt systems.",
+  "segment": "europe"
+ },
+ {
+  "name": "Gumtree Australia",
+  "url": "https://www.gumtree.com.au",
+  "host": "gumtree.com.au",
+  "searchUrlTemplate": "https://www.gumtree.com.au/s-{q}/k0",
+  "country": "AU",
+  "kind": "classifieds",
+  "sells": [
+   "gpu",
+   "ram",
+   "cpu",
+   "storage",
+   "desktops",
+   "laptops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed used GPU and RAM ads under Components. Path s-<term>/k0 follows the observed category pattern; spaces go in as +.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "OcUK Forums Buy & Sell",
+  "url": "https://forums.overclockers.co.uk/",
+  "host": "forums.overclockers.co.uk",
+  "searchUrlTemplate": "",
+  "country": "GB",
+  "kind": "forum-marketplace",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "UK enthusiast forum with a Buy & Sell section; not confirmed through search in this pass. Verify before scheduling.",
+  "segment": "forums-enthusiast"
+ },
+ {
+  "name": "rebuy (Germany)",
+  "url": "https://www.rebuy.de/",
+  "host": "rebuy.de",
+  "searchUrlTemplate": "",
+  "country": "DE",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "German refurbisher named in the tagesschau article and the eBay/metoda Refurbished study. Laptop and desktop coverage not verified; confirm before relying on it.",
+  "segment": "retail-renewed"
+ },
+ {
+  "name": "Liquidation.com",
+  "url": "https://www.liquidation.com",
+  "host": "liquidation.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "liquidation",
+  "sells": [
+   "servers",
+   "networking",
+   "desktops",
+   "laptops",
+   "storage",
+   "ram",
+   "gpu",
+   "motherboard",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Verified: active; PC gaming component and server/motherboard lots; B-Stock owned; bulk-lot oriented.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "TekBoost",
+  "url": "https://tekboost.com",
+  "host": "tekboost.com",
+  "searchUrlTemplate": "https://tekboost.com/search.php?search_query={q}",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "desktops",
+   "storage",
+   "ram",
+   "cpu",
+   "gpu"
+  ],
+  "loginToBrowse": false,
+  "notes": "Austin TX area. Refurbished Dell Precision and HP Z workstations; some configure-to-order. Search pattern from site schema.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "University of Arizona Surplus Storefront",
+  "url": "https://storefront.arizona.edu",
+  "host": "storefront.arizona.edu",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "auction",
+  "sells": [
+   "laptops",
+   "desktops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "University surplus storefront with special-bid laptop and small electronics auctions; lot PDFs and preview info are public.",
+  "segment": "surplus-liquidation"
+ },
+ {
+  "name": "DoneDeal",
+  "url": "https://www.donedeal.ie",
+  "host": "donedeal.ie",
+  "searchUrlTemplate": "https://www.donedeal.ie/search?keywords={q}",
+  "country": "IE",
+  "kind": "classifieds",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "motherboard",
+   "storage",
+   "psu",
+   "desktops",
+   "laptops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed PC category (about 900 ads) with individual PC-parts lots (RAM, CPUs, GPUs, motherboards) and used desktop listings. Search pattern from memory.",
+  "segment": "uk-ie"
+ },
+ {
+  "name": "Belco24",
+  "url": "https://belco24.de/",
+  "host": "belco24.de",
+  "searchUrlTemplate": "",
+  "country": "DE",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops",
+   "desktops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed in search: used IT hardware shop with warranty. Parts coverage unknown.",
+  "segment": "europe"
+ },
+ {
+  "name": "eBay Australia",
+  "url": "https://www.ebay.com.au",
+  "host": "ebay.com.au",
+  "searchUrlTemplate": "https://www.ebay.com.au/sch/i.html?_nkw={q}",
+  "country": "AU",
+  "kind": "marketplace",
+  "sells": [
+   "gpu",
+   "ram",
+   "cpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "desktops",
+   "laptops"
+  ],
+  "loginToBrowse": false,
+  "notes": "Mixed new and used stock; filter by condition. Regional pattern not separately confirmed in this pass.",
+  "segment": "americas-apac",
+  "walled": true
+ },
+ {
+  "name": "TechPowerUp Forums Classifieds",
+  "url": "https://forums.techpowerup.com/",
+  "host": "forums.techpowerup.com",
+  "searchUrlTemplate": "",
+  "country": "global",
+  "kind": "forum-marketplace",
+  "sells": [
+   "gpu",
+   "cpu",
+   "ram",
+   "storage",
+   "motherboard",
+   "psu",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Enthusiast forum with a classifieds/for-sale area; not confirmed through search. Verify the section exists.",
+  "segment": "forums-enthusiast"
+ },
+ {
+  "name": "asgoodasnew (Germany)",
+  "url": "https://www.asgoodasnew.com/",
+  "host": "asgoodasnew.com",
+  "searchUrlTemplate": "",
+  "country": "DE",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "German refurbished electronics specialist named in the metoda/eBay study. Computer coverage not verified.",
+  "segment": "retail-renewed"
+ },
+ {
+  "name": "DirectLiquidation",
+  "url": "https://www.directliquidation.com",
+  "host": "directliquidation.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "liquidation",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors",
+   "networking",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "B2B wholesale liquidation; registration needed; not verified this session.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "Discount Computer Depot",
+  "url": "https://discountcomputerdepot.com",
+  "host": "discountcomputerdepot.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "desktops",
+   "laptops"
+  ],
+  "loginToBrowse": false,
+  "notes": "Used and refurbished HP ProDesk/EliteDesk, workstations; free shipping. Search URL not confirmed.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "University of Pittsburgh Surplus Property",
+  "url": "https://apps.fis.pitt.edu/surplusproperty",
+  "host": "apps.fis.pitt.edu",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "enterprise-surplus",
+  "sells": [
+   "servers",
+   "desktops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Pitt surplus inventory with a computer equipment category (Supermicro servers, UPS units); sold as-is and by appointment.",
+  "segment": "surplus-liquidation"
+ },
+ {
+  "name": "Adverts.ie",
+  "url": "https://www.adverts.ie",
+  "host": "adverts.ie",
+  "searchUrlTemplate": "https://www.adverts.ie/results/{q}",
+  "country": "IE",
+  "kind": "classifieds",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "motherboard",
+   "desktops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed results URL pattern (results/pc+parts, about 774 PC-parts ads). Mixes private used ads and new shop listings.",
+  "segment": "uk-ie"
+ },
+ {
+  "name": "Back Market (Germany)",
+  "url": "https://www.backmarket.de/de-de",
+  "host": "backmarket.de",
+  "searchUrlTemplate": "",
+  "country": "DE",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed in search: refurbished laptops and MacBooks with a listing structure. Few standalone PC parts.",
+  "segment": "europe"
+ },
+ {
+  "name": "Cash Converters Australia",
+  "url": "https://www.cashconverters.com.au",
+  "host": "cashconverters.com.au",
+  "searchUrlTemplate": "",
+  "country": "AU",
+  "kind": "retailer-used-section",
+  "sells": [
+   "desktops",
+   "laptops",
+   "gpu",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed used gaming PC and graphics card pages. Each listing is a single unit of single-store stock.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "Bazoš PC (Czech)",
+  "url": "https://pc.bazos.cz/",
+  "host": "pc.bazos.cz",
+  "searchUrlTemplate": "",
+  "country": "CZ",
+  "kind": "classifieds",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Czech classifieds; PC section confirmed (Jawa bazar sub-listing). Search URL pattern not confirmed.",
+  "segment": "forums-enthusiast"
+ },
+ {
+  "name": "ReMarkt (Germany)",
+  "url": "https://www.remarkt.de/",
+  "host": "remarkt.de",
+  "searchUrlTemplate": "",
+  "country": "DE",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed refurbished IT wholesale and retail, with laptops, PCs and monitors from HP, Dell, Lenovo and Apple. At least one year warranty.",
+  "segment": "retail-renewed"
+ },
+ {
+  "name": "PublicSurplus",
+  "url": "https://www.publicsurplus.com",
+  "host": "publicsurplus.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "auction",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors",
+   "storage",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Verified: government surplus with a computers category; many laptop lots are sold with hard drives removed.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "DiscountPC",
+  "url": "https://discountpc.com",
+  "host": "discountpc.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "desktops",
+   "laptops",
+   "monitors"
+  ],
+  "loginToBrowse": false,
+  "notes": "Refurbished Dell OptiPlex, Precision, Lenovo ThinkCentre desktops and laptops. Search URL not confirmed.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "Indiana University Columbus UITS Used Computer Sale",
+  "url": "https://columbus.iu.edu/campaigns/surplus-device-sale/index.html",
+  "host": "columbus.iu.edu",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "retailer-used-section",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors"
+  ],
+  "loginToBrowse": false,
+  "notes": "Campus IT used-computer sale with a fluctuating inventory list; buy in person in LC1507, not online checkout.",
+  "segment": "surplus-liquidation"
+ },
+ {
+  "name": "Gumtree Ireland",
+  "url": "https://www.gumtree.ie",
+  "host": "gumtree.ie",
+  "searchUrlTemplate": "",
+  "country": "IE",
+  "kind": "classifieds",
+  "sells": [
+   "gpu",
+   "cpu",
+   "ram",
+   "storage",
+   "desktops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Not verified in this session; the Gumtree Ireland domain is from prior knowledge. Confirm the domain and search URL before use.",
+  "segment": "uk-ie"
+ },
+ {
+  "name": "refurbed (Germany)",
+  "url": "https://www.refurbed.de/",
+  "host": "refurbed.de",
+  "searchUrlTemplate": "",
+  "country": "DE",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Named in task, not confirmed in this session. Mostly phones, with some laptops.",
+  "segment": "europe"
+ },
+ {
+  "name": "Back Market Australia",
+  "url": "https://www.backmarket.com.au",
+  "host": "backmarket.com.au",
+  "searchUrlTemplate": "",
+  "country": "AU",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed refurbished laptop listings. Desktops and parts were not seen, so coverage is laptops only.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "refurbed",
+  "url": "https://www.refurbed.com/",
+  "host": "refurbed.com",
+  "searchUrlTemplate": "",
+  "country": "global",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "EU refurbished-electronics retailer with laptops and some PCs. Search pattern not confirmed.",
+  "segment": "forums-enthusiast"
+ },
+ {
+  "name": "ReWerk (Germany)",
+  "url": "https://re-werk.de/",
+  "host": "re-werk.de",
+  "searchUrlTemplate": "",
+  "country": "DE",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops",
+   "desktops"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed refurbished business laptops and mini-PCs. Actual sales run through their eBay shop, so the agent may need to follow through to eBay.",
+  "segment": "retail-renewed"
+ },
+ {
+  "name": "Municibid",
+  "url": "https://www.municibid.com",
+  "host": "municibid.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "auction",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors",
+   "servers",
+   "networking",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Verified: government and school surplus; computer lots often sold for parts; 7% buyer fee.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "REFURB.io USA",
+  "url": "https://us.refurb.io",
+  "host": "us.refurb.io",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "desktops",
+   "laptops",
+   "monitors"
+  ],
+  "loginToBrowse": false,
+  "notes": "Microsoft Authorized Refurbisher; refurbished Dell OptiPlex, HP EliteDesk and Lenovo desktops. Search URL not confirmed.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "Tectra Technologies",
+  "url": "https://tectratech.com",
+  "host": "tectratech.com",
+  "searchUrlTemplate": "",
+  "country": "GB",
+  "kind": "refurbisher",
+  "sells": [
+   "servers",
+   "cpu",
+   "ram",
+   "gpu",
+   "storage",
+   "networking"
+  ],
+  "loginToBrowse": false,
+  "notes": "UK-based buyer and seller of refurbished servers, CPUs, HDDs, RAM and GPUs with global shipping. Search pattern not confirmed.",
+  "segment": "surplus-liquidation"
+ },
+ {
+  "name": "buz.ie",
+  "url": "https://buz.ie",
+  "host": "buz.ie",
+  "searchUrlTemplate": "",
+  "country": "IE",
+  "kind": "classifieds",
+  "sells": [
+   "desktops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed computer-components category page and county-tagged ads. Low volume.",
+  "segment": "uk-ie"
+ },
+ {
+  "name": "Leboncoin",
+  "url": "https://www.leboncoin.fr/",
+  "host": "leboncoin.fr",
+  "searchUrlTemplate": "https://www.leboncoin.fr/recherche?text={q}",
+  "country": "FR",
+  "kind": "classifieds",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Largest French classifieds site. Template from memory. Known for DataDome-style bot walls.",
+  "segment": "europe",
+  "walled": true
+ },
+ {
+  "name": "Trade Me",
+  "url": "https://www.trademe.co.nz",
+  "host": "trademe.co.nz",
+  "searchUrlTemplate": "",
+  "country": "NZ",
+  "kind": "marketplace",
+  "sells": [
+   "gpu",
+   "ram",
+   "storage",
+   "desktops",
+   "laptops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed live used GPU, RAM and SSD ads under Computers > Components. Search URL not verified.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "PropertyRoom",
+  "url": "https://www.propertyroom.com",
+  "host": "propertyroom.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "auction",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors",
+   "networking",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Verified: police and surplus auctions starting at $1; many Macs and PCs listed sold for parts; phone-heavy overall.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "Electronics Bazaar USA",
+  "url": "https://www.electronicsbazaar.com/en-us",
+  "host": "electronicsbazaar.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "desktops",
+   "laptops"
+  ],
+  "loginToBrowse": false,
+  "notes": "US storefront of refurbished Dell OptiPlex, HP ProDesk desktops. Company location not confirmed.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "ITinStock",
+  "url": "https://itinstock.com",
+  "host": "itinstock.com",
+  "searchUrlTemplate": "",
+  "country": "GB",
+  "kind": "refurbisher",
+  "sells": [
+   "servers",
+   "storage",
+   "networking",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "UK enterprise IT stockist of new and refurbished servers and components, with an ITAD service. Search pattern not confirmed.",
+  "segment": "surplus-liquidation"
+ },
+ {
+  "name": "eBay Ireland",
+  "url": "https://www.ebay.ie",
+  "host": "ebay.ie",
+  "searchUrlTemplate": "https://www.ebay.ie/sch/i.html?_nkw={q}",
+  "country": "IE",
+  "kind": "marketplace",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Separate eBay domain, so listed separately from eBay UK. Search pattern from memory.",
+  "segment": "uk-ie",
+  "walled": true
+ },
+ {
+  "name": "Back Market (France)",
+  "url": "https://www.backmarket.fr/fr-fr",
+  "host": "backmarket.fr",
+  "searchUrlTemplate": "",
+  "country": "FR",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed in search: refurbished laptops and desktops (Dell OptiPlex, HP EliteBook). Separate French domain.",
+  "segment": "europe"
+ },
+ {
+  "name": "eBay New Zealand",
+  "url": "https://www.ebay.co.nz",
+  "host": "ebay.co.nz",
+  "searchUrlTemplate": "https://www.ebay.co.nz/sch/i.html?_nkw={q}",
+  "country": "NZ",
+  "kind": "marketplace",
+  "sells": [
+   "gpu",
+   "ram",
+   "cpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "desktops",
+   "laptops"
+  ],
+  "loginToBrowse": false,
+  "notes": "Mixed new and used stock. Regional domain not verified in this pass.",
+  "segment": "americas-apac",
+  "walled": true
+ },
+ {
+  "name": "r/hardwareswap",
+  "url": "https://www.reddit.com/r/hardwareswap",
+  "host": "reddit.com",
+  "searchUrlTemplate": "https://www.reddit.com/r/hardwareswap/search/?q={q}&restrict_sr=1",
+  "country": "US",
+  "kind": "forum-marketplace",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "monitors",
+   "laptops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Enthusiast PC-parts classifieds; Reddit rate-limits logged-out automation.",
+  "segment": "us-marketplaces",
+  "walled": true
+ },
+ {
+  "name": "PCLiquidations",
+  "url": "https://www.pcliquidations.com",
+  "host": "pcliquidations.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "desktops",
+   "servers",
+   "networking",
+   "monitors",
+   "gpu",
+   "ram",
+   "cpu"
+  ],
+  "loginToBrowse": false,
+  "notes": "Jacksonville FL, since 1991. Refurbished desktops, servers, networking, PC parts incl. low-profile GPUs. Search URL not confirmed.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "HiTech Bay",
+  "url": "https://hitechbay.com",
+  "host": "hitechbay.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops",
+   "desktops",
+   "servers",
+   "storage",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Microsoft Certified Refurbisher with wholesale and retail sales of refurbished laptops, desktops and SSDs. Location not confirmed.",
+  "segment": "surplus-liquidation"
+ },
+ {
+  "name": "Refurbed Ireland",
+  "url": "https://www.refurbed.ie",
+  "host": "refurbed.ie",
+  "searchUrlTemplate": "",
+  "country": "IE",
+  "kind": "refurbisher",
+  "sells": [
+   "gpu",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed refurbished computer components category with Quadro and RX GPUs at 12-month warranty. Also a marketplace for other refurbished tech.",
+  "segment": "uk-ie"
+ },
+ {
+  "name": "Materiel.net",
+  "url": "https://www.materiel.net/",
+  "host": "materiel.net",
+  "searchUrlTemplate": "",
+  "country": "FR",
+  "kind": "retailer-used-section",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Retailer with a reconditioned section. Not confirmed in this session. Verify that the used section lists PC parts.",
+  "segment": "europe"
+ },
+ {
+  "name": "Mercari Japan",
+  "url": "https://jp.mercari.com",
+  "host": "jp.mercari.com",
+  "searchUrlTemplate": "https://jp.mercari.com/search?keyword={q}",
+  "country": "JP",
+  "kind": "marketplace",
+  "sells": [
+   "gpu",
+   "ram",
+   "cpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "desktops",
+   "laptops"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed used RTX 3090, RX 7900 XTX and Quadro listings in Japanese. Search path not re-checked.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "Overclock.net Member Classifieds",
+  "url": "https://www.overclock.net/forums/member-classifieds.14303/",
+  "host": "overclock.net",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "forum-marketplace",
+  "sells": [
+   "cpu",
+   "ram",
+   "gpu",
+   "motherboard",
+   "storage",
+   "psu",
+   "desktops",
+   "laptops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Verified: active 2026 Main Components and Other Components sections; some sellers are international.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "Mac of All Trades",
+  "url": "https://www.macofalltrades.com",
+  "host": "macofalltrades.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors"
+  ],
+  "loginToBrowse": false,
+  "notes": "Tampa FL. Refurbished and used Apple laptops, iMacs, Mac minis, Mac Pros. Search URL not confirmed.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "AndersonTech Solutions",
+  "url": "https://andersontechsolutions.com",
+  "host": "andersontechsolutions.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops",
+   "desktops",
+   "servers",
+   "networking"
+  ],
+  "loginToBrowse": false,
+  "notes": "East Coast ITAD company that resells refurbished equipment through its shop and eBay store. Shop URL not confirmed.",
+  "segment": "surplus-liquidation"
+ },
+ {
+  "name": "Creative IT (Mullingar)",
+  "url": "https://creative-it.ie",
+  "host": "creative-it.ie",
+  "searchUrlTemplate": "",
+  "country": "IE",
+  "kind": "refurbisher",
+  "sells": [
+   "desktops",
+   "laptops"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed refurbished desktop PC and laptop categories with 12-month warranty. Mostly walk-in or mail-in for repairs. Collection or delivery in Ireland.",
+  "segment": "uk-ie"
+ },
+ {
+  "name": "eBay.fr",
+  "url": "https://www.ebay.fr/",
+  "host": "ebay.fr",
+  "searchUrlTemplate": "https://www.ebay.fr/sch/i.html?_nkw={q}",
+  "country": "FR",
+  "kind": "marketplace",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "servers",
+   "networking",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Country eBay domain. Same search path as eBay.com. Heavy bot detection.",
+  "segment": "europe",
+  "walled": true
+ },
+ {
+  "name": "Yahoo Auctions Japan",
+  "url": "https://auctions.yahoo.co.jp",
+  "host": "auctions.yahoo.co.jp",
+  "searchUrlTemplate": "https://auctions.yahoo.co.jp/search/search?p={q}",
+  "country": "JP",
+  "kind": "auction",
+  "sells": [
+   "gpu",
+   "ram",
+   "cpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "desktops",
+   "laptops"
+  ],
+  "loginToBrowse": false,
+  "notes": "Auction listings with bids and used condition. Search path is the standard form, not re-checked in this pass.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "Back Market",
+  "url": "https://www.backmarket.com",
+  "host": "backmarket.com",
+  "searchUrlTemplate": "https://www.backmarket.com/en-us/search?q={q}",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Refurbished consumer devices, mostly phones and laptops; PC components sparse; search URL not verified.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "Dell Refurbished",
+  "url": "https://www.dellrefurbished.com",
+  "host": "dellrefurbished.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "desktops",
+   "laptops",
+   "monitors"
+  ],
+  "loginToBrowse": false,
+  "notes": "Official Dell refurbished store; OptiPlex, Precision, Latitude. Search URL not confirmed; bot wall not tested.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "Comprenew Refurbished Electronics",
+  "url": "https://www.shopcomprenew.org",
+  "host": "shopcomprenew.org",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Refurbished laptops and desktops storefront with in-person stores; location not confirmed.",
+  "segment": "surplus-liquidation"
+ },
+ {
+  "name": "PC Foundry",
+  "url": "https://pcfoundry.ie",
+  "host": "pcfoundry.ie",
+  "searchUrlTemplate": "",
+  "country": "IE",
+  "kind": "trade-in-store",
+  "sells": [
+   "desktops",
+   "gpu",
+   "cpu",
+   "ram",
+   "storage"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed Cork/Mullingar custom-PC shop that buys used PCs and GPUs and resells them through its own shop. Stock varies.",
+  "segment": "uk-ie"
+ },
+ {
+  "name": "Marktplaats",
+  "url": "https://www.marktplaats.nl/",
+  "host": "marktplaats.nl",
+  "searchUrlTemplate": "https://www.marktplaats.nl/q/{q}/",
+  "country": "NL",
+  "kind": "classifieds",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Largest Dutch classifieds, confirmed in search. Template from memory, not fetched.",
+  "segment": "europe"
+ },
+ {
+  "name": "Yahoo! Flea Market (PayPay Flea Market)",
+  "url": "https://paypayfleamarket.yahoo.co.jp",
+  "host": "paypayfleamarket.yahoo.co.jp",
+  "searchUrlTemplate": "",
+  "country": "JP",
+  "kind": "marketplace",
+  "sells": [
+   "gpu",
+   "ram",
+   "storage",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed used GPU, DDR4 and DDR5 memory listings in the PC parts category. Site search URL not verified.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "Gazelle",
+  "url": "https://buy.gazelle.com",
+  "host": "buy.gazelle.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Verified: certified refurbished MacBooks and used devices; phone-first, other computers sparse.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "ATR Auctions",
+  "url": "https://www.atrauctions.com",
+  "host": "atrauctions.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "auction",
+  "sells": [
+   "cpu",
+   "gpu",
+   "ram",
+   "storage",
+   "motherboard",
+   "psu",
+   "servers"
+  ],
+  "loginToBrowse": false,
+  "notes": "Certified commercial IT surplus auctions incl. CPUs, GPUs, RAM, drives, mixed teardown lots. Search URL not confirmed.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "ITAD Store",
+  "url": "https://itadstore.co.za",
+  "host": "itadstore.co.za",
+  "searchUrlTemplate": "",
+  "country": "ZA",
+  "kind": "refurbisher",
+  "sells": [
+   "desktops",
+   "laptops",
+   "storage",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "South African refurbished desktop and thin-client shop with Centurion and Cape Town stores; prices in ZAR.",
+  "segment": "surplus-liquidation"
+ },
+ {
+  "name": "The PC Lad",
+  "url": "https://thepclad.com",
+  "host": "thepclad.com",
+  "searchUrlTemplate": "",
+  "country": "IE",
+  "kind": "refurbisher",
+  "sells": [
+   "desktops",
+   "gpu",
+   "ram",
+   "storage",
+   "cpu",
+   "motherboard"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed refurbished machines and in-stock components (RAM, SSD, GPU) on the homepage. Dublin-based. Small shop.",
+  "segment": "uk-ie"
+ },
+ {
+  "name": "2dehands",
+  "url": "https://2dehands.be/",
+  "host": "2dehands.be",
+  "searchUrlTemplate": "https://www.2dehands.be/q/{q}/",
+  "country": "BE",
+  "kind": "classifieds",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Largest Belgian classifieds, confirmed in search. Same platform as Marktplaats. Template from memory.",
+  "segment": "europe"
+ },
+ {
+  "name": "Hard-Off online (netmall)",
+  "url": "https://netmall.hardoff.co.jp",
+  "host": "netmall.hardoff.co.jp",
+  "searchUrlTemplate": "",
+  "country": "JP",
+  "kind": "retailer-used-section",
+  "sells": [
+   "gpu",
+   "ram",
+   "cpu",
+   "motherboard"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed used GPU, memory and CPU listings under the PC parts category, with store-level stock and grade labels.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "Amazon Renewed and Warehouse",
+  "url": "https://www.amazon.com",
+  "host": "amazon.com",
+  "searchUrlTemplate": "https://www.amazon.com/s?k={q}",
+  "country": "US",
+  "kind": "retailer-used-section",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "networking",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Heavy bot wall; filter Condition to Renewed or Used; third-party used sellers appear in normal results.",
+  "segment": "us-marketplaces",
+  "walled": true
+ },
+ {
+  "name": "Computer Parts Liquidation (liqpa.com)",
+  "url": "https://liqpa.com",
+  "host": "liqpa.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "liquidation",
+  "sells": [
+   "other",
+   "laptops"
+  ],
+  "loginToBrowse": false,
+  "notes": "Lots of computer parts and accessories, largely power adapters; limited relevance to RAM/GPU/CPU.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "CannonPC",
+  "url": "https://cannonpcs.com",
+  "host": "cannonpcs.com",
+  "searchUrlTemplate": "",
+  "country": "IE",
+  "kind": "refurbisher",
+  "sells": [
+   "desktops"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed refurbished gaming PC seller serving Ireland and Europe. Whole machines, not loose parts.",
+  "segment": "uk-ie"
+ },
+ {
+  "name": "2dehandslaptops.nl",
+  "url": "https://2dehandslaptops.nl/",
+  "host": "2dehandslaptops.nl",
+  "searchUrlTemplate": "",
+  "country": "NL",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops",
+   "desktops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed in search: Veenendaal shop selling refurbished business laptops and computers, with some parts.",
+  "segment": "europe"
+ },
+ {
+  "name": "Sofmap Recollect (used)",
+  "url": "https://used.sofmap.com",
+  "host": "used.sofmap.com",
+  "searchUrlTemplate": "",
+  "country": "JP",
+  "kind": "retailer-used-section",
+  "sells": [
+   "gpu",
+   "cpu",
+   "storage",
+   "motherboard"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed used PC parts category with GPU, CPU, SSD and motherboard filters. Search path not verified.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "Newegg",
+  "url": "https://www.newegg.com",
+  "host": "newegg.com",
+  "searchUrlTemplate": "https://www.newegg.com/p/pl?d={q}",
+  "country": "US",
+  "kind": "retailer-used-section",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "networking",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Open-box and refurbished via Condition filter; Newegg surplus also appears on Liquidation.com.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "Techbuyer US",
+  "url": "https://www.techbuyer.com/us",
+  "host": "techbuyer.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "ram",
+   "storage",
+   "servers",
+   "networking",
+   "cpu"
+  ],
+  "loginToBrowse": false,
+  "notes": "UK-based with US storefront; over 250,000 refurbished server parts, RAM, drives; catalog open.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "VA TechTrade",
+  "url": "https://vatechtrade.com",
+  "host": "vatechtrade.com",
+  "searchUrlTemplate": "",
+  "country": "IE",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops",
+   "desktops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed Ireland refurbished phones, laptops and PC parts with a sell-your-tech quote flow. Parts coverage not confirmed beyond the homepage.",
+  "segment": "uk-ie"
+ },
+ {
+  "name": "iUsed.nl",
+  "url": "https://iused.nl/",
+  "host": "iused.nl",
+  "searchUrlTemplate": "",
+  "country": "NL",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed in search: Apple refurbisher (MacBook, iMac, Mac mini). Part of Circular IT Group. Few PC parts.",
+  "segment": "europe"
+ },
+ {
+  "name": "Dospara used",
+  "url": "https://www.dospara.co.jp",
+  "host": "dospara.co.jp",
+  "searchUrlTemplate": "",
+  "country": "JP",
+  "kind": "retailer-used-section",
+  "sells": [
+   "gpu"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed used graphics card page with 1,000+ graded items. Other used categories were not checked.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "Best Buy Open-Box",
+  "url": "https://www.bestbuy.com",
+  "host": "bestbuy.com",
+  "searchUrlTemplate": "https://www.bestbuy.com/site/searchpage.jsp?st={q}",
+  "country": "US",
+  "kind": "retailer-used-section",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "networking",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Open-box items mix with new in default search; filter for open-box; bot challenge possible.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "MemoryB2B",
+  "url": "https://memoryb2b.com",
+  "host": "memoryb2b.com",
+  "searchUrlTemplate": "",
+  "country": "CN",
+  "kind": "enterprise-surplus",
+  "sells": [
+   "ram",
+   "gpu"
+  ],
+  "loginToBrowse": false,
+  "notes": "Shenzhen stock; used and pulled server RAM and VRAM/HBM chips. Quote-based pricing; ships internationally.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "CompuParts (Dublin)",
+  "url": "https://compuparts.ie",
+  "host": "compuparts.ie",
+  "searchUrlTemplate": "",
+  "country": "IE",
+  "kind": "retailer-used-section",
+  "sells": [
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Found only in an Exa places directory listing (Crumlin, Dublin, website listed). Parts range not verified. Check the site before relying on it.",
+  "segment": "uk-ie"
+ },
+ {
+  "name": "Ecubel",
+  "url": "https://ecubel.com/",
+  "host": "ecubel.com",
+  "searchUrlTemplate": "",
+  "country": "BE",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed in search: Belgian used and refurbished IT equipment seller since 1985.",
+  "segment": "europe"
+ },
+ {
+  "name": "Bunjang",
+  "url": "https://m.bunjang.co.kr",
+  "host": "m.bunjang.co.kr",
+  "searchUrlTemplate": "",
+  "country": "KR",
+  "kind": "marketplace",
+  "sells": [
+   "gpu",
+   "ram",
+   "cpu",
+   "desktops",
+   "storage",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed used RTX 2070 and RTX 3060 listings on the m. subdomain. Mobile-first pages; search path not verified.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "Micro Center",
+  "url": "https://www.microcenter.com",
+  "host": "microcenter.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "retailer-used-section",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "networking",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Open-box and used sections; prices and stock vary by store zip; search URL not verified.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "ServerDimm",
+  "url": "https://serverdimm.com",
+  "host": "serverdimm.com",
+  "searchUrlTemplate": "",
+  "country": "CN",
+  "kind": "enterprise-surplus",
+  "sells": [
+   "ram"
+  ],
+  "loginToBrowse": false,
+  "notes": "Bulk server RAM, new and pulled-tested; quote-based. Ships worldwide.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "MBI Tech Parts (Donegal)",
+  "url": "https://www.mbitechparts.ie",
+  "host": "mbitechparts.ie",
+  "searchUrlTemplate": "",
+  "country": "IE",
+  "kind": "retailer-used-section",
+  "sells": [
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Found only in an Exa places directory listing (Convoy, Co. Donegal, website listed). Name suggests used parts; not verified on the site.",
+  "segment": "uk-ie"
+ },
+ {
+  "name": "ComputerService webshop (cs-computers.be)",
+  "url": "https://www.cs-computers.be/webshop/",
+  "host": "cs-computers.be",
+  "searchUrlTemplate": "",
+  "country": "BE",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops",
+   "desktops"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed in search: used and refurbished notebooks and computers with specs listed. Parts not seen.",
+  "segment": "europe"
+ },
+ {
+  "name": "Danggeun Market (Karrot)",
+  "url": "https://www.daangn.com",
+  "host": "daangn.com",
+  "searchUrlTemplate": "",
+  "country": "KR",
+  "kind": "classifieds",
+  "sells": [
+   "gpu",
+   "ram",
+   "desktops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed GPU and PC listings under the digital devices category. Listings are scoped by location and the product is app-first.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "Walmart Restored",
+  "url": "https://www.walmart.com",
+  "host": "walmart.com",
+  "searchUrlTemplate": "https://www.walmart.com/search?q={q}",
+  "country": "US",
+  "kind": "retailer-used-section",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors",
+   "storage",
+   "ram",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Restored (refurbished) tab; PerimeterX bot challenge common.",
+  "segment": "us-marketplaces",
+  "walled": true
+ },
+ {
+  "name": "UsedITHardware.com",
+  "url": "https://www.usedithardware.com",
+  "host": "usedithardware.com",
+  "searchUrlTemplate": "",
+  "country": "global",
+  "kind": "refurbisher",
+  "sells": [
+   "ram",
+   "cpu",
+   "storage"
+  ],
+  "loginToBrowse": false,
+  "notes": "Wholesale used/refurbished server memory, Xeon CPUs, HDDs, SSDs. Location and shipping terms not confirmed.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "The Computer Lab (Portarlington)",
+  "url": "http://thecomputerlab.ie",
+  "host": "thecomputerlab.ie",
+  "searchUrlTemplate": "",
+  "country": "IE",
+  "kind": "retailer-used-section",
+  "sells": [
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Found only in an Exa places directory listing (Portarlington, Co. Laois, website listed). Parts range not verified.",
+  "segment": "uk-ie"
+ },
+ {
+  "name": "eBay.nl",
+  "url": "https://www.ebay.nl/",
+  "host": "ebay.nl",
+  "searchUrlTemplate": "https://www.ebay.nl/sch/i.html?_nkw={q}",
+  "country": "NL",
+  "kind": "marketplace",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "servers",
+   "networking",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Country eBay domain. Same search path as eBay.com. Heavy bot detection.",
+  "segment": "europe",
+  "walled": true
+ },
+ {
+  "name": "Goofish (Xianyu)",
+  "url": "https://www.goofish.com",
+  "host": "goofish.com",
+  "searchUrlTemplate": "https://www.goofish.com/search?q={q}",
+  "country": "CN",
+  "kind": "marketplace",
+  "sells": [
+   "gpu",
+   "ram",
+   "cpu",
+   "storage",
+   "motherboard",
+   "desktops",
+   "laptops"
+  ],
+  "loginToBrowse": false,
+  "notes": "Search URL confirmed from the site's public category links. Login behaviour not verified. Chinese-language and China-domestic shipping, so overseas buyers usually need a forwarder.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "Woot",
+  "url": "https://computers.woot.com",
+  "host": "computers.woot.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "retailer-used-section",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors",
+   "storage",
+   "ram",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Verified: refurbished Dell OptiPlex desktops and MacBook Pro listings; one-deal-at-a-time format.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "ICD (icd3s.com)",
+  "url": "https://icd3s.com",
+  "host": "icd3s.com",
+  "searchUrlTemplate": "",
+  "country": "EG",
+  "kind": "enterprise-surplus",
+  "sells": [
+   "ram",
+   "storage",
+   "cpu",
+   "networking",
+   "psu",
+   "motherboard"
+  ],
+  "loginToBrowse": false,
+  "notes": "Egypt-based; tested used data-center parts from Dell, HPE, Lenovo, Cisco; quote-driven.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "Wallapop",
+  "url": "https://es.wallapop.com/",
+  "host": "es.wallapop.com",
+  "searchUrlTemplate": "https://es.wallapop.com/app/search?keywords={q}",
+  "country": "ES",
+  "kind": "marketplace",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Largest Spanish second-hand app and site. Template from memory. Some result pages may require sign-in.",
+  "segment": "europe"
+ },
+ {
+  "name": "Zhuanzhuan",
+  "url": "https://www.zhuanzhuan.com",
+  "host": "zhuanzhuan.com",
+  "searchUrlTemplate": "",
+  "country": "CN",
+  "kind": "marketplace",
+  "sells": [
+   "gpu",
+   "ram",
+   "cpu",
+   "storage",
+   "desktops",
+   "laptops"
+  ],
+  "loginToBrowse": false,
+  "notes": "Not verified in this search pass. Chinese used-electronics platform; check login and bot walls before relying on it.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "B&H Photo Used",
+  "url": "https://www.bhphotovideo.com",
+  "host": "bhphotovideo.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "retailer-used-section",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors",
+   "storage",
+   "ram",
+   "gpu",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Used section is mostly photo and video gear; computer listings sparse; not verified this session.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "server-parts.eu",
+  "url": "https://www.server-parts.eu",
+  "host": "server-parts.eu",
+  "searchUrlTemplate": "",
+  "country": "global",
+  "kind": "enterprise-surplus",
+  "sells": [
+   "servers",
+   "gpu",
+   "storage",
+   "ram",
+   "cpu"
+  ],
+  "loginToBrowse": false,
+  "notes": "European seller of refurbished GPU and enterprise servers, memory, drives; EUR pricing; contact-led.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "Milanuncios",
+  "url": "https://www.milanuncios.com/",
+  "host": "milanuncios.com",
+  "searchUrlTemplate": "",
+  "country": "ES",
+  "kind": "classifieds",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Major Spanish classifieds. Existence known, search URL not confirmed.",
+  "segment": "europe"
+ },
+ {
+  "name": "Carousell Singapore",
+  "url": "https://www.carousell.sg",
+  "host": "carousell.sg",
+  "searchUrlTemplate": "https://www.carousell.sg/search/{q}/",
+  "country": "SG",
+  "kind": "marketplace",
+  "sells": [
+   "gpu",
+   "ram",
+   "cpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "desktops",
+   "laptops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed used computer parts category with S$ prices and lightly used or pre-owned condition labels.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "Dell Outlet",
+  "url": "https://www.dell.com/en-us/shop/outlet",
+  "host": "dell.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "desktops",
+   "laptops",
+   "monitors",
+   "servers",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Refurbished and open-box Dell systems; not verified this session.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "Bargain Hardware",
+  "url": "https://www.bargainhardware.co.uk",
+  "host": "bargainhardware.co.uk",
+  "searchUrlTemplate": "",
+  "country": "GB",
+  "kind": "refurbisher",
+  "sells": [
+   "servers",
+   "desktops",
+   "storage",
+   "gpu",
+   "cpu",
+   "ram",
+   "psu",
+   "motherboard"
+  ],
+  "loginToBrowse": false,
+  "notes": "UK-based, ships worldwide; refurbished Dell/HPE servers, workstations, used GPUs, Xeon CPUs, DDR3/DDR4 RAM. Search URL not confirmed.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "Segundamanopc.com",
+  "url": "https://segundamanopc.com/",
+  "host": "segundamanopc.com",
+  "searchUrlTemplate": "",
+  "country": "ES",
+  "kind": "refurbisher",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "laptops",
+   "desktops",
+   "servers",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed in search: second-hand computer components, laptops and servers. Small shop.",
+  "segment": "europe"
+ },
+ {
+  "name": "Carousell Malaysia",
+  "url": "https://www.carousell.com.my",
+  "host": "carousell.com.my",
+  "searchUrlTemplate": "https://www.carousell.com.my/search/{q}/",
+  "country": "MY",
+  "kind": "marketplace",
+  "sells": [
+   "gpu",
+   "ram",
+   "cpu",
+   "storage",
+   "motherboard",
+   "desktops",
+   "laptops"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed used RTX 3090 and RTX 5080 listings priced in RM. Search path follows Carousell's pattern, not re-checked.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "Lenovo Outlet",
+  "url": "https://www.lenovo.com/us/en/outlet",
+  "host": "lenovo.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "desktops",
+   "laptops",
+   "monitors",
+   "servers",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Refurbished ThinkCentre, ThinkPad and workstation units; not verified this session.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "GPUsed",
+  "url": "https://www.gpused.co.uk",
+  "host": "gpused.co.uk",
+  "searchUrlTemplate": "",
+  "country": "GB",
+  "kind": "refurbisher",
+  "sells": [
+   "gpu",
+   "cpu",
+   "storage",
+   "ram",
+   "desktops"
+  ],
+  "loginToBrowse": false,
+  "notes": "UK-focused used GPU, CPU, SSD and PC seller; also buys stock. Search URL not confirmed.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "eBay.es",
+  "url": "https://www.ebay.es/",
+  "host": "ebay.es",
+  "searchUrlTemplate": "https://www.ebay.es/sch/i.html?_nkw={q}",
+  "country": "ES",
+  "kind": "marketplace",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "servers",
+   "networking",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Country eBay domain. Same search path as eBay.com. Heavy bot detection.",
+  "segment": "europe",
+  "walled": true
+ },
+ {
+  "name": "Carousell Philippines",
+  "url": "https://www.carousell.ph",
+  "host": "carousell.ph",
+  "searchUrlTemplate": "https://www.carousell.ph/search/{q}/",
+  "country": "PH",
+  "kind": "marketplace",
+  "sells": [
+   "gpu",
+   "ram",
+   "cpu",
+   "storage",
+   "desktops",
+   "laptops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed used desktop and laptop listings under the Desktops and Laptops categories. Search path not re-checked.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "HP Outlet",
+  "url": "https://www.hp.com/us-en/shop/outlet",
+  "host": "hp.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "desktops",
+   "laptops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "HP certified refurbished; URL may redirect within hp.com; not verified this session.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "Woot",
+  "url": "https://woot.com",
+  "host": "woot.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "retailer-used-section",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors",
+   "storage",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Amazon-owned deal site with refurbished and used computer listings; inventory is intermittent.",
+  "segment": "us-refurb-enterprise"
+ },
+ {
+  "name": "Subito",
+  "url": "https://www.subito.it/",
+  "host": "subito.it",
+  "searchUrlTemplate": "https://www.subito.it/annunci-italia/vendita/usato/?q={q}",
+  "country": "IT",
+  "kind": "classifieds",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Major Italian classifieds. Template from memory, not fetched.",
+  "segment": "europe"
+ },
+ {
+  "name": "HardwareZone Forums (Graphics & Display Bazaar)",
+  "url": "https://forums.hardwarezone.com.sg",
+  "host": "forums.hardwarezone.com.sg",
+  "searchUrlTemplate": "",
+  "country": "SG",
+  "kind": "forum-marketplace",
+  "sells": [
+   "gpu",
+   "ram",
+   "cpu",
+   "storage",
+   "motherboard",
+   "desktops",
+   "laptops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed active WTS (want-to-sell) used GPU threads from 2026 on the Graphics and Display Bazaar board. Forum search not verified.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "Apple Certified Refurbished",
+  "url": "https://www.apple.com/shop/refurbished",
+  "host": "apple.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "desktops",
+   "laptops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Mac mini, iMac, Mac Studio and MacBooks only; no PC parts; single-SKU listings.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "eBay.it",
+  "url": "https://www.ebay.it/",
+  "host": "ebay.it",
+  "searchUrlTemplate": "https://www.ebay.it/sch/i.html?_nkw={q}",
+  "country": "IT",
+  "kind": "marketplace",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "servers",
+   "networking",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Country eBay domain. Same search path as eBay.com. Heavy bot detection.",
+  "segment": "europe",
+  "walled": true
+ },
+ {
+  "name": "Lowyat.NET Computers Garage Sales",
+  "url": "https://forum.lowyat.net",
+  "host": "forum.lowyat.net",
+  "searchUrlTemplate": "",
+  "country": "MY",
+  "kind": "forum-marketplace",
+  "sells": [
+   "gpu",
+   "ram",
+   "cpu",
+   "desktops",
+   "laptops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed used GPU WTS threads on the Computers Garage Sales board with RM prices. Forum search path not verified.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "ServerPartDeals",
+  "url": "https://serverpartdeals.com",
+  "host": "serverpartdeals.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "storage",
+   "servers",
+   "ram",
+   "gpu",
+   "networking",
+   "cpu",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Verified: recertified enterprise HDDs and SSDs, server RAM, servers and GPUs; sells to end users and buys lots.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "Allegro",
+  "url": "https://allegro.pl/",
+  "host": "allegro.pl",
+  "searchUrlTemplate": "https://allegro.pl/listing?string={q}",
+  "country": "PL",
+  "kind": "marketplace",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "servers",
+   "networking",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Dominant Polish marketplace. Template from memory. Known for captcha and bot challenges on automated traffic.",
+  "segment": "europe",
+  "walled": true
+ },
+ {
+  "name": "Mudah.my",
+  "url": "https://www.mudah.my",
+  "host": "mudah.my",
+  "searchUrlTemplate": "",
+  "country": "MY",
+  "kind": "classifieds",
+  "sells": [
+   "gpu",
+   "ram",
+   "desktops",
+   "laptops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed second-hand GPU and RAM ads under Computers & Accessories with the Second-hand (Used) label. Search URL not verified.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "ServerSupply",
+  "url": "https://www.serversupply.com",
+  "host": "serversupply.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "servers",
+   "ram",
+   "storage",
+   "cpu",
+   "networking",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Refurbished enterprise server parts and systems; not verified this session.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "OLX Poland",
+  "url": "https://www.olx.pl/",
+  "host": "olx.pl",
+  "searchUrlTemplate": "https://www.olx.pl/oferty/q-{q}/",
+  "country": "PL",
+  "kind": "classifieds",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Large Polish classifieds. Template from memory, not fetched.",
+  "segment": "europe"
+ },
+ {
+  "name": "Cho Tot",
+  "url": "https://www.chotot.com",
+  "host": "chotot.com",
+  "searchUrlTemplate": "",
+  "country": "VN",
+  "kind": "classifieds",
+  "sells": [
+   "ram",
+   "gpu",
+   "storage",
+   "laptops",
+   "desktops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed used RAM and RTX ads under the components tags, with condition labelled as used. Search path not verified.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "ServerMonkey",
+  "url": "https://www.servermonkey.com",
+  "host": "servermonkey.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "refurbisher",
+  "sells": [
+   "servers",
+   "ram",
+   "storage",
+   "cpu",
+   "networking",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Refurbished enterprise servers and components; not verified this session.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "Blocket",
+  "url": "https://www.blocket.se/",
+  "host": "blocket.se",
+  "searchUrlTemplate": "https://www.blocket.se/annonser/hela_sverige?q={q}",
+  "country": "SE",
+  "kind": "classifieds",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Largest Swedish classifieds. Template from memory, not fetched.",
+  "segment": "europe"
+ },
+ {
+  "name": "Muaban.net PC and parts board",
+  "url": "https://muabannet.io.vn",
+  "host": "muabannet.io.vn",
+  "searchUrlTemplate": "",
+  "country": "VN",
+  "kind": "forum-marketplace",
+  "sells": [
+   "ram",
+   "gpu",
+   "storage",
+   "motherboard",
+   "cpu",
+   "desktops"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed PC and parts board listing RAM, mainboards, SSDs and VGA cards. Used versus new mix not checked.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "Bidfta",
+  "url": "https://www.bidfta.com",
+  "host": "bidfta.com",
+  "searchUrlTemplate": "",
+  "country": "US",
+  "kind": "auction",
+  "sells": [
+   "laptops",
+   "desktops",
+   "monitors",
+   "networking",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Liquidation-style online auctions of returned and overstock goods; existence and inventory not verified this session.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "Tradera",
+  "url": "https://www.tradera.com/",
+  "host": "tradera.com",
+  "searchUrlTemplate": "https://www.tradera.com/search?q={q}",
+  "country": "SE",
+  "kind": "auction",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Swedish auction marketplace. Template from memory, not fetched.",
+  "segment": "europe"
+ },
+ {
+  "name": "Kaidee",
+  "url": "https://www.kaidee.com",
+  "host": "kaidee.com",
+  "searchUrlTemplate": "",
+  "country": "TH",
+  "kind": "classifieds",
+  "sells": [
+   "gpu",
+   "laptops",
+   "desktops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed used GPU listing (second-hand condition) and computer category pages. Search path not verified.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "Memory Express",
+  "url": "https://www.memoryexpress.com",
+  "host": "memoryexpress.com",
+  "searchUrlTemplate": "",
+  "country": "CA",
+  "kind": "retailer-used-section",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Canadian PC-parts retailer with open-box and used sections; not verified this session.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "FINN.no",
+  "url": "https://www.finn.no/",
+  "host": "finn.no",
+  "searchUrlTemplate": "https://www.finn.no/recommerce/forsale/search.html?q={q}",
+  "country": "NO",
+  "kind": "classifieds",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Largest Norwegian classifieds. Template from memory, not fetched.",
+  "segment": "europe"
+ },
+ {
+  "name": "Shopee Singapore",
+  "url": "https://shopee.sg",
+  "host": "shopee.sg",
+  "searchUrlTemplate": "https://shopee.sg/search?keyword={q}",
+  "country": "SG",
+  "kind": "marketplace",
+  "sells": [
+   "gpu",
+   "ram",
+   "storage",
+   "cpu",
+   "desktops",
+   "laptops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Mostly new stock with some used sellers. Not verified in this pass, so filter to used sellers only.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "Kijiji",
+  "url": "https://www.kijiji.ca",
+  "host": "kijiji.ca",
+  "searchUrlTemplate": "",
+  "country": "CA",
+  "kind": "classifieds",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Canadian local classifieds, the Canadian counterpart of Craigslist; not verified this session.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "Tori.fi",
+  "url": "https://www.tori.fi/",
+  "host": "tori.fi",
+  "searchUrlTemplate": "",
+  "country": "FI",
+  "kind": "classifieds",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed in search: item pages list used GPUs, CPUs and RAM. Search URL not confirmed.",
+  "segment": "europe"
+ },
+ {
+  "name": "Mobile01 Marketplace (Little Devil Market)",
+  "url": "https://www.mobile01.com",
+  "host": "mobile01.com",
+  "searchUrlTemplate": "",
+  "country": "TW",
+  "kind": "forum-marketplace",
+  "sells": [
+   "gpu",
+   "ram",
+   "desktops",
+   "laptops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed used GPU listings with the 二手 prefix on the GPU marketplace board, priced in NT$. Search not verified.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "Gumtree",
+  "url": "https://www.gumtree.com",
+  "host": "gumtree.com",
+  "searchUrlTemplate": "",
+  "country": "GB",
+  "kind": "classifieds",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "UK local classifieds with used PC parts; not verified this session.",
+  "segment": "us-marketplaces"
+ },
+ {
+  "name": "DBA",
+  "url": "https://www.dba.dk/",
+  "host": "dba.dk",
+  "searchUrlTemplate": "https://www.dba.dk/soeg/?soeg={q}",
+  "country": "DK",
+  "kind": "classifieds",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Largest Danish classifieds. Template from memory, not fetched.",
+  "segment": "europe"
+ },
+ {
+  "name": "Ruten (露天拍賣)",
+  "url": "https://www.ruten.com.tw",
+  "host": "ruten.com.tw",
+  "searchUrlTemplate": "",
+  "country": "TW",
+  "kind": "marketplace",
+  "sells": [
+   "gpu",
+   "ram",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed used GPU and DDR3 listings (二手) under computer components. Search path not verified.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "Bazoš",
+  "url": "https://www.bazos.cz/",
+  "host": "bazos.cz",
+  "searchUrlTemplate": "https://www.bazos.cz/search.php?hledat={q}",
+  "country": "CZ",
+  "kind": "classifieds",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Czech classifieds. Template from memory, not fetched.",
+  "segment": "europe"
+ },
+ {
+  "name": "OLX India",
+  "url": "https://www.olx.in",
+  "host": "olx.in",
+  "searchUrlTemplate": "https://www.olx.in/items/q-{q}",
+  "country": "IN",
+  "kind": "classifieds",
+  "sells": [
+   "gpu",
+   "ram",
+   "storage",
+   "laptops",
+   "desktops",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed used GPU and RAM ads. Query slugs use hyphens (q-graphic-card), so {q} should be passed hyphenated.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "Sbazar.cz",
+  "url": "https://www.sbazar.cz/",
+  "host": "sbazar.cz",
+  "searchUrlTemplate": "",
+  "country": "CZ",
+  "kind": "classifieds",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Czech classifieds run by Seznam. Existence known, search URL not confirmed.",
+  "segment": "europe"
+ },
+ {
+  "name": "Cashify",
+  "url": "https://www.cashify.in",
+  "host": "cashify.in",
+  "searchUrlTemplate": "",
+  "country": "IN",
+  "kind": "refurbisher",
+  "sells": [
+   "laptops"
+  ],
+  "loginToBrowse": false,
+  "notes": "Confirmed refurbished laptop store with Superb, Good, Fair and Best Value grades. Refurbished desktops and GPUs were not checked.",
+  "segment": "americas-apac"
+ },
+ {
+  "name": "Hardverapró",
+  "url": "https://hardverapro.hu/",
+  "host": "hardverapro.hu",
+  "searchUrlTemplate": "https://hardverapro.hu/aprok/keres.php?stext={q}",
+  "country": "HU",
+  "kind": "forum-marketplace",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Hungarian PC-hardware classifieds, the most PC-specific site in the list. Template from memory, not fetched.",
+  "segment": "europe"
+ },
+ {
+  "name": "Jófogás",
+  "url": "https://www.jofogas.hu/",
+  "host": "jofogas.hu",
+  "searchUrlTemplate": "",
+  "country": "HU",
+  "kind": "classifieds",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Largest Hungarian classifieds. Existence known, search URL not confirmed.",
+  "segment": "europe"
+ },
+ {
+  "name": "Willhaben",
+  "url": "https://www.willhaben.at/",
+  "host": "willhaben.at",
+  "searchUrlTemplate": "https://www.willhaben.at/iad/kaufen-und-verkaufen/marktplatz?keyword={q}",
+  "country": "AT",
+  "kind": "classifieds",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Largest Austrian classifieds. Template from memory, not fetched.",
+  "segment": "europe"
+ },
+ {
+  "name": "Ricardo",
+  "url": "https://www.ricardo.ch/",
+  "host": "ricardo.ch",
+  "searchUrlTemplate": "https://www.ricardo.ch/de/s/{q}",
+  "country": "CH",
+  "kind": "auction",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Swiss auction and classifieds marketplace. Template from memory, not fetched.",
+  "segment": "europe"
+ },
+ {
+  "name": "Tutti.ch",
+  "url": "https://www.tutti.ch/",
+  "host": "tutti.ch",
+  "searchUrlTemplate": "",
+  "country": "CH",
+  "kind": "classifieds",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Swiss classifieds. Existence known, search URL not confirmed.",
+  "segment": "europe"
+ },
+ {
+  "name": "Anibis.ch",
+  "url": "https://www.anibis.ch/",
+  "host": "anibis.ch",
+  "searchUrlTemplate": "",
+  "country": "CH",
+  "kind": "classifieds",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Swiss classifieds, separate from Tutti. Existence known, search URL not confirmed.",
+  "segment": "europe"
+ },
+ {
+  "name": "OLX Portugal",
+  "url": "https://www.olx.pt/",
+  "host": "olx.pt",
+  "searchUrlTemplate": "",
+  "country": "PT",
+  "kind": "classifieds",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Large Portuguese classifieds. Existence known, search URL not confirmed.",
+  "segment": "europe"
+ },
+ {
+  "name": "Custojusto",
+  "url": "https://www.custojusto.pt/",
+  "host": "custojusto.pt",
+  "searchUrlTemplate": "",
+  "country": "PT",
+  "kind": "classifieds",
+  "sells": [
+   "ram",
+   "cpu",
+   "gpu",
+   "storage",
+   "motherboard",
+   "psu",
+   "laptops",
+   "desktops",
+   "monitors",
+   "other"
+  ],
+  "loginToBrowse": false,
+  "notes": "Portuguese classifieds. Existence known, search URL not confirmed.",
+  "segment": "europe"
+ }
+]

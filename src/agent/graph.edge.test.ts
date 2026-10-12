@@ -904,3 +904,68 @@ describe('authentication guidance follows the authorized task', () => {
     expect(FOLLOWER_SYSTEM).not.toContain('auth_step');
   });
 });
+
+// Pins for the PR #53/#54 bot reviews on the agent graph (M5).
+describe('refused-click consent guidance', () => {
+  it('never tells the follower to accept consent as a fallback', () => {
+    // CodeRabbit security review on PR #54: "else accept" would grant optional
+    // tracking during a task the user never authorized.
+    expect(FOLLOWER_SYSTEM).not.toContain('else accept');
+    expect(FOLLOWER_SYSTEM).toContain('leave the banner unresolved and ask the user');
+  });
+});
+
+describe('the repeat-failure threshold', () => {
+  it('hands back only on a turn that failed, and a successful read does not re-trigger it', async () => {
+    const page = new FakePageTools();
+    page.click = async () => {
+      throw new Error('a consent banner covers e1');
+    };
+    const { events, ended } = await harness({
+      page,
+      follower: (call) =>
+        call.index === 0 || call.index === 1
+          ? { kind: 'tool', name: 'click', args: { ref: 'e1', signal: 'CONTINUE' } }
+          : call.index === 2
+            ? // The read keeps the failure count but must not hand back again:
+              // the follower gets to act on what the read showed it.
+              { kind: 'tool', name: 'extract_text', args: { signal: 'CONTINUE' } }
+            : call.index === 3
+              ? { kind: 'tool', name: 'click', args: { ref: 'e1', signal: 'CONTINUE' } }
+              : { kind: 'tool', name: 'done', args: { summary: 'recovered' } },
+    });
+
+    const thresholdHandoffs = pick(events, 'follower.signal').filter((e) =>
+      e.note.includes('repeated the same failing action'),
+    );
+    expect(thresholdHandoffs).toHaveLength(1);
+    expect(ended.status).toBe('done');
+  });
+
+  it('carries the failing tool result into the Leader handoff note at the 2-failure mark', async () => {
+    const page = new FakePageTools();
+    page.click = async () => {
+      throw new Error('the cookie banner covers e1');
+    };
+    const requests: string[] = [];
+    await harness({
+      page,
+      leaderRespond: (call) => {
+        requests.push(JSON.stringify(call.messages.at(-1)?.content));
+        return { kind: 'tool', name: 'set_plan', args: { plan: 'continue', subgoals } };
+      },
+      follower: (call) =>
+        call.index === 0 || call.index === 1
+          ? { kind: 'tool', name: 'click', args: { ref: 'e1', signal: 'CONTINUE' } }
+          : { kind: 'tool', name: 'done', args: { summary: 'recovered' } },
+    });
+
+    // Kilo review on PR #53: without the note the Leader replanned blind — it saw
+    // two identical failures in the transcript but no statement of what failed or
+    // that it kept failing.
+    expect(requests[1]).toContain(
+      'Handoff note: the follower repeated the same failing action 2 times (click): the cookie banner covers e1',
+    );
+    expect(requests[1]).toContain('Replan around it');
+  });
+});

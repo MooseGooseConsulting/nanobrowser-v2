@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createChatModel, dataCollectionFor, DEFAULT_BASE_URL, KILO_BASE_URL , hardenEmptyChoices } from './models';
+import { createChatModel, dataCollectionFor, DEFAULT_BASE_URL, KILO_BASE_URL , hardenEmptyChoices, retryAfterDelayMs } from './models';
 
 describe('data collection policy per model', () => {
   it('allows training only for OpenRouter :free endpoints, denies for everything else', () => {
@@ -16,6 +16,33 @@ describe('data collection policy per model', () => {
 });
 
 import { hardenOpenRouterFetch } from './models';
+
+describe('Retry-After parsing (PR #53 reviews: numeric seconds, HTTP-date, non-positive)', () => {
+  it('honours numeric seconds up to the 60 s cap', () => {
+    expect(retryAfterDelayMs('30', 2_000)).toBe(30_000);
+    expect(retryAfterDelayMs(' 90 ', 2_000)).toBe(60_000);
+  });
+
+  it('honours a future HTTP-date up to the 60 s cap', () => {
+    const soon = new Date(Date.now() + 10_000).toUTCString();
+    expect(retryAfterDelayMs(soon, 2_000)).toBeGreaterThanOrEqual(9_000);
+    expect(retryAfterDelayMs(soon, 2_000)).toBeLessThanOrEqual(10_000 + 2_000);
+    const far = new Date(Date.now() + 10 * 60_000).toUTCString();
+    expect(retryAfterDelayMs(far, 2_000)).toBe(60_000);
+  });
+
+  it('treats a present-but-non-positive header as "go again now", not the backoff table', () => {
+    expect(retryAfterDelayMs('0', 2_000)).toBe(0);
+    expect(retryAfterDelayMs('-5', 2_000)).toBe(0);
+    expect(retryAfterDelayMs(new Date(Date.now() - 60_000).toUTCString(), 2_000)).toBe(0);
+  });
+
+  it('falls back to the fixed backoff when the header is absent or unparseable', () => {
+    expect(retryAfterDelayMs(null, 2_000)).toBe(2_000);
+    expect(retryAfterDelayMs('', 2_000)).toBe(2_000);
+    expect(retryAfterDelayMs('soon-ish', 4_000)).toBe(4_000);
+  });
+});
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });

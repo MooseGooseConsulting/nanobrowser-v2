@@ -671,4 +671,9 @@ describe('applyRunOptions', () => {
     expect(applyRunOptions(config, { observe: 'sideways', maxSteps: -1 })).toEqual(config);
     expect(applyRunOptions(config)).toEqual(config);
   });
+
+  it('takes closeTabWhenDone only as a boolean, so a harness can have its test tab closed', () => {
+    expect(applyRunOptions(config, { closeTabWhenDone: true }).closeTabWhenDone).toBe(true);
+    expect(applyRunOptions(config, { closeTabWhenDone: 'true' }).closeTabWhenDone).toBe(config.closeTabWhenDone);
+  });
 });

@@ -17,6 +17,7 @@
  */
 import type { Userscript, UserscriptRunResult } from '@/src/messaging';
 import { matchesAny } from './match-pattern';
+import { currentTabId } from '@/src/page/tabReplacement';
 
 /** Captured console cap: enough to debug with, small enough to always ship. */
 export const MAX_CONSOLE_LINES = 200;
@@ -426,12 +427,14 @@ function failure(
  * need: the value, the captured console, any error, and how long it took.
  *
  * Refuses before injecting anything if the API is unavailable or the tab's URL is
- * outside the script's allow-list. The allow-list is the only thing standing between
- * a stored script and every page the user has open, so it is checked here and not
- * left to the caller.
+ * outside the script's allow-list — and re-resolves the target tab just before
+ * injecting, repeating the check whenever Chrome replaced it in the meantime, so
+ * the script never lands on a tab whose URL was never checked.
  */
 export async function runUserscript(options: RunUserscriptOptions): Promise<UserscriptRunResult> {
-  const { tabId, script } = options;
+  const { script } = options;
+  // Follow a tab Chrome replaced mid-run (prerender, redirect chains); see tabReplacement.ts.
+  let tabId = currentTabId(options.tabId);
   const now = options.now ?? Date.now;
   const scriptId = script.id;
 
@@ -442,22 +445,47 @@ export async function runUserscript(options: RunUserscriptOptions): Promise<User
   if (!availability.available) return failure(scriptId, `${availability.reason}: ${availability.message}`);
   if (!api) return failure(scriptId, `toggle-off: ${TOGGLE_MESSAGE}`);
 
-  let url = options.url;
-  if (url === undefined) {
-    const tabs = options.tabs ?? chromeTabsApi();
-    if (!tabs) return failure(scriptId, 'cannot resolve the tab URL: chrome.tabs is unavailable');
-    try {
-      url = (await tabs.get(tabId)).url;
-    } catch (error) {
-      return failure(scriptId, `cannot resolve the tab URL: ${describe(error)}`);
+  const tabs = options.tabs ?? chromeTabsApi();
+
+  /**
+   * Resolves the target's URL and runs the allow-list check; a returned result is
+   * the refusal. The allow-list is the only thing standing between a stored script
+   * and every page the user has open, so it is checked here and not left to the
+   * caller — once before injecting, and again whenever the target changes.
+   */
+  const refused = async (targetId: number, live: boolean): Promise<UserscriptRunResult | undefined> => {
+    // `options.url` is the caller's snapshot of this tab. Once the target has
+    // changed it describes a tab we are no longer about to inject into, so the
+    // new target's URL must be resolved through the tabs seam instead.
+    let url = live ? undefined : options.url;
+    if (url === undefined) {
+      if (!tabs) return failure(scriptId, 'cannot resolve the tab URL: chrome.tabs is unavailable');
+      try {
+        url = (await tabs.get(targetId)).url;
+      } catch (error) {
+        return failure(scriptId, `cannot resolve the tab URL: ${describe(error)}`);
+      }
     }
-  }
-  if (!url) return failure(scriptId, 'cannot resolve the tab URL');
-  if (!matchesAny(script.matches, url)) {
-    return failure(scriptId, `refused: ${url} is not in this script's allow-list (${script.matches.join(', ')})`);
-  }
+    if (!url) return failure(scriptId, 'cannot resolve the tab URL');
+    if (!matchesAny(script.matches, url)) {
+      return failure(scriptId, `refused: ${url} is not in this script's allow-list (${script.matches.join(', ')})`);
+    }
+    return undefined;
+  };
+
+  const firstRefusal = await refused(tabId, false);
+  if (firstRefusal) return firstRefusal;
 
   await ensureWorldConfigured(api);
+
+  // A swap recorded while the world was configured would otherwise aim the script
+  // at a tab whose URL was never checked: re-resolve the target and re-check it.
+  const liveTabId = currentTabId(tabId);
+  if (liveTabId !== tabId) {
+    tabId = liveTabId;
+    const reRefusal = await refused(tabId, true);
+    if (reRefusal) return reRefusal;
+  }
 
   // Each execution gets its own token, so overlapping runs keep their own script id
   // and one finishing never unregisters another.
@@ -601,7 +629,7 @@ export async function signalUserscriptStop(tabId: number, api?: UserScriptsApi):
   const userScripts = api ?? chromeUserScriptsApi();
   if (!userScripts) return;
   await userScripts.execute({
-    target: { tabId },
+    target: { tabId: currentTabId(tabId) },
     world: 'USER_SCRIPT',
     worldId: USERSCRIPT_WORLD_ID,
     injectImmediately: true,

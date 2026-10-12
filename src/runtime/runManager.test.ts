@@ -125,6 +125,24 @@ describe('refuseReason', () => {
   });
 });
 
+describe('closeTabWhenDone', () => {
+  it.each([
+    [true, [3]],
+    [false, []],
+    [undefined, []],
+  ] as const)('with closeTabWhenDone %s, closes the run tab after the run ends: %j', async (close, expected) => {
+    const removed: number[] = [];
+    const scripted = scriptedStart([], endedOk);
+    const tabs: TabsPort = { ...tabsPort('https://example.test/'), remove: async (id) => void removed.push(id) };
+    const { runManager } = manager({ tabs, start: scripted.start });
+    const result = await runManager.start({ prompt: 'go', config: { ...config, ...(close === undefined ? {} : { closeTabWhenDone: close }) } });
+    expect(removed).toEqual([]);
+    scripted.finish();
+    await result.done;
+    expect(removed).toEqual(expected);
+  });
+});
+
 describe('RunManager.start', () => {
   it('refuses a chrome:// tab with a run.ended error rather than starting', async () => {
     const { runManager, events, hostLog } = manager({ tabs: tabsPort('chrome://settings') });

@@ -205,8 +205,16 @@ function compactStoredRead(message: BaseMessage, step: number): BaseMessage {
 /** Consecutive tool-call-less Follower turns before a run is called stalled. */
 export const MAX_IDLE_FOLLOWER_TURNS = 4;
 
-/** Identical failures of the same action before the run is called stuck. */
+/**
+ * Identical failures of the same action before the Follower hands back to the Leader
+ * to replan around it. Ending the run here threw away recoverable runs: a live
+ * ServeTheHome search ended at step 4 because a search button was covered by an icon
+ * the error named, with the advice to try something else going nowhere but the log.
+ */
 export const MAX_REPEAT_FAILURE_TURNS = 2;
+
+/** The same failure still repeating after that replan: now the run is stuck. */
+export const MAX_REPEAT_FAILURE_TURNS_TO_END = 4;
 
 /**
  * Identity of one failed attempt: the tool name, its visible arguments with stable
@@ -276,6 +284,10 @@ export const FOLLOWER_SYSTEM = [
   'Read a userscript with read_userscript before you change it. run_userscript takes an id and optional args.',
   'A run_userscript result can be saved with save_file(fromLastUserscript:true) instead of retyping it; saved files land in the user\'s Downloads/nanobrowser folder.',
   'When a page holds more data than you can reach by clicking, write_userscript a small reader for it, run_userscript it, and fix it from the error and console lines you get back.',
+  // Live: a ServeTheHome run clicked the same covered button for 15 steps while the
+  // error named the cookie banner and its ref each time.
+  'A refused click names what covers the target and its ref. Deal with that first: close a cookie or consent banner (prefer reject or necessary-only; if only accept-all is offered, leave the banner unresolved and ask the user), dismiss a popup or suggestion list, then retry.',
+  'A search usually submits with Enter in its box; if the search button is covered, press Enter instead.',
   // Authentication is ordinary task work, not a blanket stop. This guidance
   // does not invent a credential source or expose a tool we have not built.
   'Reuse the current signed-in session. Complete authorized sign-in or verification with available capabilities; a login page alone is not a reason to stop.',
@@ -582,7 +594,12 @@ const leader: GraphNode<typeof AgentState, AgentContext> = async (state, config)
         `Previous plan: ${state.plan || '(none)'}`,
         `Subgoals: ${state.subgoals.map((s, i) => `${i}. ${s}`).join(' | ') || '(none)'}`,
         `The follower was working on subgoal ${state.currentSubgoal} and signalled ${state.lastSignal ?? 'CONTINUE'}.`,
-        `Recent Follower actions and results (not a fresh page observation):\n${followerFeedback(state.followerMessages, state.stepsSinceReplan)}`,
+        // The handoff note rides inside the feedback block so later Leader turns
+        // compact it away with the rest of the report (the interval test pins
+        // that an old replan's report never resends).
+        `Recent Follower actions and results (not a fresh page observation):\n` +
+          (state.lastNote ? `Handoff note: ${state.lastNote}\n` : '') +
+          followerFeedback(state.followerMessages, state.stepsSinceReplan),
         'Revise the plan and pick the subgoal to work on next. Call set_plan.',
       ].join('\n')
     : [
@@ -867,43 +884,85 @@ const follower: GraphNode<typeof AgentState, AgentContext> = async (state, confi
   ];
 
   let tokens: number | undefined;
+  let url: string | undefined;
   let hasScreenshot = false;
   let unchanged = false;
   let lastSnapshotDigest = state.lastSnapshotDigest;
   let lastSnapshotStep = state.lastSnapshotStep;
+  // Kept across the two branches so a lost screenshot in 'both' mode can resend
+  // the text it just cost a walk to read (see the fallback below).
+  let snapshot: Awaited<ReturnType<typeof ctx.page.snapshot>> | undefined;
 
   if (ctx.observe === 'dom' || ctx.observe === 'both') {
     // Always take the snapshot: it is a local read-only walk, and comparing content
     // rather than trusting the last tool's name is what catches a `wait` that saw the
     // page change, or a scroll or userscript that left it alone.
-    const snap = await ctx.page.snapshot();
-    tokens = snap.tokens;
-    const digest = snapshotDigest(snap.text);
+    snapshot = await ctx.page.snapshot();
+    tokens = snapshot.tokens;
+    url = snapshot.url;
+    const digest = snapshotDigest(snapshot.text);
     if (digest === state.lastSnapshotDigest && state.lastSnapshotStep !== null) {
       unchanged = true;
       blocks.push({ type: 'text', text: unchangedPageNote(state.lastSnapshotStep) });
     } else {
       lastSnapshotDigest = digest;
       lastSnapshotStep = stepN;
-      blocks.push({ type: 'text', text: `${SNAPSHOT_HEADER}${snap.text}` });
+      blocks.push({ type: 'text', text: `${SNAPSHOT_HEADER}${snapshot.text}` });
     }
   }
   if (ctx.observe === 'pixels' || ctx.observe === 'both') {
-    const shot = await ctx.page.screenshot();
-    hasScreenshot = true;
-    blocks.push({
-      type: 'text',
-      text: `Screenshot of the visible page, ${shot.width} by ${shot.height} pixels.`,
-    });
-    // Standard multimodal block. `image_url` / `MessageContentComplex` are
-    // deprecated in @langchain/core 1.2.9 (C-03).
-    blocks.push({ type: 'image', url: shot.dataUrl, mimeType: 'image/png' });
+    // A capture that fails (captureVisibleTab stalls on a hidden or busy tab) used to
+    // throw and end the whole run at step 0. It is one missing observation, not a
+    // failed run: say so in the prompt and fall back to the DOM, which in 'both' mode
+    // was already taken.
+    let shot: Awaited<ReturnType<typeof ctx.page.screenshot>> | undefined;
+    let shotError: string | undefined;
+    try {
+      shot = await ctx.page.screenshot();
+    } catch (error) {
+      shotError = error instanceof Error ? error.message : String(error);
+    }
+    if (shot) {
+      hasScreenshot = true;
+      blocks.push({
+        type: 'text',
+        text: `Screenshot of the visible page, ${shot.width} by ${shot.height} pixels.`,
+      });
+      // Standard multimodal block. `image_url` / `MessageContentComplex` are
+      // deprecated in @langchain/core 1.2.9 (C-03).
+      blocks.push({ type: 'image', url: shot.dataUrl, mimeType: 'image/png' });
+      if (ctx.observe === 'pixels') {
+        // Pixels observations still name the page (codex review on PR #53): run
+        // logging and the harness scorer key on the URL. The page port exposes no
+        // cheaper read, so a snapshot is taken for its url alone and its text is
+        // never sent. Its failure costs the observation its url, not the run.
+        try {
+          url = (await ctx.page.snapshot()).url;
+        } catch {
+          // The probe is telemetry: it costs this observation its url, not the run.
+        }
+      }
+    } else if (ctx.observe === 'both') {
+      // The unchanged-page note above can point at a snapshot trimFollowerHistory
+      // has since removed from the prompt (coderabbit review on PR #53): after
+      // three such turns a lost screenshot would leave the Follower with no page
+      // text and no image. The snapshot just taken is the current text — resend
+      // it, whatever the digest says.
+      if (snapshot) blocks.push({ type: 'text', text: `${SNAPSHOT_HEADER}${snapshot.text}` });
+      blocks.push({ type: 'text', text: `No screenshot this step (${shotError}); the page text above is current.` });
+    } else {
+      const snap = await ctx.page.snapshot();
+      tokens = snap.tokens;
+      url = snap.url;
+      blocks.push({ type: 'text', text: `No screenshot this step (${shotError}), so here is the page text instead.\n${SNAPSHOT_HEADER}${snap.text}` });
+    }
   }
 
   emit(config, {
     kind: 'observation',
     mode: ctx.observe,
     tokens,
+    ...(url ? { url } : {}),
     hasScreenshot,
     ...(unchanged ? { unchanged } : {}),
     at: now(),
@@ -933,6 +992,11 @@ const follower: GraphNode<typeof AgentState, AgentContext> = async (state, confi
   let repeatFailureTurns = state.repeatFailureTurns;
   let failureText = '';
   let recordedFailure = false;
+  // Whether THIS turn ended in a failure. The repeat-failure threshold only hands
+  // back (or ends) on such a turn: a successful read preserves the count without
+  // re-triggering a threshold already reached on a past turn (coderabbit review on
+  // PR #53), so the Follower can act on what the read showed it.
+  let failedThisTurn = false;
   let failureAction: string | null = null;
   let endNote: string | null = state.endNote;
 
@@ -996,6 +1060,7 @@ const follower: GraphNode<typeof AgentState, AgentContext> = async (state, confi
       if (status === 'running') {
         failureText = result;
         recordedFailure = true;
+        failedThisTurn = true;
         failureAction = call.name;
         const key = actionKey(call.name, visibleArgs, result);
         if (key === repeatFailureKey) repeatFailureTurns += 1;
@@ -1028,6 +1093,7 @@ const follower: GraphNode<typeof AgentState, AgentContext> = async (state, confi
   if (status === 'running' && !recordedFailure && firstExtra) {
     failureText = EXTRA_CALL_REFUSAL;
     failureAction = firstExtra.name;
+    failedThisTurn = true;
     const extraArgs = { ...((firstExtra.args ?? {}) as Record<string, unknown>) };
     delete extraArgs.signal;
     delete extraArgs.note;
@@ -1053,14 +1119,24 @@ const follower: GraphNode<typeof AgentState, AgentContext> = async (state, confi
     endNote = note;
   }
 
-  if (status === 'running' && repeatFailureTurns >= MAX_REPEAT_FAILURE_TURNS) {
-    status = 'error';
+  // A failure in this turn is part of the guard: with the count preserved across
+  // successful reads, a threshold reached on an earlier turn must not re-fire on a
+  // turn that did not fail — the Follower gets to act on what its read showed.
+  if (status === 'running' && failedThisTurn && repeatFailureTurns >= MAX_REPEAT_FAILURE_TURNS) {
     const failingName = failureAction ?? (call ? call.name : null);
-    note =
+    const what =
       `the follower repeated the same failing action ${repeatFailureTurns} times` +
-      `${failingName ? ` (${failingName})` : ''}: ${summarize(failureText, 160)} No successful action happened ` +
-      'between attempts. Try a different tool or subgoal, or call blocked.';
-    endNote = note;
+      `${failingName ? ` (${failingName})` : ''}: ${summarize(failureText, 160)}`;
+    if (repeatFailureTurns >= MAX_REPEAT_FAILURE_TURNS_TO_END) {
+      status = 'error';
+      note = `${what} No successful action happened between attempts, including after a replan.`;
+      endNote = note;
+    } else if (repeatFailureTurns === MAX_REPEAT_FAILURE_TURNS) {
+      // Hand back once with the reason and the failing result; the handoff note is
+      // what carries it into the Leader's next turn (kilo review on PR #53).
+      signal = 'RETURN_TO_LEADER';
+      note = `${what} Replan around it: a different element, tool or route.`;
+    }
   }
 
   if (status === 'running' && stepN >= ctx.maxSteps) status = 'max-steps';
@@ -1090,6 +1166,7 @@ const follower: GraphNode<typeof AgentState, AgentContext> = async (state, confi
     lastSnapshotDigest,
     lastSnapshotStep,
     lastSignal: signal,
+    lastNote: note,
     status,
     endNote,
   };

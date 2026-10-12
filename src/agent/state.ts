@@ -93,6 +93,13 @@ export const AgentState = new StateSchema({
   lastSnapshotDigest: z.string().nullable().default(null),
   lastSnapshotStep: z.number().int().min(0).nullable().default(null),
   lastSignal: FollowerSignalSchema.nullable().default(null),
+  /**
+   * The Follower's note for its most recent signal, '' when it gave none. Carried so
+   * the Leader's replan reads why control came back: at the repeat-failure handback
+   * the handoff note is where the failing tool result is named as a result to
+   * replan around (kilo review on PR #53), not just one more transcript entry.
+   */
+  lastNote: z.string().default(''),
   status: RunStatusSchema.default('running'),
   /**
    * Why an errored run stopped, in the run card's own words. Set alongside the

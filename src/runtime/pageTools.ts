@@ -69,6 +69,11 @@ export interface RuntimeDriver {
   download(url: string, filename?: string): Promise<ActionResult & { downloadId?: number }>;
   /** `save_file`'s Downloads-folder half (see `PageDriver.saveFile`). */
   saveFile(dataUrl: string, filename: string): Promise<ActionResult & { downloadId?: number }>;
+  /**
+   * Forgets a tab's cached state (the page script does not survive a navigation).
+   * Optional so test fakes may omit it; the real `PageDriver` has it.
+   */
+  invalidate?(tabId: number): void;
 }
 
 /** `save_file`'s native-messaging half: the host's `artifact.save` (docs/host-protocol.md). */
@@ -84,6 +89,10 @@ export type RunUserscript = (
 function must<T extends ActionResult>(result: T, what: string): T {
   if (!result.ok) throw new Error(result.error ?? `${what} failed`);
   return result;
+}
+
+function describe(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /**
@@ -115,6 +124,145 @@ export function createInPageDriverAdapter(driver: RuntimeDriver): PageDriverLike
           : { ref };
       must(await driver.scroll(tabId, opts), 'scroll');
     },
+  };
+}
+
+/**
+ * Chrome rejects a tab id that no longer exists with "No tab with id: N" — also
+ * through the injection path ("injection failed: No tab with id: N"). A run holds
+ * the id it started with, and replacements are followed via `chrome.tabs.onReplaced`
+ * (src/page/tabReplacement.ts) — but a swap can escape that listener entirely: the
+ * extension may restart while the chain is in flight, or the saved id may be dead
+ * before tracking ever started. Live runs died exactly this way ("injection failed:
+ * No tab with id: 390206752").
+ */
+export const TAB_MISSING_ERROR = /no tab with id/i;
+
+/** The `withTimeout` rejection (src/page/driver.ts): the call never answered. */
+export const TIMEOUT_ERROR = /did not answer in \d+ms/i;
+
+export function isTimeoutFailure(error: string | undefined): boolean {
+  return error !== undefined && TIMEOUT_ERROR.test(error);
+}
+
+/** The error text of an `ActionResult`-shaped failure, or `undefined` when it is not one. */
+function failureError(value: unknown): string | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const shape = value as { ok?: unknown; error?: unknown };
+  if (shape.ok !== false || typeof shape.error !== 'string') return undefined;
+  return shape.error;
+}
+
+/** The seam a rebind uses to find the tab a run should act on now. */
+export type ResolveTabId = () => Promise<number | undefined>;
+
+export interface RebindDriverOptions {
+  /** Notified once per successful rebind: `oldTabId` now stands for `newTabId`. */
+  onRebind?: (oldTabId: number, newTabId: number) => void;
+}
+
+/**
+ * A {@link RuntimeDriver} that treats "No tab with id" as a navigation event.
+ *
+ * On the first op that fails that way — thrown or as `{ ok:false, error }` — the
+ * active tab is re-resolved through `resolveTabId` and the op is retried once
+ * against it. That is the re-resolution the content-script injection needs: a
+ * dead id can never be injected into, so the op against the *new* tab is the first
+ * chance the script gets to come back. The mapping is remembered, so every later
+ * op targets the fresh tab without re-resolving, and the dead tab's cached state
+ * is dropped through `driver.invalidate`.
+ *
+ * One retry, once: if the fresh tab fails too, its failure is reported verbatim
+ * and the model sees it. Ops whose first argument is not a tab id (`download`,
+ * `saveFile`) pass through untouched.
+ */
+export function rebindMissingTabDriver(
+  driver: RuntimeDriver,
+  resolveTabId: ResolveTabId,
+  options: RebindDriverOptions = {},
+): RuntimeDriver {
+  const rebound = new Map<number, number>();
+
+  const standFor = (tabId: number): number => {
+    let id = tabId;
+    const seen = new Set<number>();
+    while (rebound.has(id) && !seen.has(id)) {
+      seen.add(id);
+      id = rebound.get(id)!;
+    }
+    return id;
+  };
+
+  /** Carries a tab-missing failure to the rebind handler without losing its shape. */
+  class TabMissingFailure extends Error {
+    constructor(
+      readonly original: unknown,
+      readonly wasThrown: boolean,
+    ) {
+      super('tab missing');
+    }
+  }
+
+  const attempt = async <R>(id: number, run: (tabId: number) => Promise<R>): Promise<R> => {
+    try {
+      const value = await run(id);
+      const error = failureError(value);
+      if (error !== undefined && TAB_MISSING_ERROR.test(error)) throw new TabMissingFailure(value, false);
+      return value;
+    } catch (error) {
+      if (error instanceof TabMissingFailure) throw error;
+      if (TAB_MISSING_ERROR.test(describe(error))) throw new TabMissingFailure(error, true);
+      throw error;
+    }
+  };
+
+  const runTabOp = async <R>(tabId: number, run: (tabId: number) => Promise<R>): Promise<R> => {
+    const current = standFor(tabId);
+    try {
+      return await attempt(current, run);
+    } catch (error) {
+      if (!(error instanceof TabMissingFailure)) throw error;
+      const fresh = await resolveTabId().catch(() => undefined);
+      if (fresh === undefined || fresh === current) {
+        // Nothing to rebind to (no active tab, or the failure already names it):
+        // surface the original failure rather than inventing a second one.
+        if (error.wasThrown) throw error.original;
+        return error.original as R;
+      }
+      rebound.set(current, fresh);
+      options.onRebind?.(current, fresh);
+      // The dead tab's injection state is worthless; the new tab starts clean.
+      driver.invalidate?.(current);
+      try {
+        return await attempt(fresh, run);
+      } catch (retryError) {
+        if (retryError instanceof TabMissingFailure) {
+          // The fresh tab is gone too: report the retry's failure verbatim.
+          if (retryError.wasThrown) throw retryError.original;
+          return retryError.original as R;
+        }
+        throw retryError;
+      }
+    }
+  };
+
+  return {
+    snapshot: (tabId, opts) => runTabOp(tabId, (id) => driver.snapshot(id, opts)),
+    screenshot: (tabId) => runTabOp(tabId, (id) => driver.screenshot(id)),
+    extractText: (tabId, opts) => runTabOp(tabId, (id) => driver.extractText(id, opts)),
+    click: (tabId, ref) => runTabOp(tabId, (id) => driver.click(id, ref)),
+    type: (tabId, ref, text) => runTabOp(tabId, (id) => driver.type(id, ref, text)),
+    press: (tabId, key) => runTabOp(tabId, (id) => driver.press(id, key)),
+    select: (tabId, ref, value) => runTabOp(tabId, (id) => driver.select(id, ref, value)),
+    scroll: (tabId, opts) => runTabOp(tabId, (id) => driver.scroll(id, opts)),
+    hover: (tabId, ref) => runTabOp(tabId, (id) => driver.hover(id, ref)),
+    ping_: (tabId) => runTabOp(tabId, (id) => driver.ping_(id)),
+    getBox: (tabId, ref) => runTabOp(tabId, (id) => driver.getBox(id, ref)),
+    navigate: (tabId, url) => runTabOp(tabId, (id) => driver.navigate(id, url)),
+    // No tab id in the signature; nothing to rebind.
+    download: (url, filename) => driver.download(url, filename),
+    saveFile: (dataUrl, filename) => driver.saveFile(dataUrl, filename),
+    invalidate: (tabId) => driver.invalidate?.(tabId),
   };
 }
 
@@ -334,6 +482,13 @@ export interface CreatePageToolsOptions {
   maxNodes?: number;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
+  /**
+   * Pause before the one retry of a timed-out screenshot. A stalled
+   * `captureVisibleTab` gets a second chance — the retry re-pings and re-resolves
+   * the window, which is what "refresh" costs — rather than costing the step its
+   * screenshot on a one-off stall.
+   */
+  screenshotRetryDelayMs?: number;
   /** Needed for `save_file`'s host half (`artifact.save`'s `runId`). */
   runId?: string;
   /** Absent means `save_file` only writes to the Downloads folder, not the host. */
@@ -477,6 +632,7 @@ export function createPageTools(options: CreatePageToolsOptions): RuntimePageToo
   const { tabId, driver, input, observe, runUserscript, emit } = options;
   const sleep = options.sleep ?? realSleep;
   const now = options.now ?? Date.now;
+  const retryDelayMs = options.screenshotRetryDelayMs ?? 1000;
   const maxNodes = options.maxNodes ?? snapshotBudget(observe);
   const readOnly = options.readOnly ?? false;
 
@@ -523,11 +679,24 @@ export function createPageTools(options: CreatePageToolsOptions): RuntimePageToo
     async snapshot(): Promise<ToolSnapshot> {
       const res = await driver.snapshot(tabId, { interactiveOnly: false, maxNodes });
       if (!res.ok) throw new Error(res.error ?? 'snapshot failed');
-      return { text: res.text ?? '', ...(res.approxTokens !== undefined ? { tokens: res.approxTokens } : {}) };
+      return {
+        text: res.text ?? '',
+        ...(res.approxTokens !== undefined ? { tokens: res.approxTokens } : {}),
+        ...(res.url ? { url: res.url } : {}),
+      };
     },
 
     async screenshot(): Promise<ToolScreenshot> {
-      const res = await driver.screenshot(tabId);
+      let res = await driver.screenshot(tabId);
+      // A timeout is a stall, not a verdict: the capture re-answers once the tab
+      // stops being busy, and the retry is a refresh — the ping and the window id
+      // are resolved again, so a tab that moved between calls is followed. One
+      // retry; a second failure is reported as before and costs the Follower one
+      // observation, not the run.
+      if (!res.ok && isTimeoutFailure(res.error)) {
+        await sleep(retryDelayMs);
+        res = await driver.screenshot(tabId);
+      }
       if (!res.ok || !res.dataUrl) throw new Error(res.error ?? 'screenshot failed');
       return { dataUrl: res.dataUrl, width: res.width ?? 0, height: res.height ?? 0 };
     },

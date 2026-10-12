@@ -125,6 +125,8 @@ export function buildTask(id, expected, baseUrl, models = {}) {
     observe: 'dom',
     inputFidelity: 'in-page',
     planningInterval: 5,
+    // Every task opens a fresh tab; the extension closes it after the run.
+    closeTabWhenDone: true,
   };
   switch (id) {
     case 'ebay':
