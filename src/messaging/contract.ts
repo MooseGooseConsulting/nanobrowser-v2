@@ -59,8 +59,10 @@ export type RunEvent =
    * `tokens` is the snapshot's own chars/4 estimate, not the size of the prompt it rides in.
    * `unchanged` means the snapshot matched the last one sent, so the model got a note
    * naming that step instead of the snapshot. `url` is the page it was taken of.
+   * `text` is that snapshot, kept in the log even when the model was not shown it again,
+   * so a scorer can check a reported price against the page. The panel does not render it.
    */
-  | { kind: 'observation'; mode: ObserveMode; tokens?: number; url?: string; hasScreenshot: boolean; unchanged?: boolean; at: number }
+  | { kind: 'observation'; mode: ObserveMode; tokens?: number; url?: string; hasScreenshot: boolean; unchanged?: boolean; text?: string; at: number }
   | { kind: 'input.fidelity'; fidelity: InputFidelity; attached: boolean; at: number }
   | { kind: 'userscript.output'; scriptId: string; level: 'log' | 'warn' | 'error'; text: string; at: number }
   | { kind: 'file.saved'; runId: RunId; filename: string; bytes: number; path: string; at: number }

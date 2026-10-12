@@ -88,6 +88,32 @@ export function money(v) {
   return m ? Number(m[0]) : NaN;
 }
 
+/** Currency amounts in page text. A bare integer is not one: model numbers and ids
+ *  would make an invented price look grounded. */
+const MONEY_IN_TEXT = /[$£€]\s*\d{1,3}(?:[,\s]\d{3})*(?:[.,]\d{2})?|\b\d{1,3}(?:[,\s]\d{3})*[.,]\d{2}\b/g;
+
+export function textHasPrice(text, price) {
+  if (!Number.isFinite(price) || price <= 0 || !text) return false;
+  const want = Math.round(price * 100);
+  for (const hit of String(text).matchAll(MONEY_IN_TEXT)) {
+    const n = money(hit[0]);
+    if (Number.isFinite(n) && Math.round(n * 100) === want) return true;
+  }
+  return false;
+}
+
+/** Page text the log kept: the observation snapshot, plus a snapshot or extract the agent asked for. */
+export function pageEvidence(events) {
+  const chunks = [];
+  for (const e of events) {
+    if (e.kind === 'observation' && typeof e.text === 'string' && e.text) chunks.push(e.text);
+    if (e.kind === 'tool.result' && ['snapshot', 'leader_snapshot', 'extract_text'].includes(e.result?.name)) {
+      chunks.push(String(e.result.summary ?? ''));
+    }
+  }
+  return chunks.join('\n');
+}
+
 const doneSummary = (events) => calls(events, 'done').at(-1)?.call?.args?.summary;
 const ended = (events) => of(events, 'run.ended').at(-1);
 
@@ -235,7 +261,15 @@ export function browseChecks(events, { host, query, url: home }) {
     check('opened a listing from the results', listings.length > 0, listings[0] ?? 'no page after the results', 2),
     check('reported title, price and url as JSON', Boolean(v?.title && v?.price !== undefined && reported), parsed.ok ? JSON.stringify(v).slice(0, 160) : parsed.error),
     check('the reported listing is a page it actually visited', grounded, reported || 'no url reported', 2),
-    check('the price is a number above $0', Number.isFinite(price) && price > 0, String(v?.price ?? '')),
+    check(
+      'the reported price appears on a page the log kept',
+      Number.isFinite(price) && price > 0 && textHasPrice(pageEvidence(events), price),
+      !Number.isFinite(price) || !(price > 0)
+        ? String(v?.price ?? '')
+        : pageEvidence(events)
+          ? `${v?.price} is not in the page text the log kept`
+          : 'the run log has no page text, so the price was not checked',
+    ),
     // Searched "Ryzen 5 5600X", opened a Ryzen 7 5800X: a listing, but not the one asked for.
     check('the listing is for what was searched', titleMatches(v?.title, query), String(v?.title ?? '').slice(0, 100)),
     check('the run ended done', ended(events)?.status === 'done', ended(events)?.status ?? 'no run.ended'),

@@ -945,7 +945,10 @@ const follower: GraphNode<typeof AgentState, AgentContext> = async (state, confi
         // cheaper read, so a snapshot is taken for its url alone and its text is
         // never sent. Its failure costs the observation its url, not the run.
         try {
-          url = (await ctx.page.snapshot()).url;
+          // Kept for the run log only. The model is not shown this text in pixels mode.
+          const probe = await ctx.page.snapshot();
+          url = probe.url;
+          snapshot = snapshot ?? probe;
         } catch {
           // The probe is telemetry: it costs this observation its url, not the run.
         }
@@ -973,6 +976,9 @@ const follower: GraphNode<typeof AgentState, AgentContext> = async (state, confi
     ...(url ? { url } : {}),
     hasScreenshot,
     ...(unchanged ? { unchanged } : {}),
+    // The page the check has to be able to read later. Logged even when this turn's
+    // prompt got the unchanged-page note instead of the snapshot.
+    ...(snapshot?.text ? { text: snapshot.text } : {}),
     at: now(),
   });
 

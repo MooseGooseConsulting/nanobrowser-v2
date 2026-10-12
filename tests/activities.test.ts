@@ -28,7 +28,7 @@ function log(startUrl: string, steps: Array<Ev | [string, Record<string, unknown
   return out;
 }
 
-const obs = (url: string): Ev => ({ kind: 'observation', mode: 'dom', url, tokens: 100 });
+const obs = (url: string, text?: string): Ev => ({ kind: 'observation', mode: 'dom', url, tokens: 100, ...(text ? { text } : {}) });
 const failed = (r: { checks: Array<{ ok: boolean; name: string }> }) => r.checks.filter((c) => !c.ok).map((c) => c.name);
 
 describe('generic activities: browse, any shop-like site', () => {
@@ -41,12 +41,36 @@ describe('generic activities: browse, any shop-like site', () => {
       ['type', { ref: 'e4', text: 'DDR4 32GB 3200 RAM' }],
       obs(results),
       ['click', { ref: 'e40' }],
-      obs(`${listing}?variant=7`),
+      obs(`${listing}?variant=7`, '32GB DDR4 3200 RDIMM\n$54.00'),
       ['done', { summary: JSON.stringify({ title: '32GB DDR4 3200', price: '$54.00', url: listing }) }],
     ]);
     const r = scoreActivity('browse', events, { params });
     expect(r.checks.filter((c: { ok: boolean }) => !c.ok)).toEqual([]);
     expect(r.verdict).toBe('pass');
+  });
+
+  it('fails a price that is a number but never appears in the page text the log kept', () => {
+    const events = log(params.url, [
+      ['type', { ref: 'e4', text: 'DDR4 32GB 3200 RAM' }],
+      obs(results),
+      obs(`${listing}?variant=7`, '32GB DDR4 3200 RDIMM\n$54.00'),
+      ['done', { summary: JSON.stringify({ title: '32GB DDR4 3200', price: '$1.00', url: listing }) }],
+    ]);
+    const r = scoreActivity('browse', events, { params });
+    expect(failed(r)).toContain('the reported price appears on a page the log kept');
+    expect(r.checks.find((c: { name: string }) => c.name.startsWith('the reported price'))?.detail).toMatch(/not in the page text/);
+  });
+
+  it('does not pass a price when the log kept no page text to check it against', () => {
+    const events = log(params.url, [
+      ['type', { ref: 'e4', text: 'DDR4 32GB 3200 RAM' }],
+      obs(results),
+      obs(`${listing}?variant=7`),
+      ['done', { summary: JSON.stringify({ title: '32GB DDR4 3200', price: '$54.00', url: listing }) }],
+    ]);
+    const price = scoreActivity('browse', events, { params }).checks.find((c: { name: string }) => c.name.startsWith('the reported price'));
+    expect(price?.ok).toBe(false);
+    expect(price?.detail).toMatch(/no page text/);
   });
 
   it('shows where a run broke: searched, but never opened a listing and reported one from the results page', () => {
@@ -66,7 +90,7 @@ describe('generic activities: browse, any shop-like site', () => {
     const product = 'https://www.amazon.co.uk/Sapphire-Radeon-Renewed/dp/B098XXF99T/ref=sr_1_1?crid=2K&keywords=RX+6700+XT';
     const events = log(amazon.url, [
       obs('https://www.amazon.co.uk/s?k=RX+6700+XT&ref=nb_sb_noss_1'),
-      obs(product),
+      obs(product, 'Sapphire Radeon RX 6700 XT (Renewed) £229.99'),
       ['done', { summary: JSON.stringify({ title: 'Sapphire Radeon RX 6700 XT (Renewed)', price: '£229.99', url: product }) }],
     ]);
     expect(scoreActivity('browse', events, { params: amazon }).verdict).toBe('pass');
@@ -455,7 +479,7 @@ describe('score and board CLIs', () => {
       ['type', { ref: 'e4', text: 'DDR4 32GB 3200 RAM' }],
       obs(resultsUrl),
       ['click', { ref: 'e40' }],
-      obs(listingUrl),
+      obs(listingUrl, '32GB DDR4 3200 RDIMM\n$54.00'),
       ['done', { summary: JSON.stringify({ title: '32GB DDR4 3200', price: '$54.00', url: listingUrl }) }],
     ])
       .map((e) => JSON.stringify(e))

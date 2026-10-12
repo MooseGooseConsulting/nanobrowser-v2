@@ -369,6 +369,9 @@ cmd_activities() {
   if [ "$repeat" -gt 1 ] && [[ " ${list[*]} " == *' ebay_'* ]]; then
     echo "NOTE: eBay activities are pinned to ebay.com every run; repeating one hammers a single site. One or two runs, then return to the rotating rungs."
   fi
+  if [ "$repeat" -gt 1 ] && [[ " ${pin[*]} " != *' --site '* ]]; then
+    echo "NOTE: --repeat without --site moves to a different site each run, so the scores are not the same test. Pin --site and --query to compare."
+  fi
 
   local prof_args=() regs
   [ -n "${NB_LIVE_CHROME_DIR:-}" ] && prof_args+=(--user-data-dir="$CHROME_DIR")

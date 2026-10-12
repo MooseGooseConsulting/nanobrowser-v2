@@ -295,6 +295,7 @@ describe('observe modes (R-08)', () => {
     expect(pick(dom.events, 'observation')[0]).toMatchObject({
       mode: 'dom',
       hasScreenshot: false,
+      text: 'page: [e1] link "Example"',
     });
 
     const both = await harness({ maxSteps: 1, observe: 'both', follower: alwaysContinue });

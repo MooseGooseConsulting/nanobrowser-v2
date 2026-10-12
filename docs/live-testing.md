@@ -22,7 +22,7 @@ node scripts/harness/activities.mjs board  # model pair by site for one activity
 
 Each run opens a fresh tab and closes it when the run ends. Results go to `runs/activities-<time>/`: the task, the live stream, the run log, and the scored report. Every run is also appended to `runs/history.jsonl`. A run that outlives `NB_LIVE_TIMEOUT` (600 s per run by default) is cancelled in the extension, not merely abandoned by the CLI — the CLI prints `timed out after <N>s; cancelling <run-id>`. To see that path work, `NB_LIVE_TIMEOUT=15 scripts/live.sh activities browse` should print that line within a minute, and the run log should end in a cancelled/interrupted status rather than the tab acting on for the full step budget.
 
-**Sites rotate. Models do not.** Each run goes to the site tested least recently — for the deep rungs, the priced shop sites — where every country domain of one operator counts as one site, so eBay.com, eBay UK and eBay.de are one. A long series spreads across sites instead of returning to the same few, and no single account sees a pattern of repeated automated visits. The query rotates too. The model pair does not: both seats are `nvidia/nemotron-3.5-lightning:free` until that choice changes. `NB_LIVE_LEADER` and `NB_LIVE_FOLLOWER` override either seat for a comparison; they are not how the everyday run picks a model.
+**Sites rotate. Models do not.** Each run goes to the site tested least recently — for the deep rungs, the priced shop sites — where every country domain of one operator counts as one site, so eBay.com, eBay UK and eBay.de are one. A long series spreads across sites instead of returning to the same few, and no single account sees a pattern of repeated automated visits. The query rotates too. The model pair does not: both seats are `nvidia/nemotron-3.5-lightning:free` until that choice changes. `NB_LIVE_LEADER` and `NB_LIVE_FOLLOWER` override either seat for a comparison; they are not how the everyday run picks a model. A score from a new site is not a comparison. To compare, pin the page: `scripts/live.sh activities browse --site mercari.com --query "Ryzen 5 5600X" --repeat 3`.
 
 ## What a run does
 
@@ -85,7 +85,7 @@ Start a new activity as a rung-1 `browse` on the same site if that is quicker to
 | opened a listing | a product-shaped page (`/dp/`, `/itm/`, `/item/`, `/products/`, `/s-anzeige/`, `/threads/`...) after the results, or any new path that is not a results page |
 | reported JSON | `done` summary parses, with title, price and url |
 | **grounded** | the reported listing is one it visited, matched by listing id (ASIN, numeric id), so a trimmed tracking suffix still matches and a different product does not |
-| price | a number above 0 |
+| price | the reported amount appears in the page text the log kept (a currency amount, not a bare integer). A number with no page text fails |
 | right part | the title has most of the query's distinctive words (a Ryzen 7 5800X is not a Ryzen 5 5600X) |
 | ended done | the run ended `done` |
 
